@@ -1,0 +1,161 @@
+// DataPulse MVP — modelo de dados mínimo (seção 3 do plano enxuto).
+// Um único Postgres (Neon), tabelas distintas por camada.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// Criticidade técnica do marco. Vira peso no DRI.
+enum Criticality {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// Origem do sinal sistêmico (Camada 1).
+enum SignalSource {
+  CSV
+  XLSX
+  GOOGLE_SHEETS
+  ACC
+  MANUAL
+}
+
+enum ProjectStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  client      String?
+  sector      String?
+  description String?
+  status      ProjectStatus @default(ACTIVE)
+  /// Referência do projeto no sistema de origem (ex.: projectId do ACC).
+  externalRef String?
+  currency    String        @default("BRL")
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  milestones Milestone[]
+  driScores  DRIScore[]
+
+  @@index([status])
+}
+
+model Milestone {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name String
+  /// Tipologia livre no MVP: "Engenharia", "Suprimentos", "Licenciamento", "Obra"...
+  type        String?
+  criticality Criticality @default(MEDIUM)
+  /// Impacto econômico estimado caso o marco falhe (moeda do projeto).
+  economicImpact Decimal? @db.Decimal(18, 2)
+
+  plannedDate  DateTime?
+  forecastDate DateTime?
+  actualDate   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  systemicSignals SystemicSignal[]
+  humanSignals    HumanSignal[]
+  driScores       DRIScore[]
+
+  @@index([projectId])
+  @@index([projectId, criticality])
+}
+
+/// Camada 1 — sinal sistêmico importado de um sistema/planilha do cliente.
+model SystemicSignal {
+  id          String    @id @default(cuid())
+  milestoneId String
+  milestone   Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  source     SignalSource @default(CSV)
+  importedAt DateTime     @default(now())
+  /// Data de referência da linha importada (a "foto" do cronograma).
+  referenceDate DateTime @default(now())
+
+  plannedDate DateTime?
+  actualDate  DateTime?
+  /// Atraso em dias (positivo = atrasado). Derivado no parse quando possível.
+  delayDays Int?
+
+  plannedCost Decimal? @db.Decimal(18, 2)
+  actualCost  Decimal? @db.Decimal(18, 2)
+
+  /// Contadores auxiliares (issues abertas, replanejamentos) — usados pelo conector ACC.
+  openIssues  Int?
+  replanCount Int?
+
+  /// Payload bruto da linha importada, para auditoria e reprocessamento.
+  raw Json?
+
+  @@index([milestoneId, referenceDate])
+  @@index([source])
+}
+
+/// Camada 2 — avaliação humana estruturada sobre um marco.
+model HumanSignal {
+  id          String    @id @default(cuid())
+  milestoneId String
+  milestone   Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  /// Identificador estável e pseudonimizado do respondente (hash), nunca o e-mail cru.
+  respondentHash String
+  /// Papel declarado: "Engenharia", "Planejamento", "Suprimentos", "Cliente"...
+  respondentRole String?
+
+  /// Probabilidade percebida de o marco falhar/atrasar (0-100).
+  failureProbability Int
+  /// Confiança no plano atual (1 = nenhuma, 5 = total).
+  planConfidence Int
+  /// Gargalo percebido, texto livre.
+  perceivedBottleneck String?
+  /// Existe decisão travada aguardando terceiros?
+  blockedDecision Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([milestoneId, createdAt])
+  @@index([respondentHash])
+}
+
+/// Snapshot calculado do DRI. Histórico preservado para a linha de tendência.
+model DRIScore {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Nulo = score agregado do projeto inteiro.
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  /// 0-100. Quanto maior, mais provável que a restrição esteja aqui.
+  score         Float
+  humanScore    Float?
+  systemicScore Float?
+  /// Memória de cálculo: entradas, pesos e componentes.
+  breakdown    Json
+  calculatedAt DateTime @default(now())
+
+  @@index([projectId, calculatedAt])
+  @@index([milestoneId, calculatedAt])
+}

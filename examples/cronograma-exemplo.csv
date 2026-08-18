@@ -1,0 +1,6 @@
+Marco;Tipo;Data Planejada;Data Real;Custo Previsto;Custo Realizado;Issues Abertas;Replanejamentos
+Liberação do projeto executivo;Engenharia;10/07/2026;;R$ 800.000,00;R$ 968.000,00;11;2
+Chegada dos transformadores;Suprimentos;01/10/2026;;R$ 5.000.000,00;R$ 5.050.000,00;2;0
+Licença ambiental de instalação;Licenciamento;18/06/2026;26/06/2026;R$ 150.000,00;R$ 152.000,00;0;1
+Montagem eletromecânica;Obra;15/12/2026;;R$ 2.100.000,00;;4;0
+Comissionamento;Testes;20/02/2027;;R$ 400.000,00;;0;0
