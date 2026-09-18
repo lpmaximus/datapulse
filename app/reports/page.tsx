@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/authz";
 import { Card, DRIBadge, Empty, SectionTitle } from "@/components/ui";
 import { Th, Td } from "@/components/table-ui";
 import { formatDate } from "@/lib/format";
@@ -37,11 +38,14 @@ function Delta({ value }: { value: number }) {
  * "o que piorou esta semana", que é a pergunta que importa para o piloto.
  */
 export default async function ReportsPage() {
+  const user = await requireUser("/reports");
+
   const projects: ProjectDriHistoryRow[] = await prisma.project.findMany({
+    where: { organizationId: user.organizationId },
     select: {
       id: true,
       name: true,
-      client: true,
+      clientRef: { select: { id: true, name: true } },
       driScores: {
         where: { milestoneId: null },
         orderBy: { calculatedAt: "desc" },
@@ -98,7 +102,7 @@ export default async function ReportsPage() {
         ) : (
           <Card className="overflow-hidden p-0">
             <table className="w-full border-collapse">
-              <thead className="border-b border-line bg-canvas">
+              <thead className="bg-surface">
                 <tr>
                   <Th className="min-w-[220px]">Projeto</Th>
                   <Th>DRI atual</Th>
@@ -116,8 +120,10 @@ export default async function ReportsPage() {
                       >
                         {r.project.name}
                       </Link>
-                      {r.project.client ? (
-                        <p className="truncate text-xs text-ink-faint">{r.project.client}</p>
+                      {r.project.clientRef ? (
+                        <p className="truncate text-xs text-ink-faint">
+                          {r.project.clientRef.name}
+                        </p>
                       ) : null}
                     </Td>
                     <Td>

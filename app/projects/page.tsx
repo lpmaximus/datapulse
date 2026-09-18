@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/authz";
 import { toggleProjectStatus } from "@/app/actions/projects";
 import { Button, DRIBadge, Empty } from "@/components/ui";
 import { Toolbar, Th, Td, RowCheckbox, StatusToggle, StatusDot, CollapsibleGroup, RowActions } from "@/components/table-ui";
@@ -34,20 +35,28 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
+  const user = await requireUser("/projects");
   const { q } = await searchParams;
 
   const projects: ProjectTableRow[] = await prisma.project.findMany({
-    where: q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { client: { contains: q, mode: "insensitive" } },
-            { sector: { contains: q, mode: "insensitive" } },
-          ],
-        }
-      : undefined,
+    where: {
+      organizationId: user.organizationId,
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { osNumber: { contains: q, mode: "insensitive" } },
+              { clientRef: { name: { contains: q, mode: "insensitive" } } },
+              { sector: { name: { contains: q, mode: "insensitive" } } },
+            ],
+          }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
     include: {
+      clientRef: { select: { id: true, name: true } },
+      sector: { select: { id: true, name: true } },
+      designFirm: { select: { id: true, name: true } },
       _count: { select: { milestones: true } },
       driScores: { where: { milestoneId: null }, orderBy: { calculatedAt: "desc" }, take: 1 },
       milestones: {
@@ -88,18 +97,19 @@ export default async function ProjectsPage({
       ) : (
         <div className="dp-scroll overflow-x-auto">
           <table className="w-full border-collapse">
-            <thead className="border-b border-line bg-canvas">
+            <thead className="bg-surface">
               <tr>
                 <Th className="w-8">
                   <RowCheckbox />
                 </Th>
                 <Th className="w-10">Ativar/des</Th>
                 <Th className="min-w-[220px]">Nome</Th>
+                <Th>Empresa</Th>
                 <Th>Status</Th>
                 <Th>DRI</Th>
                 <Th className="min-w-[200px]">Restrição dominante</Th>
                 <Th align="right">Impacto econômico</Th>
-                <Th align="right">Marcos</Th>
+                <Th align="right">Tarefas</Th>
                 <Th align="right">Sinais humanos</Th>
                 <Th align="right">Sinais sistêmicos</Th>
                 <Th>Atualizado</Th>
@@ -146,13 +156,16 @@ function ProjectRow({ project: p }: { project: ProjectTableRow }) {
           {p.name}
         </Link>
         <p className="truncate text-xs text-ink-faint">
-          {[p.client, p.sector].filter(Boolean).join(" · ") || "Sem cliente definido"}
+          {[p.clientRef?.name, p.sector?.name, p.osNumber]
+            .filter(Boolean)
+            .join(" · ") || "Sem cliente definido"}
         </p>
         <RowActions>
           <Link href={`/projects/${p.id}`}>Ver detalhes</Link>
           <Link href={`/projects/${p.id}/import`}>Importar</Link>
         </RowActions>
       </Td>
+      <Td className="text-ink-soft">{p.designFirm?.name ?? "—"}</Td>
       <Td>
         <StatusDot status={hasData ? p.status : "ERROR"} />
       </Td>

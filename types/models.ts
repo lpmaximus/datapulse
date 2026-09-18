@@ -31,8 +31,8 @@ export interface DRIScoreRow {
 export interface ProjectListRow {
   id: string;
   name: string;
-  client: string | null;
-  sector: string | null;
+  clientRef: { id: string; name: string } | null;
+  sector: { id: string; name: string } | null;
   _count: { milestones: number };
   driScores: { score: number; calculatedAt: Date }[];
 }
@@ -76,21 +76,121 @@ export interface SystemicSignalRow {
   replanCount: number | null;
 }
 
+export interface ProjectMemberRow {
+  id: string;
+  roleInProject: string | null;
+  user: {
+    id: string;
+    name: string;
+    function: { name: string } | null;
+    role: RoleValue;
+  };
+}
+
+export type TaskKindValue = "TASK" | "MILESTONE";
+export type TaskStatusValue = "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "BLOCKED" | "DONE";
+
+/** Campos de tarefa acrescentados ao antigo "marco". */
+export interface TaskFieldsRow {
+  kind: TaskKindValue;
+  status: TaskStatusValue;
+  progress: number;
+  startDate: Date | null;
+  parentId: string | null;
+  assignee: { id: string; name: string } | null;
+}
+
+export interface ProjectTaskRow extends MilestoneWithScoreRow, TaskFieldsRow {
+  _count: { humanSignals: number; systemicSignals: number; impediments: number; requests: number };
+  /** Montado na página (agrupamento por parentId), não vem direto do Prisma. */
+  children?: ProjectTaskRow[];
+}
+
+export interface ImpedimentRow {
+  id: string;
+  description: string;
+  waitingOn: string | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+  owner: { id: string; name: string } | null;
+}
+
 export interface ProjectDetailRow {
   id: string;
   name: string;
-  client: string | null;
-  sector: string | null;
+  status: ProjectStatusValue;
+  osNumber: string | null;
+  clientRef: { id: string; name: string } | null;
+  sector: { id: string; name: string } | null;
+  designFirm: { id: string; name: string } | null;
   currency: string;
-  milestones: MilestoneWithScoreRow[];
+  milestones: ProjectTaskRow[];
+  requests: RequestRow[];
   driScores: DRIScoreRow[];
+  manager: { id: string; name: string; function: { name: string } | null } | null;
+  members: ProjectMemberRow[];
+  _count: { documents: number };
 }
 
-export interface MilestoneDetailRow extends MilestoneRow {
-  project: { id: string; name: string; currency: string };
+export interface MilestoneDetailRow extends MilestoneRow, TaskFieldsRow {
+  project: { id: string; name: string; currency: string; status: ProjectStatusValue };
+  /** Marco ao qual esta tarefa pertence, quando houver. */
+  parent: { id: string; name: string } | null;
+  /** Tarefas filhas, quando este registro é um marco que agrupa. */
+  children: ProjectTaskRow[];
+  impediments: ImpedimentRow[];
+  requests: RequestRow[];
+  deadlineChanges: DeadlineChangeRow[];
   driScores: DRIScoreRow[];
   humanSignals: HumanSignalRow[];
   systemicSignals: SystemicSignalRow[];
+}
+
+/* ---------------------------------------------------------------------- */
+/* Solicitações e histórico de reprogramação                               */
+/* ---------------------------------------------------------------------- */
+
+export type RequestStatusValue = "PENDING" | "ANSWERED" | "DISMISSED" | "EXPIRED";
+
+export interface RequestDocumentLinkRow {
+  id: string;
+  document: { id: string; number: string | null; name: string };
+}
+
+export interface RequestRow {
+  id: string;
+  type: string | null;
+  description: string;
+  status: RequestStatusValue;
+  waitingOn: string | null;
+  dueAt: Date | null;
+  resolvedAt: Date | null;
+  createdAt: Date;
+  owner: { id: string; name: string } | null;
+  milestone: { id: string; name: string } | null;
+  documents: RequestDocumentLinkRow[];
+}
+
+export interface DeadlineChangeRow {
+  id: string;
+  fromDate: Date | null;
+  toDate: Date;
+  reason: string | null;
+  createdAt: Date;
+}
+
+/** Solicitação como o Painel lê: com projeto e tarefa/marco relacionados. */
+export interface DashboardRequestRow {
+  id: string;
+  status: RequestStatusValue;
+  description: string;
+  type: string | null;
+  waitingOn: string | null;
+  dueAt: Date | null;
+  createdAt: Date;
+  owner: { name: string } | null;
+  project: { id: string; name: string };
+  milestone: { id: string; name: string } | null;
 }
 
 /** Usado pelo serviço de recálculo. */
@@ -129,8 +229,10 @@ export interface ProjectMilestoneSummaryRow {
 export interface ProjectTableRow {
   id: string;
   name: string;
-  client: string | null;
-  sector: string | null;
+  osNumber: string | null;
+  clientRef: { id: string; name: string } | null;
+  sector: { id: string; name: string } | null;
+  designFirm: { id: string; name: string } | null;
   status: ProjectStatusValue;
   currency: string;
   createdAt: Date;
@@ -160,7 +262,7 @@ export interface SystemicSignalTableRow extends SystemicSignalRow {
 export interface ProjectDriHistoryRow {
   id: string;
   name: string;
-  client: string | null;
+  clientRef: { id: string; name: string } | null;
   driScores: { score: number; calculatedAt: Date }[];
 }
 
@@ -174,4 +276,261 @@ export interface OverviewProjectRow {
   id: string;
   status: ProjectStatusValue;
   driScores: { score: number }[];
+}
+
+/** Tarefa como o Painel lê: com projeto, responsável e impedimentos abertos. */
+export interface DashboardTaskRow extends MilestoneRow, TaskFieldsRow {
+  project: { id: string; name: string; sectorId: string | null };
+  driScores: { score: number }[];
+  _count: { impediments: number };
+}
+
+export interface DashboardProjectRow {
+  id: string;
+  name: string;
+  status: ProjectStatusValue;
+  cost: DecimalLike;
+  currency: string;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  clientRef: { name: string } | null;
+  sector: { id: string; name: string } | null;
+  manager: { id: string; name: string } | null;
+  driScores: { score: number }[];
+}
+
+export interface DashboardImpedimentRow {
+  id: string;
+  description: string;
+  waitingOn: string | null;
+  createdAt: Date;
+  owner: { name: string } | null;
+  milestone: { id: string; name: string; project: { id: string; name: string } };
+}
+
+export interface MyTaskRow extends MilestoneRow, TaskFieldsRow {
+  project: { id: string; name: string };
+  driScores: { score: number }[];
+}
+
+/* ---------------------------------------------------------------------- */
+/* Integração com o Autodesk Construction Cloud                            */
+/* ---------------------------------------------------------------------- */
+
+export type AccSyncStatusValue = "NEVER_RUN" | "OK" | "FAILED" | "REAUTH_REQUIRED";
+
+export interface AccConnectionViewRow {
+  id: string;
+  hubId: string;
+  hubName: string | null;
+  refreshTokenExpiresAt: Date;
+  dataRequestId: string | null;
+  lastSyncAt: Date | null;
+  lastSyncStatus: AccSyncStatusValue;
+  lastSyncError: string | null;
+  createdAt: Date;
+  projects: {
+    id: string;
+    name: string;
+    accProjectId: string | null;
+    accProjectName: string | null;
+  }[];
+}
+
+export interface UnlinkedProjectRow {
+  id: string;
+  name: string;
+  clientRef: { id: string; name: string } | null;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Pessoas, documentos e demandas                                          */
+/* ---------------------------------------------------------------------- */
+
+export type RoleValue = "ADMIN" | "MANAGER" | "SPECIALIST" | "EXECUTIVE";
+export type DocumentStatusValue =
+  | "DRAFT"
+  | "IN_REVIEW"
+  | "APPROVED"
+  | "COMMENTED"
+  | "REJECTED"
+  | "SUPERSEDED"
+  | "CANCELLED";
+export type DocumentActionValue =
+  | "CREATED"
+  | "SUBMITTED"
+  | "COMMENTED"
+  | "REJECTED"
+  | "APPROVED_WITH_COMMENTS"
+  | "APPROVED"
+  | "REVISED"
+  | "SUPERSEDED"
+  | "CANCELLED";
+export type SignalRequestStatusValue = "PENDING" | "ANSWERED" | "DISMISSED" | "EXPIRED";
+
+export interface UserTableRow {
+  id: string;
+  name: string;
+  email: string;
+  role: RoleValue;
+  function: { name: string } | null;
+  company: { id: string; name: string } | null;
+  isActive: boolean;
+  mustChangePassword: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  _count: { memberships: number; managedProjects: number; signalRequests: number };
+}
+
+export interface UserOption {
+  id: string;
+  name: string;
+  email: string;
+  role: RoleValue;
+  function: { name: string } | null;
+}
+
+export interface AnalysisCodeRow {
+  id: string;
+  tag: string;
+  name: string;
+  effect: AnalysisEffectValue;
+  description: string | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export type AnalysisEffectValue =
+  | "APPROVES"
+  | "APPROVES_WITH_COMMENTS"
+  | "COMMENTS"
+  | "REJECTS"
+  | "CANCELS";
+
+export interface ReferenceRow {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface ClientRow extends ReferenceRow {
+  code: string | null;
+  contactName: string | null;
+  email: string | null;
+  phone: string | null;
+  _count: { projects: number };
+}
+
+export interface DisciplineRow extends ReferenceRow {
+  tag: string;
+  _count: { documents: number };
+}
+
+export interface RoleProfileRow {
+  role: RoleValue;
+  label: string;
+  description: string | null;
+}
+
+export interface EmpresaRow extends ReferenceRow {
+  coordinatorName: string | null;
+  email: string | null;
+  phone: string | null;
+  _count: { projects: number; documents: number };
+}
+
+export interface SectorRow extends ReferenceRow {
+  _count: { projects: number };
+}
+
+export interface JobFunctionRow extends ReferenceRow {
+  _count: { users: number };
+}
+
+/** Projeto reduzido ao necessário para preencher um seletor. */
+export interface ProjectOption {
+  id: string;
+  name: string;
+  osNumber: string | null;
+}
+
+/** Revisão resumida, como aparece na lista do documento. */
+export interface RevisionRow {
+  id: string;
+  name: string;
+  sequence: number;
+  status: DocumentStatusValue;
+  round: number;
+  inReviewSince: Date | null;
+  issuedAt: Date | null;
+  dueAt: Date | null;
+  analyzedAt: Date | null;
+  externalUrl: string | null;
+  notes: string | null;
+  specialist: { id: string; name: string } | null;
+  analysisCode: { id: string; tag: string; name: string } | null;
+  _count: { transitions: number };
+}
+
+export interface DocumentTableRow {
+  id: string;
+  number: string | null;
+  name: string;
+  type: string | null;
+  discipline: { id: string; tag: string; name: string } | null;
+  designFirm: { id: string; name: string } | null;
+  responsible: { id: string; name: string } | null;
+  project: { id: string; name: string };
+  revisions: RevisionRow[];
+}
+
+export interface DocumentTransitionRow {
+  id: string;
+  action: DocumentActionValue;
+  fromStatus: DocumentStatusValue | null;
+  toStatus: DocumentStatusValue;
+  analysisCodeTag: string | null;
+  round: number;
+  actorName: string | null;
+  assignedToName: string | null;
+  comment: string | null;
+  dueAt: Date | null;
+  daysInPreviousStage: number | null;
+  createdAt: Date;
+  revision: { id: string; name: string };
+}
+
+export interface DocumentDetailRow extends DocumentTableRow {
+  /// `organizationId` vem junto porque a página do documento usa ele para
+  /// barrar acesso a documento de outra organização (Document não tem
+  /// organizationId próprio — herda via projeto).
+  project: { id: string; name: string; status: ProjectStatusValue; organizationId: string };
+  notes: string | null;
+  createdAt: Date;
+}
+
+export interface SignalRequestRow {
+  id: string;
+  status: SignalRequestStatusValue;
+  dueAt: Date | null;
+  note: string | null;
+  createdAt: Date;
+  answeredAt: Date | null;
+  milestone: {
+    id: string;
+    name: string;
+    criticality: CriticalityValue;
+    plannedDate: Date | null;
+    project: { id: string; name: string };
+    driScores: { score: number }[];
+  };
+}
+
+export interface MilestoneRequestRow {
+  id: string;
+  status: SignalRequestStatusValue;
+  dueAt: Date | null;
+  createdAt: Date;
+  answeredAt: Date | null;
+  assignee: { id: string; name: string; function: { name: string } | null };
 }

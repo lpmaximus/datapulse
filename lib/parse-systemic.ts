@@ -139,7 +139,7 @@ export function parseRows(records: Record<string, unknown>[]): ParseResult {
         {
           line: 0,
           message:
-            "Não encontrei a coluna do marco. Renomeie a coluna para 'Marco' (ou 'Milestone') e reenvie.",
+            "Não encontrei a coluna da tarefa. Renomeie a coluna para 'Tarefa' (ou 'Marco') e reenvie.",
         },
       ],
       detectedColumns,

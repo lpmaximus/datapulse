@@ -40,7 +40,7 @@ export function HumanSignalForm({ milestoneId }: { milestoneId: string }) {
       <input type="hidden" name="milestoneId" value={milestoneId} />
 
       <Field
-        label={`Probabilidade de este marco falhar ou atrasar: ${probability}%`}
+        label={`Probabilidade de esta tarefa falhar ou atrasar: ${probability}%`}
         hint="Sua leitura técnica, não a oficial do cronograma."
       >
         <input

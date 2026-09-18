@@ -3,21 +3,24 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
-import { ChevronDown, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, RefreshCw, Search } from "lucide-react";
 
 /**
- * Barra de busca + botões decorativos, no padrão dos gerenciadores de
- * anúncio. A busca escreve `?<searchParam>=` na URL (debounced) para o
+ * Barra de ações do quadro, no padrão do monday.com: ação principal,
+ * busca que expande ao focar e atualizar. A busca escreve `?<searchParam>=` na URL (debounced) para o
  * Server Component da página refazer a query filtrada — sem duplicar os
  * dados no cliente.
  */
 export function Toolbar({
-  placeholder = "Pesquisar e filtrar",
+  placeholder = "Pesquisar",
   searchParam = "q",
+  leftSlot,
   rightSlot,
 }: {
   placeholder?: string;
   searchParam?: string;
+  /** Ação principal à esquerda (ex.: botão "Criar"), como no monday. */
+  leftSlot?: React.ReactNode;
   rightSlot?: React.ReactNode;
 }) {
   const router = useRouter();
@@ -44,47 +47,44 @@ export function Toolbar({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-3">
-      <div className="relative min-w-[280px] flex-1">
+    <div className="flex flex-wrap items-center gap-1 px-1 py-3">
+      {leftSlot ? <div className="mr-2 flex items-center">{leftSlot}</div> : null}
+
+      <label className="group relative flex items-center">
         <Search
           size={15}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint"
+          className="pointer-events-none absolute left-2.5 text-ink-soft group-focus-within:text-accent"
         />
         <input
           value={value}
           placeholder={placeholder}
+          aria-label="Pesquisar"
           onChange={(e) => {
             const v = e.currentTarget.value;
             setValue(v);
             clearTimeout(timer.current);
             timer.current = setTimeout(() => push(v), 300);
           }}
-          className="w-full rounded-md border border-line bg-canvas py-1.5 pl-9 pr-3 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:bg-surface focus:outline-none"
+          className={clsx(
+            "rounded-md border py-1.5 pl-8 pr-3 text-sm text-ink transition-[width,border-color] placeholder:text-ink-soft focus:outline-none",
+            value
+              ? "w-72 border-accent bg-surface"
+              : "w-32 border-transparent bg-transparent hover:bg-canvas focus:w-72 focus:border-accent focus:bg-surface",
+          )}
         />
-      </div>
-
-      <button
-        type="button"
-        className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-ink-soft hover:bg-canvas"
-      >
-        <SlidersHorizontal size={14} />
-        Colunas customizadas
-        <ChevronDown size={13} />
-      </button>
+      </label>
 
       <button
         type="button"
         aria-label="Atualizar"
         onClick={() => router.refresh()}
-        className={clsx(
-          "rounded-md border border-line p-1.5 text-ink-soft hover:bg-canvas",
-          pending && "animate-spin text-accent",
-        )}
+        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-ink-soft hover:bg-canvas hover:text-ink"
       >
-        <RefreshCw size={15} />
+        <RefreshCw size={14} className={clsx(pending && "animate-spin text-accent")} />
+        Atualizar
       </button>
 
-      {rightSlot}
+      {rightSlot ? <div className="ml-auto flex items-center gap-2">{rightSlot}</div> : null}
     </div>
   );
 }
@@ -101,8 +101,8 @@ export function Th({
   return (
     <th
       className={clsx(
-        "whitespace-nowrap px-3 py-2.5 text-xs font-medium text-ink-soft",
-        align === "right" ? "text-right" : "text-left",
+        "whitespace-nowrap border-b border-r border-line px-3 py-2 text-[13px] font-normal text-ink-soft last:border-r-0",
+        align === "right" ? "text-right" : "text-center",
         className,
       )}
     >
@@ -123,7 +123,7 @@ export function Td({
   return (
     <td
       className={clsx(
-        "whitespace-nowrap px-3 py-2.5 text-sm text-ink",
+        "whitespace-nowrap border-r border-line px-3 py-2 text-sm text-ink last:border-r-0",
         align === "right" ? "text-right tabular-nums" : "text-left",
         className,
       )}
@@ -141,7 +141,7 @@ export function RowCheckbox() {
     <input
       type="checkbox"
       onClick={(e) => e.stopPropagation()}
-      className="h-3.5 w-3.5 rounded border-line-strong text-accent accent-cyan-700"
+      className="h-3.5 w-3.5 rounded border-line-strong text-accent accent-blue-600"
     />
   );
 }
@@ -182,12 +182,15 @@ export function StatusToggle({
   fieldName,
   checked,
   disabled,
+  extraFields,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   id: string;
   fieldName: string;
   checked: boolean;
   disabled?: boolean;
+  /** Campos ocultos extras (ex.: discriminador de tabela). */
+  extraFields?: Record<string, string>;
 }) {
   const [pending, startTransition] = useTransition();
 
@@ -203,6 +206,11 @@ export function StatusToggle({
       }}
     >
       <input type="hidden" name={fieldName} value={id} />
+      {extraFields
+        ? Object.entries(extraFields).map(([name, value]) => (
+            <input key={name} type="hidden" name={name} value={value} />
+          ))
+        : null}
       <input
         type="checkbox"
         name="active"
@@ -233,12 +241,12 @@ export function CollapsibleGroup({
     <>
       <tr
         onClick={() => setOpen((v) => !v)}
-        className="cursor-pointer border-b border-line bg-canvas/60 hover:bg-canvas"
+        className="cursor-pointer border-b border-line hover:bg-canvas"
       >
-        <td colSpan={99} className="px-3 py-2 text-sm text-ink-soft">
+        <td colSpan={99} className="px-3 py-2.5 text-sm font-medium text-st-purple">
           <span className="inline-flex items-center gap-1.5">
             <ChevronDown
-              size={14}
+              size={16}
               className={clsx("transition-transform", !open && "-rotate-90")}
             />
             Você tem {count} {label}

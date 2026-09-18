@@ -15,7 +15,7 @@ function SubmitButton() {
 }
 
 const FIELD_LABEL: Record<string, string> = {
-  milestoneName: "Marco",
+  milestoneName: "Tarefa",
   plannedDate: "Data planejada",
   actualDate: "Data real",
   delayDays: "Atraso (dias)",
@@ -37,7 +37,7 @@ export function ImportForm({ projectId }: { projectId: string }) {
         <input type="hidden" name="projectId" value={projectId} />
         <Field
           label="Planilha de cronograma / custo"
-          hint="CSV ou XLSX, até 8 MB. Marcos novos são criados automaticamente."
+          hint="CSV ou XLSX, até 8 MB. Tarefas novas são criadas automaticamente."
         >
           <input
             type="file"
@@ -61,7 +61,7 @@ export function ImportForm({ projectId }: { projectId: string }) {
           <p>
             {state.imported} linha(s) importada(s)
             {state.createdMilestones
-              ? `, ${state.createdMilestones} marco(s) criado(s)`
+              ? `, ${state.createdMilestones} tarefa(s) criada(s)`
               : ""}
             . DRI recalculado.
           </p>

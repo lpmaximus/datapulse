@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { parseRows, type ParsedRow } from "@/lib/parse-systemic";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import { normalizeHeader } from "@/lib/parse-systemic";
+import { requireRole } from "@/lib/authz";
+import { projectIsWritable, READONLY_MESSAGE } from "@/lib/server/project-guard";
 
 export interface ImportState {
   ok?: boolean;
@@ -40,17 +42,19 @@ function toRecords(buffer: Buffer, filename: string): Record<string, unknown>[] 
 /**
  * Camada 1 — importa planilha de cronograma/custo.
  *
- * Marcos são casados por nome normalizado; nomes novos viram marcos novos,
+ * Tarefas são casadas por nome normalizado; nomes novos viram tarefas novas,
  * para o cliente não precisar cadastrar nada antes de subir a primeira planilha.
  */
 export async function importSystemicSignals(
   _prev: ImportState,
   formData: FormData,
 ): Promise<ImportState> {
+  const me = await requireRole(["ADMIN", "MANAGER"]);
   const projectId = String(formData.get("projectId") ?? "");
   const file = formData.get("file");
 
   if (!projectId) return { error: "Projeto não identificado." };
+  if (!(await projectIsWritable(projectId, me.organizationId))) return { error: READONLY_MESSAGE };
   if (!(file instanceof File) || file.size === 0) {
     return { error: "Selecione um arquivo CSV ou XLSX." };
   }
@@ -71,7 +75,7 @@ export async function importSystemicSignals(
     return {
       error:
         errors[0]?.message ??
-        "Nenhuma linha aproveitável. Verifique se há colunas de marco e de data/custo.",
+        "Nenhuma linha aproveitável. Verifique se há colunas de tarefa e de data/custo.",
       detectedColumns,
     };
   }
@@ -128,7 +132,7 @@ export async function importSystemicSignals(
     })),
   });
 
-  // Mantém as datas do marco em dia com a última importação.
+  // Mantém as datas da tarefa em dia com a última importação.
   await Promise.all(
     toCreate
       .filter(({ row }) => row.plannedDate || row.actualDate)

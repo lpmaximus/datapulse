@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { ensureRespondentCookie } from "@/lib/auth";
+import { ensureRespondentCookie, hashRespondent } from "@/lib/auth";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
+import { markRequestAnswered } from "@/app/actions/demands";
+import { getCurrentUser } from "@/lib/session";
+import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
 
 export interface SignalFormState {
   ok?: boolean;
@@ -19,7 +22,7 @@ export async function submitHumanSignal(
   formData: FormData,
 ): Promise<SignalFormState> {
   const milestoneId = String(formData.get("milestoneId") ?? "");
-  if (!milestoneId) return { error: "Marco não identificado." };
+  if (!milestoneId) return { error: "Tarefa não identificada." };
 
   const failureProbability = Number(formData.get("failureProbability"));
   const planConfidence = Number(formData.get("planConfidence"));
@@ -33,11 +36,23 @@ export async function submitHumanSignal(
 
   const milestone = await prisma.milestone.findUnique({
     where: { id: milestoneId },
-    select: { projectId: true },
+    select: { projectId: true, project: { select: { status: true, organizationId: true } } },
   });
-  if (!milestone) return { error: "Marco não encontrado." };
+  if (!milestone) return { error: "Tarefa não encontrada." };
+  if (!isProjectWritable(milestone.project.status)) return { error: READONLY_MESSAGE };
 
-  const respondentHash = await ensureRespondentCookie();
+  // Com login, o pseudônimo deriva do usuário — assim a mesma pessoa é
+  // reconhecida entre dispositivos, sem gravar quem ela é no sinal.
+  const user = await getCurrentUser();
+  // Sem organizationId próprio (herda via projeto): com usuário logado, a
+  // tarefa precisa ser da organização dele — senão daria para gravar sinal
+  // numa tarefa de outra organização só sabendo/adivinhando o milestoneId.
+  if (user && milestone.project.organizationId !== user.organizationId) {
+    return { error: "Tarefa não encontrada." };
+  }
+  const respondentHash = user
+    ? hashRespondent(user.id)
+    : await ensureRespondentCookie();
 
   await prisma.humanSignal.create({
     data: {
@@ -52,9 +67,13 @@ export async function submitHumanSignal(
     },
   });
 
+  // Fecha a demanda, se houver uma pendente para este usuário nesta tarefa.
+  if (user) await markRequestAnswered(milestoneId);
+
   await recalculateProjectDRI(milestone.projectId);
   revalidatePath(`/projects/${milestone.projectId}`);
-  revalidatePath(`/projects/${milestone.projectId}/milestones/${milestoneId}`);
+  revalidatePath(`/projects/${milestone.projectId}/tasks/${milestoneId}`);
+  revalidatePath("/my-work");
 
   return { ok: true };
 }

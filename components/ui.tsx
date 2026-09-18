@@ -11,7 +11,7 @@ export function Card({
   return (
     <div
       className={clsx(
-        "rounded-lg border border-line bg-surface p-5 shadow-sm",
+        "rounded-lg border border-line bg-surface p-5",
         className,
       )}
     >
@@ -99,7 +99,7 @@ export function Button({
     <button
       {...props}
       className={clsx(
-        "inline-flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-1.5 rounded-md px-3.5 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
         variant === "primary" &&
           "bg-accent text-white hover:bg-accent-strong",
         variant === "outline" &&
@@ -154,7 +154,7 @@ export function Chip({
       className={clsx(
         "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
         tone === "accent"
-          ? "border-cyan-200 bg-accent-soft text-accent-strong"
+          ? "border-accent-soft bg-accent-soft/50 text-accent-strong"
           : "border-line text-ink-soft",
       )}
     >
@@ -164,10 +164,10 @@ export function Chip({
 }
 
 const CRITICALITY_STYLE: Record<string, string> = {
-  LOW: "border-line text-ink-soft",
-  MEDIUM: "border-sky-200 bg-sky-50 text-sky-700",
-  HIGH: "border-orange-200 bg-orange-50 text-orange-700",
-  CRITICAL: "border-red-200 bg-red-50 text-red-700",
+  LOW: "bg-pr-low",
+  MEDIUM: "bg-pr-medium",
+  HIGH: "bg-pr-high",
+  CRITICAL: "bg-pr-critical",
 };
 
 const CRITICALITY_LABEL: Record<string, string> = {
@@ -181,7 +181,7 @@ export function CriticalityChip({ value }: { value: string }) {
   return (
     <span
       className={clsx(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
+        "inline-flex min-w-[76px] items-center justify-center px-2 py-1 text-xs font-medium text-white",
         CRITICALITY_STYLE[value] ?? CRITICALITY_STYLE.MEDIUM,
       )}
     >

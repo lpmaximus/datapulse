@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Card, SectionTitle } from "@/components/ui";
 import { ImportForm } from "@/components/import-form";
+import { ReadOnlyBanner } from "@/components/task-ui";
+import { requireRole } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +14,10 @@ export default async function ImportPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const project = await prisma.project.findUnique({
-    where: { id },
-    select: { id: true, name: true },
+  const me = await requireRole(["ADMIN", "MANAGER"], `/projects/${id}/import`);
+  const project = await prisma.project.findFirst({
+    where: { id, organizationId: me.organizationId },
+    select: { id: true, name: true, status: true },
   });
   if (!project) notFound();
 
@@ -35,7 +38,11 @@ export default async function ImportPage({
 
       <section className="grid gap-6 lg:grid-cols-[3fr_2fr]">
         <Card>
-          <ImportForm projectId={project.id} />
+          {project.status === "ACTIVE" ? (
+            <ImportForm projectId={project.id} />
+          ) : (
+            <ReadOnlyBanner status={project.status} />
+          )}
         </Card>
 
         <div>
@@ -43,8 +50,8 @@ export default async function ImportPage({
           <Card className="text-sm text-ink">
             <ul className="space-y-2">
               <li>
-                <strong>Marco</strong> <span className="text-ink-soft">(obrigatória)</span> —
-                também aceita Milestone, Atividade, Tarefa, Entrega.
+                <strong>Tarefa</strong> <span className="text-ink-soft">(obrigatória)</span> —
+                também aceita Marco, Milestone, Atividade, Entrega.
               </li>
               <li>
                 <strong>Data planejada</strong> — Prevista, Baseline, Planned Date.

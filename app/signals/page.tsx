@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/authz";
 import { Empty } from "@/components/ui";
 import { Toolbar, Th, Td, RowCheckbox } from "@/components/table-ui";
 import { SignalTabs } from "@/components/signal-tabs";
@@ -21,6 +22,7 @@ export default async function SignalsPage({
 }: {
   searchParams: Promise<{ layer?: string; q?: string }>;
 }) {
+  const user = await requireUser("/signals");
   const { layer, q } = await searchParams;
   const current = layer === "systemic" ? "systemic" : "human";
 
@@ -41,29 +43,36 @@ export default async function SignalsPage({
         <Toolbar
           placeholder={
             current === "human"
-              ? "Pesquisar por marco, projeto ou papel"
-              : "Pesquisar por marco, projeto ou origem"
+              ? "Pesquisar por tarefa, projeto ou papel"
+              : "Pesquisar por tarefa, projeto ou origem"
           }
         />
       </div>
 
-      {current === "human" ? <HumanSignalsTable q={q} /> : <SystemicSignalsTable q={q} />}
+      {current === "human" ? (
+        <HumanSignalsTable q={q} organizationId={user.organizationId} />
+      ) : (
+        <SystemicSignalsTable q={q} organizationId={user.organizationId} />
+      )}
     </div>
   );
 }
 
-async function HumanSignalsTable({ q }: { q?: string }) {
+async function HumanSignalsTable({ q, organizationId }: { q?: string; organizationId: string }) {
   const signals: HumanSignalTableRow[] = await prisma.humanSignal.findMany({
-    where: q
-      ? {
-          OR: [
-            { respondentRole: { contains: q, mode: "insensitive" } },
-            { perceivedBottleneck: { contains: q, mode: "insensitive" } },
-            { milestone: { name: { contains: q, mode: "insensitive" } } },
-            { milestone: { project: { name: { contains: q, mode: "insensitive" } } } },
-          ],
-        }
-      : undefined,
+    where: {
+      milestone: { project: { organizationId } },
+      ...(q
+        ? {
+            OR: [
+              { respondentRole: { contains: q, mode: "insensitive" } },
+              { perceivedBottleneck: { contains: q, mode: "insensitive" } },
+              { milestone: { name: { contains: q, mode: "insensitive" } } },
+              { milestone: { project: { name: { contains: q, mode: "insensitive" } } } },
+            ],
+          }
+        : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: {
@@ -84,12 +93,12 @@ async function HumanSignalsTable({ q }: { q?: string }) {
   return (
     <div className="dp-scroll overflow-x-auto">
       <table className="w-full border-collapse">
-        <thead className="border-b border-line bg-canvas">
+        <thead className="bg-surface">
           <tr>
             <Th className="w-8">
               <RowCheckbox />
             </Th>
-            <Th className="min-w-[200px]">Marco</Th>
+            <Th className="min-w-[200px]">Tarefa</Th>
             <Th className="min-w-[160px]">Projeto</Th>
             <Th align="right">Falha</Th>
             <Th align="right">Confiança</Th>
@@ -107,7 +116,7 @@ async function HumanSignalsTable({ q }: { q?: string }) {
               </Td>
               <Td className="max-w-[220px]">
                 <Link
-                  href={`/projects/${s.milestone.project.id}/milestones/${s.milestone.id}`}
+                  href={`/projects/${s.milestone.project.id}/tasks/${s.milestone.id}`}
                   className="truncate font-medium text-ink hover:text-accent"
                 >
                   {s.milestone.name}
@@ -130,16 +139,19 @@ async function HumanSignalsTable({ q }: { q?: string }) {
   );
 }
 
-async function SystemicSignalsTable({ q }: { q?: string }) {
+async function SystemicSignalsTable({ q, organizationId }: { q?: string; organizationId: string }) {
   const signals: SystemicSignalTableRow[] = await prisma.systemicSignal.findMany({
-    where: q
-      ? {
-          OR: [
-            { milestone: { name: { contains: q, mode: "insensitive" } } },
-            { milestone: { project: { name: { contains: q, mode: "insensitive" } } } },
-          ],
-        }
-      : undefined,
+    where: {
+      milestone: { project: { organizationId } },
+      ...(q
+        ? {
+            OR: [
+              { milestone: { name: { contains: q, mode: "insensitive" } } },
+              { milestone: { project: { name: { contains: q, mode: "insensitive" } } } },
+            ],
+          }
+        : {}),
+    },
     orderBy: { referenceDate: "desc" },
     take: 100,
     include: {
@@ -164,12 +176,12 @@ async function SystemicSignalsTable({ q }: { q?: string }) {
   return (
     <div className="dp-scroll overflow-x-auto">
       <table className="w-full border-collapse">
-        <thead className="border-b border-line bg-canvas">
+        <thead className="bg-surface">
           <tr>
             <Th className="w-8">
               <RowCheckbox />
             </Th>
-            <Th className="min-w-[200px]">Marco</Th>
+            <Th className="min-w-[200px]">Tarefa</Th>
             <Th className="min-w-[160px]">Projeto</Th>
             <Th>Origem</Th>
             <Th align="right">Atraso (dias)</Th>
@@ -187,7 +199,7 @@ async function SystemicSignalsTable({ q }: { q?: string }) {
               </Td>
               <Td className="max-w-[220px]">
                 <Link
-                  href={`/projects/${s.milestone.project.id}/milestones/${s.milestone.id}`}
+                  href={`/projects/${s.milestone.project.id}/tasks/${s.milestone.id}`}
                   className="truncate font-medium text-ink hover:text-accent"
                 >
                   {s.milestone.name}

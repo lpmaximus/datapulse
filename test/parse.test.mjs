@@ -100,7 +100,7 @@ test("linha totalmente em branco é ignorada em silêncio", () => {
 test("planilha sem coluna de marco falha com mensagem acionável", () => {
   const { rows, errors } = parseRows([{ Coluna: "x", Outra: "y" }]);
   assert.equal(rows.length, 0);
-  assert.match(errors[0].message, /coluna do marco/i);
+  assert.match(errors[0].message, /coluna da tarefa/i);
 });
 
 test("planilha vazia não quebra", () => {

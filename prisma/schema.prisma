@@ -11,6 +11,36 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+/**
+ * Empresa-cliente do DataPulse (multi-tenant). Cada Organização tem seus
+ * próprios usuários, cadastros de referência e projetos — nada é
+ * compartilhado entre organizações diferentes.
+ *
+ * Fase de migração: o campo organizationId nasce opcional em User, Client,
+ * Sector, Discipline, Empresa, JobFunction, AnalysisCode, RoleProfile,
+ * Project e AccConnection; um script de backfill preenche os dados
+ * existentes antes de uma segunda migração torná-lo obrigatório.
+ */
+model Organization {
+  id   String @id @default(cuid())
+  name String @unique
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  clients       Client[]
+  sectors       Sector[]
+  disciplines   Discipline[]
+  companies     Empresa[]
+  jobFunctions  JobFunction[]
+  analysisCodes AnalysisCode[]
+  roleProfiles  RoleProfile[]
+  projects      Project[]
+  accConnections AccConnection[]
+}
+
 /// Criticidade técnica do marco. Vira peso no DRI.
 enum Criticality {
   LOW
@@ -35,40 +65,115 @@ enum ProjectStatus {
 }
 
 model Project {
-  id          String        @id @default(cuid())
-  name        String
-  client      String?
-  sector      String?
+  id String @id @default(cuid())
+
+  /// Fase A da migração multi-tenant: nasce opcional, backfill preenche,
+  /// depois se torna obrigatório (ver Organization).
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Nome/título do projeto.
+  name String
+  /// Número da Ordem de Serviço no sistema do cliente.
+  osNumber    String?
   description String?
   status      ProjectStatus @default(ACTIVE)
+
+  /// Custo contratado/orçado do projeto.
+  cost Decimal? @db.Decimal(18, 2)
+
+  clientId String?
+  clientRef Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  sectorId String?
+  sector   Sector? @relation(fields: [sectorId], references: [id], onDelete: SetNull)
+
+  /// Empresa/contratada responsável pelos projetos técnicos.
+  designFirmId String?
+  designFirm   Empresa? @relation(fields: [designFirmId], references: [id], onDelete: SetNull)
   /// Referência do projeto no sistema de origem (ex.: projectId do ACC).
   externalRef String?
+
+  /// Vínculo com o Autodesk Construction Cloud (Camada 1 automatizada).
+  accConnectionId String?
+  accConnection   AccConnection? @relation(fields: [accConnectionId], references: [id], onDelete: SetNull)
+  /// UUID do projeto dentro do hub ACC.
+  accProjectId   String?
+  accProjectName String?
   currency    String        @default("BRL")
   startsAt    DateTime?
   endsAt      DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
+  /// Gerente responsável. Restrito para não apagar histórico por engano.
+  managerId String?
+  manager   User?   @relation("ProjectManager", fields: [managerId], references: [id], onDelete: SetNull)
+
   milestones Milestone[]
   driScores  DRIScore[]
+  members    ProjectMember[]
+  documents  Document[]
+  requests   Request[]
 
   @@index([status])
+  @@index([accConnectionId])
+  @@index([managerId])
+  @@index([clientId])
+  @@index([sectorId])
+  @@index([designFirmId])
+  @@index([organizationId])
 }
 
+/// Tipo de tarefa. Marco é ponto de verificação sem duração (convenção P6/MS Project).
+enum TaskKind {
+  TASK
+  MILESTONE
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  IN_REVIEW
+  BLOCKED
+  DONE
+}
+
+/// Tarefa do projeto. O nome da tabela continua `Milestone` porque DRI,
+/// sinais e convocações apontam para ela; na interface é "Tarefa".
 model Milestone {
   id        String  @id @default(cuid())
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   name String
+  kind TaskKind @default(TASK)
   /// Tipologia livre no MVP: "Engenharia", "Suprimentos", "Licenciamento", "Obra"...
   type        String?
+  /// Prioridade técnica (também pondera o DRI).
   criticality Criticality @default(MEDIUM)
-  /// Impacto econômico estimado caso o marco falhe (moeda do projeto).
+  /// Impacto econômico estimado caso a tarefa falhe (moeda do projeto).
   economicImpact Decimal? @db.Decimal(18, 2)
 
+  status   TaskStatus @default(NOT_STARTED)
+  /// Avanço físico 0–100. Em MARCO com filhas, é recalculado a partir delas (não editável).
+  progress Int        @default(0)
+
+  /// Hierarquia: só MARCO pode ser pai; só TAREFA pode ter pai (2 níveis, sem marco dentro de marco).
+  parentId String?
+  parent   Milestone?  @relation("TaskHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Milestone[] @relation("TaskHierarchy")
+
+  assigneeId String?
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  /// Início planejado. Nulo em marco.
+  startDate    DateTime?
+  /// Término planejado (linha de base).
   plannedDate  DateTime?
+  /// Término previsto (reprogramação).
   forecastDate DateTime?
+  /// Término real.
   actualDate   DateTime?
 
   createdAt DateTime @default(now())
@@ -77,9 +182,133 @@ model Milestone {
   systemicSignals SystemicSignal[]
   humanSignals    HumanSignal[]
   driScores       DRIScore[]
+  signalRequests  SignalRequest[]
+  impediments     Impediment[]
+  requests        Request[]
+  deadlineChanges DeadlineChange[]
 
   @@index([projectId])
   @@index([projectId, criticality])
+  @@index([projectId, status])
+  @@index([assigneeId, status])
+  @@index([parentId])
+}
+
+/// Bloqueio ativo de uma tarefa: o que falta, de quem depende e desde quando.
+model Impediment {
+  id          String    @id @default(cuid())
+  milestoneId String
+  milestone   Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  description String
+  /// Pessoa interna que precisa agir para destravar.
+  ownerId String?
+  owner   User?   @relation("ImpedimentOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Terceiro de quem se depende: "Fornecedor B", "Cliente", "Concessionária".
+  waitingOn String?
+
+  createdById String?
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  @@index([milestoneId, resolvedAt])
+  @@index([resolvedAt])
+}
+
+/**
+ * Solicitação genérica em acompanhamento: pedido de documento de referência,
+ * informação complementar etc. Diferente de Impediment — não bloqueia
+ * necessariamente a tarefa, é só algo pendente que precisa ser cobrado até
+ * a conclusão. Pode estar ligada a uma tarefa/marco e a um ou mais documentos,
+ * ou nem uma coisa nem outra (solicitação de nível de projeto).
+ */
+enum RequestStatus {
+  PENDING
+  ANSWERED
+  /// Cancelada pelo gestor ou recusada por quem foi solicitado.
+  DISMISSED
+  EXPIRED
+}
+
+model Request {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Tarefa/marco relacionado, quando aplicável.
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+
+  /// Tipologia livre no MVP: "Documento de referência", "Informação complementar"...
+  type        String?
+  description String
+
+  /// Pessoa interna responsável por cobrar/receber a resposta.
+  ownerId String?
+  owner   User?   @relation("RequestOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  /// Terceiro de quem se espera a resposta: "Cliente", "Projetista X"...
+  waitingOn String?
+
+  status RequestStatus @default(PENDING)
+
+  /// Prazo declarado. Reprogramações ficam no histórico (DeadlineChange).
+  dueAt      DateTime?
+  resolvedAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  documents       RequestDocument[]
+  deadlineChanges DeadlineChange[]
+
+  @@index([projectId, status])
+  @@index([milestoneId])
+  @@index([ownerId, status])
+  @@index([status, dueAt])
+}
+
+/// Vínculo N:N entre Solicitação e Documento (uma solicitação pode pedir vários documentos).
+model RequestDocument {
+  id String @id @default(cuid())
+
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([requestId, documentId])
+  @@index([documentId])
+}
+
+/**
+ * Histórico de reprogramação de prazo — de Tarefa/Marco (via milestoneId) ou de
+ * Solicitação (via requestId), nunca dos dois ao mesmo tempo. Complementa os
+ * campos plannedDate/actualDate (declarado/finalizado, únicos) com a trilha de
+ * quantas vezes o prazo mudou e para quando, no espírito do DocumentTransition.
+ */
+model DeadlineChange {
+  id String @id @default(cuid())
+
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  /// Nulo na primeira gravação (não havia prazo anterior).
+  fromDate DateTime?
+  toDate   DateTime
+  reason   String?
+
+  changedById String?
+  createdAt   DateTime @default(now())
+
+  @@index([milestoneId, createdAt])
+  @@index([requestId, createdAt])
 }
 
 /// Camada 1 — sinal sistêmico importado de um sistema/planilha do cliente.
@@ -158,4 +387,582 @@ model DRIScore {
 
   @@index([projectId, calculatedAt])
   @@index([milestoneId, calculatedAt])
+}
+
+
+/// Status da última sincronização com o ACC.
+enum AccSyncStatus {
+  NEVER_RUN
+  OK
+  FAILED
+  /// Refresh token expirou — exige nova autorização humana no navegador.
+  REAUTH_REQUIRED
+}
+
+/**
+ * Conexão OAuth com um hub do Autodesk Construction Cloud.
+ *
+ * Importante: a Data Connector API aceita SOMENTE token 3-legged, e o usuário
+ * que autoriza precisa ser Account Admin/Executive no ACC. Não existe modo
+ * servidor-a-servidor puro — por isso guardamos o refresh token e o rotacionamos.
+ *
+ * Ciclo de vida: accessToken vive 60 minutos; refreshToken vive 15 dias e é de
+ * uso único (cada refresh devolve um novo). Se o cron ficar 15 dias sem rodar,
+ * a conexão morre e alguém precisa reautorizar pelo navegador.
+ *
+ * Os dois tokens são gravados cifrados (AES-256-GCM) — ver lib/acc/crypto.ts.
+ */
+model AccConnection {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Hub do ACC, no formato "b.<accountId>".
+  hubId   String @unique
+  hubName String?
+
+  /// Tokens cifrados em repouso. Nunca logar nem expor via API.
+  accessTokenEnc  String
+  refreshTokenEnc String
+
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+
+  /// Quem autorizou — pseudonimizado, só para saber a quem pedir reautorização.
+  authorizedByHash String?
+  authorizedByName String?
+
+  /// ID do request recorrente criado na Data Connector API.
+  dataRequestId String?
+
+  lastSyncAt     DateTime?
+  lastSyncStatus AccSyncStatus @default(NEVER_RUN)
+  lastSyncError  String?
+  lastJobId      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+
+  @@index([lastSyncStatus])
+  @@index([organizationId])
+}
+
+
+/* ------------------------------------------------------------------------ */
+/* Pessoas, acesso e alocação                                                */
+/* ------------------------------------------------------------------------ */
+
+enum UserRole {
+  /// Administra usuários e configurações da plataforma.
+  ADMIN
+  /// Gerencia projetos, cria marcos e convoca avaliações.
+  MANAGER
+  /// Responde a Camada 2 nos marcos em que foi convocado.
+  SPECIALIST
+  /// Visualiza painéis e relatórios; não opera nem responde.
+  EXECUTIVE
+}
+
+model User {
+  id    String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name  String
+  email String @unique
+
+  /// scrypt: "scrypt$N$r$p$saltB64$hashB64". Ver lib/password.ts.
+  passwordHash String
+  /// Força troca de senha no próximo login (usuário recém-criado ou reset).
+  mustChangePassword Boolean @default(false)
+
+  role UserRole @default(SPECIALIST)
+
+  /// Cargo/função organizacional (ex.: Coordenador, Projetista, Fiscal) — não
+  /// confundir com `role`, que é a permissão de acesso ao sistema.
+  functionId String?
+  function   JobFunction? @relation(fields: [functionId], references: [id], onDelete: SetNull)
+
+  /// Empresa a que o usuário pertence (ver `Empresa`, ex-Projetista).
+  companyId String?
+  company   Empresa? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  isActive  Boolean  @default(true)
+  lastLoginAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions         Session[]
+  managedProjects  Project[]       @relation("ProjectManager")
+  memberships      ProjectMember[]
+  signalRequests   SignalRequest[]
+  documentsOwned   Document[]      @relation("DocumentOwner")
+  revisionsToAnalyze DocumentRevision[] @relation("RevisionSpecialist")
+  tasksAssigned      Milestone[]        @relation("TaskAssignee")
+  impedimentsOwned   Impediment[]       @relation("ImpedimentOwner")
+  requestsOwned       Request[]          @relation("RequestOwner")
+
+  @@index([role])
+  @@index([isActive])
+  @@index([functionId])
+  @@index([companyId])
+  @@index([organizationId])
+}
+
+/**
+ * Sessão revogável. O cookie carrega o token cru; o banco guarda apenas o
+ * SHA-256 dele — um vazamento da tabela não permite assumir a sessão.
+ */
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  userAgent String?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Alocação de uma pessoa a um projeto. Define o que ela enxerga em /my-work.
+model ProjectMember {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Papel dentro deste projeto: "Engenharia", "Obra", "Cliente"...
+  roleInProject String?
+  createdAt     DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+/* ------------------------------------------------------------------------ */
+/* Documentos do projeto (metadados — o arquivo em si vive fora)             */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Situação de uma REVISÃO (o pacote enviado pela projetista ao cliente).
+ *
+ * DRAFT e IN_REVIEW são transitórios; os demais são terminais. Uma revisão
+ * analisada nunca volta para análise: o próximo trâmite é uma revisão nova.
+ */
+enum DocumentStatus {
+  /// Emitida pela projetista, ainda não enviada para análise.
+  DRAFT
+  /// Em análise pelo cliente.
+  IN_REVIEW
+  /// Aprovada (com ou sem ressalvas). Terminal.
+  APPROVED
+  /// Analisada com comentários — exige nova revisão. Terminal.
+  COMMENTED
+  /// Reprovada — exige nova revisão. Terminal.
+  REJECTED
+  /// Substituída por uma revisão posterior. Terminal.
+  SUPERSEDED
+  /// Cancelada. Terminal.
+  CANCELLED
+}
+
+/**
+ * Registro documental do projeto. O DataPulse guarda apenas a INFORMAÇÃO
+ * sobre o documento (código, revisão, status, responsável, datas) — nunca o
+ * arquivo. Coerente com "o DataPulse não substitui as ferramentas de execução
+ * do cliente": o arquivo continua no SharePoint/Drive/ACC Docs.
+ *
+ * Valor decisório: documento crítico parado em revisão é um gargalo clássico
+ * que antecede o atraso formal do marco.
+ */
+model Document {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Número do documento no sistema do cliente (NUM_DOC, ex.: "PE-ELE-001").
+  number String?
+  name   String
+  /// Tipo: "Projeto executivo", "Memorial", "ART", "Licença"...
+  type String?
+
+  disciplineId String?
+  discipline   Discipline? @relation(fields: [disciplineId], references: [id], onDelete: SetNull)
+
+  /// Empresa que emite o documento.
+  designFirmId String?
+  designFirm   Empresa? @relation(fields: [designFirmId], references: [id], onDelete: SetNull)
+
+  /// Emissor responsável dentro da organização.
+  responsibleId String?
+  responsible   User?   @relation("DocumentOwner", fields: [responsibleId], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  revisions    DocumentRevision[]
+  requestLinks RequestDocument[]
+
+  @@index([projectId])
+  @@index([disciplineId])
+  @@index([responsibleId])
+  @@index([number])
+}
+
+/**
+ * Revisão de um documento.
+ *
+ * O documento é único; cada revisão é um complemento dele, com vida própria:
+ * seu especialista, seu prazo, seu resultado de análise e seu histórico.
+ * Rastrear o documento do início ao fim = ler as revisões em ordem.
+ */
+model DocumentRevision {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  /// Identificador da revisão (REV_DOC): "R00", "A", "0"...
+  name String
+  /// Ordem cronológica, para não depender de ordenar string.
+  sequence Int @default(0)
+
+  status DocumentStatus @default(DRAFT)
+
+  /// Especialista designado para analisar esta revisão.
+  specialistId String?
+  specialist   User?   @relation("RevisionSpecialist", fields: [specialistId], references: [id], onDelete: SetNull)
+
+  /// Resultado da análise (TBL_COD_ANALISE). Nulo enquanto não analisada.
+  analysisCodeId String?
+  analysisCode   AnalysisCode? @relation(fields: [analysisCodeId], references: [id], onDelete: SetNull)
+
+  issuedAt   DateTime?
+  dueAt      DateTime?
+  analyzedAt DateTime?
+
+  /// Quando entrou na análise atual — base para "parado há N dias".
+  inReviewSince DateTime?
+  /// Quantas vezes esta revisão foi submetida à análise.
+  round Int @default(0)
+
+  /// Link para o arquivo desta revisão no sistema do cliente.
+  externalUrl String?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transitions DocumentTransition[]
+
+  @@unique([documentId, name])
+  @@index([documentId, sequence])
+  @@index([status])
+  @@index([specialistId, status])
+  @@index([dueAt])
+}
+
+/// Evento no trâmite de um documento.
+enum DocumentAction {
+  CREATED
+  /// Emitido para análise.
+  SUBMITTED
+  /// Analisado com comentários — volta ao emissor, abre novo ciclo.
+  COMMENTED
+  /// Reprovado — volta ao emissor, abre novo ciclo.
+  REJECTED
+  /// Aprovado com ressalvas: segue, mas com pendência registrada.
+  APPROVED_WITH_COMMENTS
+  /// Aprovação final — encerra o fluxo.
+  APPROVED
+  /// Nova revisão emitida após comentários/reprovação.
+  REVISED
+  /// Substituído por revisão posterior.
+  SUPERSEDED
+  CANCELLED
+}
+
+/**
+ * Histórico de trâmite do documento — a trilha completa até a aprovação final.
+ *
+ * É um log append-only: nada aqui é editado ou apagado. O campo `status` do
+ * Document é apenas a projeção do último evento; a verdade é esta tabela.
+ * Sem isso, "documento aprovado" esconderia que levou quatro ciclos e 90 dias.
+ *
+ * Valor decisório: número de ciclos e tempo parado em cada análise são
+ * indicadores antecedentes de restrição — o atraso do marco costuma aparecer
+ * depois que o documento já estava travado.
+ */
+model DocumentTransition {
+  id         String           @id @default(cuid())
+  revisionId String
+  revision   DocumentRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  action     DocumentAction
+  fromStatus DocumentStatus?
+  toStatus   DocumentStatus
+
+  /// Código de análise aplicado, quando o evento é um parecer.
+  analysisCodeId  String?
+  analysisCodeTag String?
+
+  /// Ciclo de análise a que este evento pertence.
+  round Int @default(1)
+
+  /// Quem executou a ação.
+  actorId   String?
+  actorName String?
+  /// Para quem o documento seguiu (analista da vez).
+  assignedToId   String?
+  assignedToName String?
+
+  comment String?
+  /// Prazo acordado para esta etapa.
+  dueAt DateTime?
+
+  /// Dias que o documento passou na etapa anterior — calculado na gravação
+  /// para o histórico não depender de recomputar a cadeia inteira.
+  daysInPreviousStage Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([revisionId, createdAt])
+  @@index([assignedToId])
+}
+
+/* ------------------------------------------------------------------------ */
+/* Demandas de avaliação (Camada 2 dirigida)                                 */
+/* ------------------------------------------------------------------------ */
+
+enum SignalRequestStatus {
+  PENDING
+  ANSWERED
+  /// Convocação cancelada pelo gestor ou recusada pelo especialista.
+  DISMISSED
+  EXPIRED
+}
+
+/**
+ * Convocação de um especialista para avaliar um marco.
+ *
+ * DESENHO IMPORTANTE — separação entre convocação e resposta:
+ * este registro é NOMINAL (o gestor precisa saber a quem cobrar), mas NÃO
+ * referencia o HumanSignal produzido. Só marca que houve resposta e quando.
+ * Assim o gestor acompanha adesão sem ler "quem disse o quê".
+ *
+ * Limite honesto: com um único convocado por marco, a correlação é óbvia por
+ * inferência; e quem tiver acesso ao banco e ao RESPONDENT_SALT consegue
+ * recomputar o hash do respondente. Isto é pseudonimato, não anonimato forte.
+ */
+model SignalRequest {
+  id          String    @id @default(cuid())
+  milestoneId String
+  milestone   Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  assigneeId String
+  assignee   User   @relation(fields: [assigneeId], references: [id], onDelete: Cascade)
+
+  status SignalRequestStatus @default(PENDING)
+  dueAt  DateTime?
+  /// Recado do gestor: por que esta avaliação está sendo pedida agora.
+  note String?
+
+  requestedById String?
+  createdAt     DateTime  @default(now())
+  answeredAt    DateTime?
+
+  @@unique([milestoneId, assigneeId])
+  @@index([assigneeId, status])
+  @@index([status, dueAt])
+}
+
+
+/* ------------------------------------------------------------------------ */
+/* Cadastros de referência                                                   */
+/*                                                                           */
+/* O que antes era texto livre vira tabela: evita "Elétrica", "eletrica" e   */
+/* "ELE" convivendo como coisas diferentes e quebrando qualquer agregação.   */
+/* ------------------------------------------------------------------------ */
+
+model Client {
+  id   String  @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+  code String?
+
+  contactName String?
+  email       String?
+  phone       String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+
+  @@unique([organizationId, name])
+  @@index([isActive])
+}
+
+model Sector {
+  id   String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  projects Project[]
+
+  @@unique([organizationId, name])
+  @@index([isActive])
+}
+
+model Discipline {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Sigla usada na numeração do documento (ex.: "ELE", "CIV") — única por organização.
+  tag  String
+  name String
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  documents Document[]
+
+  @@unique([organizationId, tag])
+  @@index([isActive])
+}
+
+/// Empresa/contratada que elabora os projetos técnicos (ex-TBL_PROJETISTAS).
+/// Também é o vínculo empregador de um Usuário (`User.companyId`).
+model Empresa {
+  id   String  @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+  /// Coordenador responsável pelo contrato.
+  coordinatorName String?
+  email           String?
+  phone           String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects  Project[]
+  documents Document[]
+  users     User[]
+
+  @@unique([organizationId, name])
+  @@index([isActive])
+}
+
+/**
+ * Rótulo/descrição editáveis de cada papel de acesso. O papel em si
+ * (`UserRole`) é fixo no código — controla permissão e não pode ser criado
+ * ou removido por aqui —, só o texto exibido é um cadastro.
+ */
+model RoleProfile {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           UserRole
+
+  label       String
+  description String?
+
+  updatedAt DateTime @updatedAt
+
+  @@id([organizationId, role])
+}
+
+/// Cargo/função de um usuário (Coordenador, Projetista, Fiscal...). Separado
+/// de `UserRole`, que controla permissão de acesso e é fixo no código.
+model JobFunction {
+  id   String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  @@unique([organizationId, name])
+  @@index([isActive])
+}
+
+/**
+ * Efeito de um código de análise sobre o fluxo.
+ *
+ * Existe porque o motor precisa saber o que cada código FAZ, não só como se
+ * chama. Assim o cliente cadastra códigos próprios ("APR-R", "REJ-T") e o
+ * fluxo continua funcionando, sem alterar código-fonte.
+ */
+enum AnalysisEffect {
+  /// Encerra a revisão como aprovada.
+  APPROVES
+  /// Aprova, mas registra pendência a tratar na próxima revisão.
+  APPROVES_WITH_COMMENTS
+  /// Devolve ao emissor com comentários — exige nova revisão.
+  COMMENTS
+  /// Reprova — exige nova revisão.
+  REJECTS
+  /// Encerra o fluxo sem aprovação.
+  CANCELS
+}
+
+/**
+ * Códigos de análise configuráveis (TBL_COD_ANALISE).
+ *
+ * Padrão do seed: APR (aprovado), REJ (rejeitado), COM (comentado),
+ * CLD (cancelado).
+ */
+model AnalysisCode {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Sigla exibida no documento (APR, REJ, COM, CLD) — única por organização.
+  tag  String
+  name String
+
+  effect      AnalysisEffect
+  description String?
+
+  /// Ordem de exibição na lista de pareceres.
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  revisions DocumentRevision[]
+
+  @@unique([organizationId, tag])
+  @@index([isActive, sortOrder])
 }

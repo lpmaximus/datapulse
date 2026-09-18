@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
-import { TopNav } from "@/components/top-nav";
+import { Figtree } from "next/font/google";
+import { AppShell } from "@/components/top-nav";
+import { getCurrentUser } from "@/lib/session";
 import "./globals.css";
+
+const figtree = Figtree({
+  subsets: ["latin"],
+  variable: "--font-figtree",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "DataPulse — MVP",
@@ -8,20 +16,17 @@ export const metadata: Metadata = {
     "Identificação antecipada da restrição dominante em projetos (TOC).",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const user = await getCurrentUser();
+
   return (
-    <html lang="pt-BR">
-      <body className="min-h-screen bg-canvas text-ink antialiased">
-        <TopNav />
-        <main className="mx-auto max-w-[1400px] px-6 py-6">{children}</main>
-        <footer className="mx-auto max-w-[1400px] px-6 pb-10 text-xs text-ink-faint">
-          DRI é indicador antecipado, não previsão. Score com confiança baixa
-          significa dado insuficiente — não ausência de risco.
-        </footer>
+    <html lang="pt-BR" className={figtree.variable}>
+      <body className="min-h-screen bg-frame font-sans text-ink antialiased">
+        <AppShell user={user}>{children}</AppShell>
       </body>
     </html>
   );
