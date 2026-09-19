@@ -400,7 +400,7 @@ export default async function ProjectPage({
             </form>
 
             {project.members.length > 0 ? (
-              <ul className="divide-y divide-line rounded-md border border-line">
+              <ul className="dp-scroll max-h-64 divide-y divide-line overflow-y-auto rounded-md border border-line">
                 {project.members.map((m: ProjectMemberRow) => (
                   <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -583,11 +583,13 @@ function TaskGroup({
         <span className="ml-1 text-sm font-normal text-ink-faint">{tasks.length}</span>
       </summary>
 
-      <div className="dp-scroll relative overflow-x-auto">
-        <span
-          aria-hidden
-          className={clsx("absolute inset-y-0 left-0 w-1.5 rounded-l-md", tone === "accent" ? "bg-accent" : "bg-st-done")}
-        />
+      <div
+        className={clsx(
+          "dp-scroll dp-box max-h-[30rem] border-l-[6px]",
+          quickAdd && "dp-box-foot",
+          tone === "accent" ? "border-l-accent" : "border-l-st-done",
+        )}
+      >
         <table className="w-full border-collapse border-y border-r border-line">
           <thead className="bg-surface">
             <tr>

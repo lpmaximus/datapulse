@@ -10,3 +10,6 @@ cadastros-export.json
 
 # Dado real de cliente — nunca versionar
 examples/CONTROLE MASTER MRS.xlsx
+
+# Cronograma real de cliente (MS Project) — nunca versionar
+examples/*.mpp.xml

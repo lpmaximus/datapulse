@@ -110,8 +110,35 @@ body {
 /* Scrollbar discreta para tabelas largas */
 .dp-scroll::-webkit-scrollbar {
   height: 8px;
+  width: 8px;
 }
 .dp-scroll::-webkit-scrollbar-thumb {
   background: var(--color-line-strong);
   border-radius: 9999px;
+}
+
+/*
+ * Lista com altura fixa (cronograma, tarefas, solicitações): rola nos dois
+ * sentidos e mantém o cabeçalho visível, para a página do projeto ter o
+ * mesmo tamanho com 5 ou com 500 linhas.
+ */
+.dp-box {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.dp-box thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-surface);
+}
+.dp-box-canvas thead th {
+  background: var(--color-canvas);
+}
+/* Linha de "+ Nova ..." fica colada no rodapé da área rolável. */
+.dp-box-foot tbody > tr:last-child > td {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--color-surface);
 }

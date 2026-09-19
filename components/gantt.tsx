@@ -44,11 +44,14 @@ export function GanttChart({
   now,
   weeks = 13,
   emptyText = "Nada com datas para mostrar.",
+  maxHeightClass = "max-h-[26rem]",
 }: {
   rows: GanttRow[];
   now: Date;
   weeks?: number;
   emptyText?: string;
+  /** Altura máxima da área rolável (classe Tailwind). Passa disso, rola. */
+  maxHeightClass?: string;
 }) {
   const from = new Date(startOfWeekUTC(now).getTime() - 7 * DAY);
   const to = new Date(from.getTime() + weeks * 7 * DAY);
@@ -69,10 +72,11 @@ export function GanttChart({
   const visible = rows.filter((r) => r.end || r.start);
 
   return (
-    <div className="dp-scroll overflow-x-auto">
+    <div>
+      <div className={clsx("dp-scroll overflow-auto overscroll-contain", maxHeightClass)}>
       <div className="min-w-[760px]">
-        {/* cabeçalho */}
-        <div className="flex border-b border-line text-xs text-ink-soft">
+        {/* cabeçalho — fixo no topo enquanto as linhas rolam */}
+        <div className="sticky top-0 z-40 flex border-b border-line bg-surface text-xs text-ink-soft">
           <div className="w-56 shrink-0 px-3 py-1.5 font-medium">Item</div>
           <div className="relative flex-1">
             <div className="relative h-6 border-b border-line">
@@ -200,6 +204,8 @@ export function GanttChart({
           })
         )}
 
+      </div>
+      </div>
         <div className="flex flex-wrap items-center gap-4 border-t border-line px-3 py-2 text-[11px] text-ink-faint">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-3 w-px bg-st-stuck" /> hoje
@@ -214,7 +220,6 @@ export function GanttChart({
             <span className="h-2.5 w-5 rounded-full bg-accent/60" /> parte escura = executado
           </span>
         </div>
-      </div>
     </div>
   );
 }

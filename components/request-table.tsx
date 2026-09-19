@@ -42,7 +42,7 @@ export function RequestTable({
     return <Empty>Nenhuma solicitação registrada.</Empty>;
   }
   return (
-    <div className="dp-scroll overflow-x-auto rounded-lg border border-line bg-surface">
+    <div className={clsx("dp-scroll dp-box dp-box-canvas max-h-[26rem] rounded-lg border border-line bg-surface", quickAdd && "dp-box-foot")}>
       <table className="w-full border-collapse">
         <thead className="bg-canvas">
           <tr>
