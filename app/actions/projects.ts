@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import { requireRole } from "@/lib/authz";
+import { isProjectWritable } from "@/lib/tasks";
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
@@ -72,6 +73,79 @@ export async function createProject(formData: FormData): Promise<void> {
   revalidatePath("/projects");
   revalidatePath("/");
   redirect(`/projects/${project.id}`);
+}
+
+/** Edita os dados cadastrais do projeto (mesmos campos da criação). */
+export async function updateProject(formData: FormData): Promise<void> {
+  const me = await requireRole(["ADMIN", "MANAGER"]);
+  const orgId = me.organizationId;
+
+  const projectId = str(formData, "projectId");
+  if (!projectId) return;
+  const back = (code: string) => redirect(`/projects/${projectId}/edit?error=${code}`);
+
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, organizationId: orgId },
+    select: { id: true, status: true },
+  });
+  if (!project) return;
+  // Pausado/encerrado é somente leitura — checado aqui porque a action
+  // continua chamável mesmo com o botão escondido.
+  if (!isProjectWritable(project.status)) redirect(`/projects/${projectId}`);
+
+  const name = str(formData, "name");
+  if (!name) back("nome-obrigatorio");
+
+  const managerId = str(formData, "managerId") || null;
+  const clientId = str(formData, "clientId") || null;
+  const sectorId = str(formData, "sectorId") || null;
+  const designFirmId = str(formData, "designFirmId") || null;
+
+  const [client, sector, designFirm, manager] = await Promise.all([
+    clientId
+      ? prisma.client.findFirst({ where: { id: clientId, organizationId: orgId }, select: { id: true } })
+      : Promise.resolve(null),
+    sectorId
+      ? prisma.sector.findFirst({ where: { id: sectorId, organizationId: orgId }, select: { id: true } })
+      : Promise.resolve(null),
+    designFirmId
+      ? prisma.empresa.findFirst({ where: { id: designFirmId, organizationId: orgId }, select: { id: true } })
+      : Promise.resolve(null),
+    managerId
+      ? prisma.user.findFirst({ where: { id: managerId, organizationId: orgId }, select: { id: true } })
+      : Promise.resolve(null),
+  ]);
+  if (clientId && !client) back("cliente-invalido");
+  if (sectorId && !sector) back("setor-invalido");
+  if (designFirmId && !designFirm) back("empresa-invalida");
+  if (managerId && !manager) back("gerente-invalido");
+
+  const startsAt = optDate(formData, "startsAt");
+  const endsAt = optDate(formData, "endsAt");
+  if (startsAt && endsAt && endsAt < startsAt) back("datas-invalidas");
+
+  const costRaw = str(formData, "cost");
+  const cost = costRaw ? Number(costRaw.replace(/[^\d.-]/g, "")) : null;
+
+  await prisma.project.updateMany({
+    where: { id: projectId, organizationId: orgId },
+    data: {
+      name,
+      osNumber: str(formData, "osNumber") || null,
+      clientId,
+      sectorId,
+      designFirmId,
+      cost: cost != null && Number.isFinite(cost) ? cost : null,
+      startsAt,
+      endsAt,
+      managerId,
+    },
+  });
+
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+  redirect(`/projects/${projectId}`);
 }
 
 /** Recálculo manual — útil na demo, sem esperar o cron. */

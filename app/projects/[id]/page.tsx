@@ -205,6 +205,9 @@ export default async function ProjectPage({
           </Link>
           {manage && writable ? (
             <>
+              <Link href={`/projects/${project.id}/edit`}>
+                <Button variant="outline">Editar projeto</Button>
+              </Link>
               <Link href={`/projects/${project.id}/import`}>
                 <Button variant="outline">Importar planilha</Button>
               </Link>
