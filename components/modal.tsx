@@ -53,13 +53,19 @@ export function Modal({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 sm:p-8"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
     >
-      <div className="w-full max-w-5xl rounded-xl border border-line bg-canvas shadow-xl">
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-xl border-b border-line bg-surface px-5 py-3">
+      {/*
+        A rolagem é do corpo do pop-up, não do fundo: o cartão tem altura
+        máxima e o cabeçalho fica fora da área rolável. Com o fundo rolando,
+        o `sticky` grudava no topo da tela (ignorando o respiro do `p-8`) e o
+        conteúdo aparecia por cima/atrás do cabeçalho.
+      */}
+      <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-line bg-canvas shadow-xl">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line bg-surface px-5 py-3">
           <span className="text-sm font-medium uppercase tracking-wider text-ink-soft">{title}</span>
           <div className="flex items-center gap-3">
             {fullHref ? (
@@ -77,7 +83,7 @@ export function Modal({
             </button>
           </div>
         </div>
-        <div className="p-5 sm:p-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6">{children}</div>
       </div>
     </div>
   );
