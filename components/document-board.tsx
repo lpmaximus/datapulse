@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import clsx from "clsx";
 import { AlertCircle, Check, ChevronDown } from "lucide-react";
@@ -43,9 +44,12 @@ interface Group {
 export function DocumentBoard({
   documents,
   showProject = false,
+  quickAdd,
 }: {
   documents: DocumentTableRow[];
   showProject?: boolean;
+  /** Linha de cadastro direto, exibida ao final do grupo "Em andamento". */
+  quickAdd?: React.ReactNode;
 }) {
   const groups: Group[] = [
     {
@@ -64,14 +68,31 @@ export function DocumentBoard({
 
   return (
     <div className="space-y-8 py-2">
-      {groups.map((g) => (
-        <BoardGroup key={g.key} group={g} showProject={showProject} />
-      ))}
+      {groups
+        // O grupo de concluídos vazio só ocupa espaço; o de andamento fica
+        // sempre, porque é onde o cadastro direto aparece.
+        .filter((g) => g.key === "open" || g.rows.length > 0)
+        .map((g) => (
+          <BoardGroup
+            key={g.key}
+            group={g}
+            showProject={showProject}
+            quickAdd={g.key === "open" ? quickAdd : undefined}
+          />
+        ))}
     </div>
   );
 }
 
-function BoardGroup({ group, showProject }: { group: Group; showProject: boolean }) {
+function BoardGroup({
+  group,
+  showProject,
+  quickAdd,
+}: {
+  group: Group;
+  showProject: boolean;
+  quickAdd?: React.ReactNode;
+}) {
   const [open, setOpen] = useState(true);
   const now = new Date();
 
@@ -143,6 +164,14 @@ function BoardGroup({ group, showProject }: { group: Group; showProject: boolean
                 </tr>
               ) : null}
 
+              {quickAdd ? (
+                <tr className="border-b border-line bg-canvas/40">
+                  <td colSpan={99} className="px-4 py-2">
+                    {quickAdd}
+                  </td>
+                </tr>
+              ) : null}
+
               {/* Rodapé-resumo, como no monday: distribuição de status e janela de prazos. */}
               <tr className="bg-surface">
                 <td colSpan={colsBeforeStatus} className="border-r border-line" />
@@ -182,13 +211,20 @@ function DocumentRow({
   showProject: boolean;
   now: Date;
 }) {
+  const router = useRouter();
   const rev = currentRevision(d);
   const stuck = rev?.status === "IN_REVIEW" ? daysBetween(now, rev.inReviewSince) : null;
   const closed = rev ? CLOSED_STATUSES.has(rev.status) : false;
   const overdue = !closed && rev?.dueAt != null && new Date(rev.dueAt).getTime() < now.getTime();
 
   return (
-    <tr className="group border-b border-line hover:bg-canvas">
+    <tr
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return;
+        router.push(`/documents/${d.id}`);
+      }}
+      className="group cursor-pointer border-b border-line hover:bg-canvas"
+    >
       <Td className="pl-4">
         <RowCheckbox />
       </Td>

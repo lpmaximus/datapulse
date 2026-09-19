@@ -14,11 +14,13 @@ export function currentRevision(doc: DocumentTableRow): RevisionRow | null {
 export function DocumentTable({
   documents,
   showProject = false,
+  quickAdd,
 }: {
   documents: DocumentTableRow[];
   showProject?: boolean;
+  quickAdd?: React.ReactNode;
 }) {
-  return <DocumentBoard documents={documents} showProject={showProject} />;
+  return <DocumentBoard documents={documents} showProject={showProject} quickAdd={quickAdd} />;
 }
 
 export const DOCUMENT_SELECT = {

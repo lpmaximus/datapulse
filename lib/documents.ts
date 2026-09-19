@@ -241,6 +241,122 @@ export function summarizeCycles(transitions: TransitionLike[]): CycleSummary {
   return { rounds, totalDaysInReview, reworkCount };
 }
 
+/* ------------------------------ passagens ------------------------------ */
+
+/** Evento do histórico, no formato mínimo que a leitura de passagens precisa. */
+export interface PassageTransition {
+  id: string;
+  action: DocumentAction;
+  round: number;
+  analysisCodeTag: string | null;
+  actorName: string | null;
+  assignedToName: string | null;
+  comment: string | null;
+  dueAt: Date | null;
+  createdAt: Date;
+  revision: { id: string; name: string };
+}
+
+/**
+ * Uma passagem = uma ida do documento para análise e a volta dela.
+ *
+ * O mesmo documento pode entrar no sistema várias vezes, em períodos
+ * diferentes, até a aprovação. Cada entrada é uma passagem: quando foi
+ * enviado, quem analisou, em que prazo, quando voltou e com qual parecer.
+ * Uma passagem sem retorno é a que está em análise agora.
+ */
+export interface Passage {
+  /** Ordem cronológica, a partir de 1. */
+  number: number;
+  revisionId: string;
+  revisionName: string;
+  /** Envio dentro da revisão (a mesma revisão pode ser analisada de novo). */
+  round: number;
+  sentAt: Date;
+  dueAt: Date | null;
+  analyst: string | null;
+  sentComment: string | null;
+  /** Nulo enquanto a passagem está em análise. */
+  outcome: DocumentAction | null;
+  analysisTag: string | null;
+  returnedAt: Date | null;
+  returnedBy: string | null;
+  returnComment: string | null;
+  /** Dias na análise: até o retorno, ou até `now` se ainda está em curso. */
+  days: number;
+  open: boolean;
+}
+
+const PASSAGE_CLOSERS: DocumentAction[] = [
+  "COMMENTED",
+  "REJECTED",
+  "APPROVED_WITH_COMMENTS",
+  "APPROVED",
+  "CANCELLED",
+];
+
+/**
+ * Reconstrói as passagens a partir do histórico (append-only). Nada é
+ * gravado à parte: o histórico já é a verdade, e a lista de passagens é só
+ * uma leitura dele — por isso vale igual para documentos digitados no app e
+ * para os carregados da planilha de controle.
+ *
+ * Cada SUBMITTED abre uma passagem; o primeiro desfecho da mesma revisão e
+ * do mesmo envio a fecha. Eventos de criação, nova revisão e substituição
+ * não são passagens.
+ */
+export function buildPassages(transitions: PassageTransition[], now: Date): Passage[] {
+  const ordered = transitions
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) => a.t.createdAt.getTime() - b.t.createdAt.getTime() || a.i - b.i)
+    .map((x) => x.t);
+
+  const passages: Passage[] = [];
+  const openByKey = new Map<string, Passage>();
+
+  for (const t of ordered) {
+    const key = `${t.revision.id}:${t.round}`;
+
+    if (t.action === "SUBMITTED") {
+      const p: Passage = {
+        number: passages.length + 1,
+        revisionId: t.revision.id,
+        revisionName: t.revision.name,
+        round: t.round,
+        sentAt: t.createdAt,
+        dueAt: t.dueAt,
+        analyst: t.assignedToName,
+        sentComment: t.comment,
+        outcome: null,
+        analysisTag: null,
+        returnedAt: null,
+        returnedBy: null,
+        returnComment: null,
+        days: daysBetween(now, t.createdAt) ?? 0,
+        open: true,
+      };
+      passages.push(p);
+      openByKey.set(key, p);
+      continue;
+    }
+
+    if (PASSAGE_CLOSERS.includes(t.action)) {
+      const p = openByKey.get(key);
+      if (!p) continue; // desfecho sem envio (ex.: cancelar antes de enviar)
+      p.outcome = t.action;
+      p.analysisTag = t.analysisCodeTag;
+      p.returnedAt = t.createdAt;
+      p.returnedBy = t.actorName;
+      p.returnComment = t.comment;
+      p.days = daysBetween(t.createdAt, p.sentAt) ?? 0;
+      p.open = false;
+      openByKey.delete(key);
+    }
+  }
+
+  return passages;
+}
+
 /** Códigos padrão criados pelo seed — refletem o rascunho do modelo. */
 export const DEFAULT_ANALYSIS_CODES: {
   tag: string;

@@ -18,6 +18,8 @@ import {
 import { ImpedimentForm, TaskEditForm } from "@/components/task-forms";
 import { RequestCreateForm } from "@/components/request-forms";
 import { RequestTable } from "@/components/request-table";
+import { RequestQuickAdd } from "@/components/request-quick-add";
+import { FormPanel } from "@/components/form-panel";
 import { resolveImpediment } from "@/app/actions/tasks";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/format";
 import { requireUser, canManageProjects } from "@/lib/authz";
@@ -290,11 +292,12 @@ export default async function TaskPage({
           manage={manage}
           currentUserId={user.id}
           showLink={false}
+          quickAdd={writable ? <RequestQuickAdd projectId={id} milestoneId={task.id} /> : undefined}
         />
         {writable ? (
-          <Card>
+          <FormPanel id="nova-solicitacao" label="Nova solicitação — formulário completo">
             <RequestCreateForm projectId={id} milestoneId={task.id} users={candidates} documents={documentOptions} />
-          </Card>
+          </FormPanel>
         ) : null}
       </section>
 

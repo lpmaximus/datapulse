@@ -703,7 +703,9 @@ export default async function PainelPage({
                       return (
                         <tr key={r.id} className="border-t border-line hover:bg-canvas">
                           <Td className="max-w-[360px] whitespace-normal">
-                            {r.description}
+                            <Link href={`/projects/${r.project.id}/requests/${r.id}`} className="hover:text-accent">
+                              {r.description}
+                            </Link>
                             {r.type ? <span className="ml-1 text-xs text-ink-faint">({r.type})</span> : null}
                           </Td>
                           <Td className="max-w-[240px]">

@@ -171,6 +171,12 @@ export interface RequestRow {
   documents: RequestDocumentLinkRow[];
 }
 
+/** Solicitação aberta em tela própria: com projeto, prazo original e histórico. */
+export interface RequestDetailRow extends RequestRow {
+  project: { id: string; name: string; status: ProjectStatusValue };
+  deadlineChanges: DeadlineChangeRow[];
+}
+
 export interface DeadlineChangeRow {
   id: string;
   fromDate: Date | null;
@@ -507,6 +513,10 @@ export interface DocumentDetailRow extends DocumentTableRow {
   project: { id: string; name: string; status: ProjectStatusValue; organizationId: string };
   notes: string | null;
   createdAt: Date;
+  /// Ids dos vínculos, para preencher o formulário de edição dos dados.
+  disciplineId: string | null;
+  designFirmId: string | null;
+  responsibleId: string | null;
 }
 
 export interface SignalRequestRow {

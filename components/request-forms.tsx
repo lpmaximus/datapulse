@@ -5,8 +5,10 @@ import { useFormStatus } from "react-dom";
 import {
   createRequest,
   dismissRequest,
+  reopenRequest,
   rescheduleRequest,
   resolveRequest,
+  updateRequest,
   type RequestFormState,
 } from "@/app/actions/requests";
 import { Button, Field, inputClass } from "@/components/ui";
@@ -165,6 +167,103 @@ export function DismissRequestButton({ requestId }: { requestId: string }) {
       <button type="submit" className="text-xs text-ink-faint hover:underline">
         Cancelar
       </button>
+    </form>
+  );
+}
+
+export function ReopenRequestButton({ requestId }: { requestId: string }) {
+  return (
+    <form action={reopenRequest}>
+      <input type="hidden" name="requestId" value={requestId} />
+      <button type="submit" className="text-sm font-medium text-accent hover:underline">
+        Reabrir
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Edição da solicitação na tela própria. O prazo não está aqui de propósito:
+ * mudar prazo é reprogramar (com histórico), feito no botão "Reprogramar".
+ */
+export function RequestEditForm({
+  request,
+  users,
+  documents,
+  tasks,
+}: {
+  request: {
+    id: string;
+    description: string;
+    type: string | null;
+    waitingOn: string | null;
+    ownerId: string | null;
+    milestoneId: string | null;
+    documentIds: string[];
+  };
+  users: UserOption[];
+  documents: DocumentOption[];
+  tasks: { id: string; name: string }[];
+}) {
+  const [state, action] = useActionState<RequestFormState, FormData>(updateRequest, {});
+
+  return (
+    <form action={action} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <input type="hidden" name="requestId" value={request.id} />
+      <div className="sm:col-span-2">
+        <Field label="Solicitação">
+          <input name="description" required defaultValue={request.description} className={inputClass} />
+        </Field>
+      </div>
+      <Field label="Tipo" hint="Documento de referência, informação complementar…">
+        <input name="type" defaultValue={request.type ?? ""} className={inputClass} />
+      </Field>
+      <Field label="Depende de (terceiro)">
+        <input name="waitingOn" defaultValue={request.waitingOn ?? ""} className={inputClass} placeholder="Cliente, Empresa X…" />
+      </Field>
+      <Field label="Quem cobra (interno)">
+        <select name="ownerId" defaultValue={request.ownerId ?? ""} className={inputClass}>
+          <option value="">—</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Tarefa / marco" hint="Opcional">
+        <select name="milestoneId" defaultValue={request.milestoneId ?? ""} className={inputClass}>
+          <option value="">Só do projeto</option>
+          {tasks.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {documents.length > 0 ? (
+        <div className="sm:col-span-2">
+          <Field label="Documentos relacionados" hint="Segure Ctrl para marcar mais de um">
+            <select
+              name="documentIds"
+              multiple
+              defaultValue={request.documentIds}
+              className={inputClass + " h-24"}
+            >
+              {documents.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.number ? `${d.number} — ` : ""}
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4">
+        <Submit label="Salvar solicitação" busy="Salvando…" />
+        <Feedback state={state} okText="Solicitação atualizada." />
+      </div>
     </form>
   );
 }

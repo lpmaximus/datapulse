@@ -23,8 +23,9 @@ export interface RequestFormState {
   at?: number;
 }
 
-function revalidateRequest(projectId: string, milestoneId?: string | null) {
+function revalidateRequest(projectId: string, milestoneId?: string | null, requestId?: string) {
   revalidatePath(`/projects/${projectId}`);
+  if (requestId) revalidatePath(`/projects/${projectId}/requests/${requestId}`);
   if (milestoneId) revalidatePath(`/projects/${projectId}/tasks/${milestoneId}`);
   revalidatePath("/");
 }
@@ -138,7 +139,7 @@ export async function rescheduleRequest(
     });
   }
 
-  revalidateRequest(request.projectId, request.milestoneId);
+  revalidateRequest(request.projectId, request.milestoneId, requestId);
   return { ok: true, at: Date.now() };
 }
 
@@ -156,7 +157,7 @@ export async function resolveRequest(formData: FormData): Promise<void> {
     where: { id: requestId },
     data: { status: "ANSWERED", resolvedAt: new Date() },
   });
-  revalidateRequest(request.projectId, request.milestoneId);
+  revalidateRequest(request.projectId, request.milestoneId, requestId);
 }
 
 /** Cancela a solicitação (pedido não segue mais, sem virar "respondida"). */
@@ -173,5 +174,100 @@ export async function dismissRequest(formData: FormData): Promise<void> {
     where: { id: requestId },
     data: { status: "DISMISSED", resolvedAt: new Date() },
   });
-  revalidateRequest(request.projectId, request.milestoneId);
+  revalidateRequest(request.projectId, request.milestoneId, requestId);
+}
+
+/**
+ * Edita os dados da solicitação (descrição, tipo, terceiro, responsável,
+ * tarefa e documentos vinculados). O prazo NÃO é editado aqui: mudar prazo é
+ * reprogramar, e reprogramar grava o histórico.
+ */
+export async function updateRequest(
+  _prev: RequestFormState,
+  formData: FormData,
+): Promise<RequestFormState> {
+  const user = await requireUser();
+  const requestId = str(formData, "requestId");
+  if (!requestId) return { error: "Solicitação não identificada." };
+
+  const request = await loadRequest(requestId, user.organizationId);
+  if (!request) return { error: "Solicitação não encontrada." };
+  if (request.project.status !== "ACTIVE") return { error: READONLY_MESSAGE };
+  if (!canManageProjects(user) && request.ownerId !== user.id) {
+    return { error: "Só o gerente ou o responsável pela solicitação podem editá-la." };
+  }
+
+  const description = str(formData, "description");
+  if (!description) return { error: "Descreva a solicitação." };
+
+  const milestoneId = str(formData, "milestoneId") || null;
+  if (milestoneId) {
+    const task = await prisma.milestone.findFirst({
+      where: { id: milestoneId, projectId: request.projectId },
+      select: { id: true },
+    });
+    if (!task) return { error: "Tarefa selecionada não pertence a este projeto." };
+  }
+
+  const documentIds = formData.getAll("documentIds").map(String).filter(Boolean);
+  if (documentIds.length) {
+    const count = await prisma.document.count({
+      where: { id: { in: documentIds }, projectId: request.projectId },
+    });
+    if (count !== documentIds.length) return { error: "Algum documento selecionado não pertence a este projeto." };
+  }
+
+  const ownerId = str(formData, "ownerId") || null;
+  if (ownerId) {
+    const owner = await prisma.user.findFirst({
+      where: { id: ownerId, organizationId: user.organizationId },
+      select: { id: true },
+    });
+    if (!owner) return { error: "Responsável inválido." };
+  }
+
+  await prisma.$transaction([
+    prisma.request.update({
+      where: { id: requestId },
+      data: {
+        description,
+        type: str(formData, "type") || null,
+        waitingOn: str(formData, "waitingOn") || null,
+        ownerId,
+        milestoneId,
+      },
+    }),
+    prisma.requestDocument.deleteMany({ where: { requestId } }),
+    ...(documentIds.length
+      ? [
+          prisma.requestDocument.createMany({
+            data: documentIds.map((documentId) => ({ requestId, documentId })),
+          }),
+        ]
+      : []),
+  ]);
+
+  // A tarefa antiga e a nova mostram a solicitação nas suas telas.
+  revalidateRequest(request.projectId, request.milestoneId, requestId);
+  if (milestoneId && milestoneId !== request.milestoneId) {
+    revalidatePath(`/projects/${request.projectId}/tasks/${milestoneId}`);
+  }
+  return { ok: true, at: Date.now() };
+}
+
+/** Reabre uma solicitação respondida ou cancelada (só o gerente). */
+export async function reopenRequest(formData: FormData): Promise<void> {
+  const user = await requireUser();
+  const requestId = str(formData, "requestId");
+  if (!requestId) return;
+
+  const request = await loadRequest(requestId, user.organizationId);
+  if (!request || request.project.status !== "ACTIVE" || request.status === "PENDING") return;
+  if (!canManageProjects(user)) return;
+
+  await prisma.request.update({
+    where: { id: requestId },
+    data: { status: "PENDING", resolvedAt: null },
+  });
+  revalidateRequest(request.projectId, request.milestoneId, requestId);
 }

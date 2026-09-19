@@ -4,6 +4,7 @@ import { Empty, Card } from "@/components/ui";
 import { Toolbar } from "@/components/table-ui";
 import { DocumentTable, DOCUMENT_SELECT, currentRevision } from "@/components/document-table";
 import { DocumentCreateForm } from "@/components/document-create-form";
+import { DocumentQuickAdd } from "@/components/document-quick-add";
 import { daysBetween, documentSearchFilter } from "@/lib/documents";
 import type {
   DocumentTableRow,
@@ -144,12 +145,20 @@ export default async function DocumentsPage({
           <Toolbar placeholder="Pesquisar por nº, nome, disciplina ou projeto" />
         </div>
 
-        {documents.length === 0 ? (
+        {/* Com permissão de cadastrar, a lista aparece mesmo vazia: é nela que
+            se digita o primeiro documento. */}
+        {documents.length === 0 && !canManage ? (
           <div className="p-6">
             <Empty>Nenhum documento encontrado.</Empty>
           </div>
         ) : (
-          <DocumentTable documents={documents} showProject />
+          <DocumentTable
+            documents={documents}
+            showProject
+            quickAdd={
+              canManage ? <DocumentQuickAdd projects={projects} disciplines={disciplines} /> : undefined
+            }
+          />
         )}
       </div>
     </div>

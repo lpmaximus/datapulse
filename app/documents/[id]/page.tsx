@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, canManageProjects } from "@/lib/authz";
 import { isProjectWritable } from "@/lib/tasks";
 import { ReadOnlyBanner } from "@/components/task-ui";
-import { Card, SectionTitle, Chip } from "@/components/ui";
+import { Card, SectionTitle, Chip, Button, Field, inputClass } from "@/components/ui";
+import { DocumentPassages } from "@/components/document-passages";
+import { updateDocumentMetadata } from "@/app/actions/documents";
 import { DocumentTimeline } from "@/components/document-timeline";
 import { RevisionList } from "@/components/revision-list";
 import {
@@ -14,6 +16,7 @@ import {
 } from "@/components/revision-actions";
 import {
   applicableCodes,
+  buildPassages,
   isActionAllowed,
   isRevisionOpen,
   requiresNewRevision,
@@ -78,6 +81,9 @@ export default async function DocumentPage({
       discipline: { select: { id: true, tag: true, name: true } },
       designFirm: { select: { id: true, name: true } },
       responsible: { select: { id: true, name: true } },
+      disciplineId: true,
+      designFirmId: true,
+      responsibleId: true,
       revisions: { orderBy: { sequence: "desc" }, select: REVISION_SELECT },
     },
   });
@@ -125,6 +131,30 @@ export default async function DocumentPage({
     }),
   ]);
 
+  // Cadastros para o formulário de edição dos dados — só para quem pode editar.
+  const canEditData = canManageProjects(user) && isProjectWritable(doc.project.status);
+  const [disciplines, firms, allUsers] = canEditData
+    ? await Promise.all([
+        prisma.discipline.findMany({
+          where: { isActive: true, organizationId: user.organizationId },
+          orderBy: { tag: "asc" },
+          select: { id: true, tag: true, name: true },
+        }),
+        prisma.empresa.findMany({
+          where: { isActive: true, organizationId: user.organizationId },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        }),
+        prisma.user.findMany({
+          where: { isActive: true, organizationId: user.organizationId },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        }),
+      ])
+    : [[], [], []];
+
+  const now = new Date();
+  const passages = buildPassages(transitions, now);
   const cycles = summarizeCycles(transitions);
   const current = doc.revisions[0] ?? null;
   const approved = doc.revisions.find((r) => r.status === "APPROVED") ?? null;
@@ -179,7 +209,10 @@ export default async function DocumentPage({
 
       <ReadOnlyBanner status={doc.project.status} />
 
-      <section className="grid gap-4 sm:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-5">
+        <Card>
+          <Metric label="Passagens" value={String(passages.length)} />
+        </Card>
         <Card>
           <Metric label="Revisões" value={String(doc.revisions.length)} />
         </Card>
@@ -204,6 +237,19 @@ export default async function DocumentPage({
           o que não está sendo resolvido de uma revisão para a outra.
         </p>
       ) : null}
+
+      <section>
+        <SectionTitle hint="Cada ida para análise e a volta, da primeira à aprovação">
+          Passagens pelo sistema
+        </SectionTitle>
+        <Card>
+          <DocumentPassages
+            passages={passages}
+            currentStatus={(current?.status as DocumentStatus | undefined) ?? null}
+            now={now}
+          />
+        </Card>
+      </section>
 
       <section className="grid gap-6 lg:grid-cols-[3fr_2fr]">
         <div className="space-y-6">
@@ -292,6 +338,59 @@ export default async function DocumentPage({
               </p>
               {doc.notes ? (
                 <p className="border-t border-line pt-2 text-ink-soft">{doc.notes}</p>
+              ) : null}
+              {canEditData ? (
+                <details className="border-t border-line pt-2">
+                  <summary className="cursor-pointer text-sm text-accent hover:underline">
+                    Editar dados do documento
+                  </summary>
+                  <form action={updateDocumentMetadata} className="mt-3 space-y-3">
+                    <input type="hidden" name="documentId" value={doc.id} />
+                    <Field label="Nº do documento">
+                      <input name="number" defaultValue={doc.number ?? ""} className={inputClass} />
+                    </Field>
+                    <Field label="Nome">
+                      <input name="name" defaultValue={doc.name} required className={inputClass} />
+                    </Field>
+                    <Field label="Tipo">
+                      <input name="type" defaultValue={doc.type ?? ""} className={inputClass} />
+                    </Field>
+                    <Field label="Disciplina">
+                      <select name="disciplineId" defaultValue={doc.disciplineId ?? ""} className={inputClass}>
+                        <option value="">Não definir</option>
+                        {disciplines.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.tag} — {d.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Empresa">
+                      <select name="designFirmId" defaultValue={doc.designFirmId ?? ""} className={inputClass}>
+                        <option value="">Não definir</option>
+                        {firms.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Emissor responsável">
+                      <select name="responsibleId" defaultValue={doc.responsibleId ?? ""} className={inputClass}>
+                        <option value="">Não definir</option>
+                        {allUsers.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Observações">
+                      <textarea name="notes" rows={3} defaultValue={doc.notes ?? ""} className={inputClass} />
+                    </Field>
+                    <Button type="submit">Salvar dados</Button>
+                  </form>
+                </details>
               ) : null}
               <p className="border-t border-line pt-2 text-xs text-ink-faint">
                 O DataPulse registra apenas a informação sobre o documento.{" "}

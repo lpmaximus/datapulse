@@ -2,6 +2,7 @@
 import Link from "next/link";
 import clsx from "clsx";
 import { Empty } from "@/components/ui";
+import { ClickableRow } from "@/components/clickable-row";
 import { Th, Td } from "@/components/table-ui";
 import { RequestStatusCell } from "@/components/task-ui";
 import { RequestRescheduleForm, ResolveRequestButton, DismissRequestButton } from "@/components/request-forms";
@@ -18,6 +19,7 @@ export function RequestTable({
   manage,
   currentUserId,
   showLink = true,
+  quickAdd,
 }: {
   requests: RequestRow[];
   now: Date;
@@ -27,8 +29,10 @@ export function RequestTable({
   currentUserId: string;
   /** Mostra a coluna "Vínculo" — desligue quando já está na página da tarefa. */
   showLink?: boolean;
+  /** Linha de cadastro direto ao final da lista. Com ela, a tabela aparece mesmo vazia. */
+  quickAdd?: React.ReactNode;
 }) {
-  if (requests.length === 0) {
+  if (requests.length === 0 && !quickAdd) {
     return <Empty>Nenhuma solicitação registrada.</Empty>;
   }
   return (
@@ -52,9 +56,18 @@ export function RequestTable({
             const canResolve = writable && r.status === "PENDING" && (manage || isOwner);
             const canDismiss = writable && r.status === "PENDING" && manage;
             return (
-              <tr key={r.id} className="border-t border-line hover:bg-canvas/60">
+              <ClickableRow
+                key={r.id}
+                href={`/projects/${projectId}/requests/${r.id}`}
+                className="border-t border-line hover:bg-canvas/60"
+              >
                 <Td className="max-w-[320px] pl-4">
-                  <p className="truncate text-ink">{r.description}</p>
+                  <Link
+                    href={`/projects/${projectId}/requests/${r.id}`}
+                    className="block truncate text-ink hover:text-accent"
+                  >
+                    {r.description}
+                  </Link>
                   {r.type ? <p className="truncate text-xs text-ink-faint">{r.type}</p> : null}
                   {r.documents.length > 0 ? (
                     <p className="truncate text-xs text-ink-faint">
@@ -94,9 +107,23 @@ export function RequestTable({
                     {canDismiss ? <DismissRequestButton requestId={r.id} /> : null}
                   </div>
                 </Td>
-              </tr>
+              </ClickableRow>
             );
           })}
+          {requests.length === 0 ? (
+            <tr className="border-t border-line">
+              <td colSpan={99} className="py-3 pl-4 text-sm text-ink-faint">
+                Nenhuma solicitação registrada.
+              </td>
+            </tr>
+          ) : null}
+          {quickAdd ? (
+            <tr className="border-t border-line bg-canvas/40">
+              <td colSpan={99} className="px-4 py-2">
+                {quickAdd}
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>

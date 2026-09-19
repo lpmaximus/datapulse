@@ -14,6 +14,7 @@ import {
   applicableCodes,
   daysBetween,
   summarizeCycles,
+  buildPassages,
   documentSearchFilter,
   DEFAULT_ANALYSIS_CODES,
 } from "../lib/documents.ts";
@@ -264,4 +265,93 @@ test("busca cobre número, nome, tipo e disciplina", () => {
 test("projeto só entra na busca da visão geral", () => {
   assert.ok(!documentSearchFilter("x").OR.some((c) => "project" in c));
   assert.ok(documentSearchFilter("x", true).OR.some((c) => "project" in c));
+});
+
+
+/* ----------------------------- passagens -------------------------------- */
+
+const D = (iso) => new Date(iso + "T12:00:00.000Z");
+let seq = 0;
+const ev = (action, iso, revId, revName, round, extra = {}) => ({
+  id: `t${++seq}`,
+  action,
+  round,
+  analysisCodeTag: null,
+  actorName: null,
+  assignedToName: null,
+  comment: null,
+  dueAt: null,
+  createdAt: D(iso),
+  revision: { id: revId, name: revName },
+  ...extra,
+});
+
+test("passagens: cada envio abre uma e o desfecho a fecha", () => {
+  const passages = buildPassages(
+    [
+      ev("CREATED", "2026-01-01", "r0", "R00", 0),
+      ev("SUBMITTED", "2026-01-05", "r0", "R00", 1, { assignedToName: "Ana", dueAt: D("2026-01-15") }),
+      ev("COMMENTED", "2026-01-13", "r0", "R00", 1, { analysisCodeTag: "COM", comment: "Ajustar carga" }),
+      ev("REVISED", "2026-01-20", "r1", "R01", 0),
+      ev("SUBMITTED", "2026-02-01", "r1", "R01", 1, { assignedToName: "Bruno" }),
+      ev("APPROVED", "2026-02-10", "r1", "R01", 1, { analysisCodeTag: "APR" }),
+    ],
+    D("2026-03-01"),
+  );
+
+  assert.equal(passages.length, 2);
+  assert.deepEqual(
+    passages.map((p) => [p.number, p.revisionName, p.outcome, p.days, p.open]),
+    [
+      [1, "R00", "COMMENTED", 8, false],
+      [2, "R01", "APPROVED", 9, false],
+    ],
+  );
+  assert.equal(passages[0].analyst, "Ana");
+  assert.equal(passages[0].returnComment, "Ajustar carga");
+  assert.equal(passages[1].analysisTag, "APR");
+});
+
+test("passagens: envio sem desfecho é a que está em análise, contando até agora", () => {
+  const [p] = buildPassages(
+    [ev("SUBMITTED", "2026-02-01", "r0", "R00", 1, { assignedToName: "Ana" })],
+    D("2026-02-11"),
+  );
+  assert.equal(p.open, true);
+  assert.equal(p.outcome, null);
+  assert.equal(p.returnedAt, null);
+  assert.equal(p.days, 10);
+});
+
+test("passagens: a mesma revisão analisada mais de uma vez gera uma passagem por envio (carga da planilha)", () => {
+  const passages = buildPassages(
+    [
+      ev("SUBMITTED", "2026-01-05", "r0", "R00", 1),
+      ev("REJECTED", "2026-01-09", "r0", "R00", 1, { analysisCodeTag: "REJ" }),
+      ev("SUBMITTED", "2026-01-20", "r0", "R00", 2),
+      ev("APPROVED", "2026-01-22", "r0", "R00", 2, { analysisCodeTag: "APR" }),
+    ],
+    D("2026-03-01"),
+  );
+  assert.deepEqual(
+    passages.map((p) => [p.number, p.round, p.outcome]),
+    [
+      [1, 1, "REJECTED"],
+      [2, 2, "APPROVED"],
+    ],
+  );
+});
+
+test("passagens: eventos fora de ordem são lidos em ordem cronológica e cancelar antes de enviar não cria passagem", () => {
+  const passages = buildPassages(
+    [
+      ev("APPROVED", "2026-02-10", "r1", "R01", 1),
+      ev("SUBMITTED", "2026-02-01", "r1", "R01", 1),
+      ev("CANCELLED", "2026-03-01", "r2", "R02", 0),
+    ],
+    D("2026-03-05"),
+  );
+  assert.equal(passages.length, 1);
+  assert.equal(passages[0].outcome, "APPROVED");
+  assert.equal(buildPassages([], D("2026-03-05")).length, 0);
 });

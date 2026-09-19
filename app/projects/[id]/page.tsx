@@ -24,6 +24,10 @@ import {
   TaskStatusCell,
 } from "@/components/task-ui";
 import { TaskCreateForm } from "@/components/task-forms";
+import { TaskQuickAdd } from "@/components/task-quick-add";
+import { RequestQuickAdd } from "@/components/request-quick-add";
+import { FormPanel } from "@/components/form-panel";
+import { ClickableRow } from "@/components/clickable-row";
 import { RequestCreateForm } from "@/components/request-forms";
 import { RequestTable } from "@/components/request-table";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/format";
@@ -311,22 +315,31 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <SectionTitle hint="Em aberto ordenadas por DRI — intervir de cima para baixo">
           Tarefas
         </SectionTitle>
-        {tasks.length === 0 ? (
+        {tasks.length === 0 && !(manage && writable) ? (
           <Empty>Nenhuma tarefa cadastrada. Adicione abaixo ou importe uma planilha.</Empty>
         ) : (
           <>
-            <TaskGroup title="Em aberto" tone="accent" tasks={openTree} projectId={project.id} now={now} currency={project.currency} />
-            <TaskGroup title="Concluídas" tone="done" tasks={doneTree} projectId={project.id} now={now} currency={project.currency} collapsed />
+            <TaskGroup
+              title="Em aberto"
+              tone="accent"
+              tasks={openTree}
+              projectId={project.id}
+              now={now}
+              currency={project.currency}
+              quickAdd={manage && writable ? <TaskQuickAdd projectId={project.id} users={allUsers} /> : undefined}
+            />
+            {doneTree.length > 0 ? (
+              <TaskGroup title="Concluídas" tone="done" tasks={doneTree} projectId={project.id} now={now} currency={project.currency} collapsed />
+            ) : null}
           </>
         )}
       </section>
 
       {manage && writable ? (
-        <section id="nova-tarefa" className="scroll-mt-20">
-          <SectionTitle>Nova tarefa</SectionTitle>
-          <Card>
+        <section className="scroll-mt-20">
+          <FormPanel id="nova-tarefa" label="Nova tarefa — formulário completo">
             <TaskCreateForm projectId={project.id} users={allUsers} milestoneOptions={milestoneOptions} />
-          </Card>
+          </FormPanel>
         </section>
       ) : null}
 
@@ -334,11 +347,19 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <SectionTitle hint="Documento de referência, informação complementar — tudo que precisa ser cobrado até concluir">
           Solicitações{openRequests > 0 ? ` (${openRequests} em aberto)` : ""}
         </SectionTitle>
-        <RequestTable requests={project.requests} now={now} projectId={project.id} writable={writable} manage={manage} currentUserId={user.id} />
+        <RequestTable
+          requests={project.requests}
+          now={now}
+          projectId={project.id}
+          writable={writable}
+          manage={manage}
+          currentUserId={user.id}
+          quickAdd={writable ? <RequestQuickAdd projectId={project.id} /> : undefined}
+        />
         {writable ? (
-          <Card>
+          <FormPanel id="nova-solicitacao" label="Nova solicitação — formulário completo">
             <RequestCreateForm projectId={project.id} users={allUsers} documents={documentOptions} />
-          </Card>
+          </FormPanel>
         ) : null}
       </section>
 
@@ -448,6 +469,7 @@ function TaskGroup({
   now,
   currency,
   collapsed = false,
+  quickAdd,
 }: {
   title: string;
   tone: "accent" | "done";
@@ -456,6 +478,8 @@ function TaskGroup({
   now: Date;
   currency: string;
   collapsed?: boolean;
+  /** Linha de cadastro direto ao final da lista. */
+  quickAdd?: React.ReactNode;
 }) {
   function taskRow(t: ProjectTaskRow, depth: number) {
     const due = t.actualDate ?? taskDueDate(t);
@@ -463,7 +487,7 @@ function TaskGroup({
     const slip = slipDays(t);
     const score = t.driScores[0]?.score ?? 0;
     return (
-      <tr key={t.id} className="border-b border-line hover:bg-canvas">
+      <ClickableRow key={t.id} href={`/projects/${projectId}/tasks/${t.id}`} className="border-b border-line hover:bg-canvas">
         <Td className="max-w-[340px] pl-5">
           <div className="flex items-center gap-2" style={depth ? { paddingLeft: `${depth * 18}px` } : undefined}>
             <KindMark kind={t.kind} />
@@ -510,7 +534,7 @@ function TaskGroup({
         </Td>
         <Td align="right">{formatCurrency(toNumber(t.economicImpact), currency)}</Td>
         <Td>{score > 0 ? <DRIBadge score={score} showLabel={false} /> : <span className="text-ink-faint">—</span>}</Td>
-      </tr>
+      </ClickableRow>
     );
   }
 
@@ -559,6 +583,13 @@ function TaskGroup({
                 ...(t.children ?? []).map((c) => taskRow(c, 1)),
               ])
             )}
+            {quickAdd ? (
+              <tr className="border-b border-line bg-canvas/40">
+                <td colSpan={9} className="px-4 py-2 pl-5">
+                  {quickAdd}
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
