@@ -8,9 +8,10 @@ import { projectVisibility } from "@/lib/visibility";
 import { orgUsedBytes } from "@/lib/server/files";
 import { deleteProjectFile } from "@/app/actions/project-files";
 import { ReadOnlyBanner } from "@/components/task-ui";
-import { Card, Empty, SectionTitle } from "@/components/ui";
+import { Empty } from "@/components/ui";
+import { Th, Td, Toolbar } from "@/components/table-ui";
 import { DeleteButton } from "@/components/delete-button";
-import { ProjectFileUpload } from "@/components/project-file-upload";
+import { ProjectFileDialog } from "@/components/project-file-dialog";
 import { formatDate } from "@/lib/format";
 import { FILE_KIND_SUGGESTIONS, ORG_QUOTA_BYTES, formatBytes } from "@/lib/files";
 
@@ -18,10 +19,13 @@ export const dynamic = "force-dynamic";
 
 export default async function ProjectFilesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ q?: string }>;
 }) {
   const { id } = await params;
+  const { q } = await searchParams;
   const user = await requireUser(`/projects/${id}/files`);
 
   const project = await prisma.project.findFirst({
@@ -31,10 +35,26 @@ export default async function ProjectFilesPage({
   if (!project) notFound();
 
   const manage = canManageProjects(user);
+  const term = q?.trim();
+  const like = term ? { contains: term, mode: "insensitive" as const } : null;
 
   const [files, used, usedKinds] = await Promise.all([
     prisma.projectFile.findMany({
-      where: { projectId: id, organizationId: user.organizationId },
+      where: {
+        projectId: id,
+        organizationId: user.organizationId,
+        ...(like
+          ? {
+              OR: [
+                { title: like },
+                { kind: like },
+                { reference: like },
+                { fileName: like },
+                { note: like },
+              ],
+            }
+          : {}),
+      },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -58,102 +78,111 @@ export default async function ProjectFilesPage({
         })
       : Promise.resolve([] as { kind: string }[]),
   ]);
+
   const canUpload = manage && isProjectWritable(project.status);
   const kindSuggestions = [...new Set([...FILE_KIND_SUGGESTIONS, ...usedKinds.map((k) => k.kind)])];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href={`/projects/${id}`} className="text-xs text-ink-faint hover:text-ink-soft">
-          ← {project.name}
-        </Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Arquivos do projeto</h1>
-        <p className="mt-1 text-sm text-ink-soft">
-          Ordem de serviço, processos SEI, contratos e controles. Ficam guardados com acesso restrito
-          a quem enxerga este projeto.
-        </p>
+    <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4">
+        <div>
+          <Link href={`/projects/${id}`} className="text-xs text-ink-faint hover:text-ink-soft">
+            ← {project.name}
+          </Link>
+          <h1 className="mt-1 text-xl font-semibold tracking-tight">Arquivos</h1>
+          <p className="text-sm text-ink-soft">
+            Ordem de serviço, processos SEI, contratos e controles. Acesso restrito a quem enxerga
+            este projeto.
+          </p>
+        </div>
+        {canUpload ? <ProjectFileDialog projectId={id} kindSuggestions={kindSuggestions} /> : null}
       </div>
 
-      <ReadOnlyBanner status={project.status} projectId={project.id} canReactivate={manage} />
-
-      {canUpload ? (
-        <Card>
-          <ProjectFileUpload projectId={id} kindSuggestions={kindSuggestions} />
-        </Card>
+      {project.status !== "ACTIVE" ? (
+        <div className="mt-3 px-4">
+          <ReadOnlyBanner status={project.status} projectId={project.id} canReactivate={manage} />
+        </div>
       ) : null}
 
-      <section className="space-y-3">
-        <SectionTitle hint={`${files.length} arquivo(s)`}>Arquivos</SectionTitle>
-        {files.length === 0 ? (
-          <Empty>Nenhum arquivo enviado neste projeto.</Empty>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-line text-left text-xs uppercase tracking-wider text-ink-soft">
-                  <th className="px-4 py-2 font-medium">Título</th>
-                  <th className="px-4 py-2 font-medium">Tipo</th>
-                  <th className="px-4 py-2 font-medium">Referência</th>
-                  <th className="px-4 py-2 font-medium">Data</th>
-                  <th className="px-4 py-2 font-medium">Tamanho</th>
-                  <th className="px-4 py-2 font-medium">Enviado</th>
-                  <th className="w-24 px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {files.map((f) => (
-                  <tr key={f.id}>
-                    <td className="px-4 py-2.5">
+      <div className="mt-3">
+        <Toolbar placeholder="Pesquisar por título, tipo ou referência" />
+      </div>
+
+      {files.length === 0 ? (
+        <div className="p-6">
+          <Empty>
+            {q ? "Nenhum arquivo corresponde à busca." : "Nenhum arquivo enviado neste projeto."}
+          </Empty>
+        </div>
+      ) : (
+        <div className="dp-scroll overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead className="bg-surface">
+              <tr>
+                <Th className="min-w-[240px]">Título</Th>
+                <Th>Tipo</Th>
+                <Th>Referência</Th>
+                <Th>Data do documento</Th>
+                <Th align="right">Tamanho</Th>
+                <Th>Enviado por</Th>
+                <Th>Enviado em</Th>
+                <Th className="w-20">
+                  <span className="sr-only">Ações</span>
+                </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {files.map((f) => (
+                <tr key={f.id} className="group border-b border-line hover:bg-canvas">
+                  <Td>
+                    <a
+                      href={`/api/files/${f.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium hover:text-accent"
+                    >
+                      {f.title}
+                    </a>
+                    {f.note ? <p className="text-xs text-ink-faint">{f.note}</p> : null}
+                  </Td>
+                  <Td>{f.kind}</Td>
+                  <Td className="tabular-nums">{f.reference ?? "—"}</Td>
+                  <Td>{f.issuedAt ? formatDate(f.issuedAt) : "—"}</Td>
+                  <Td align="right">{formatBytes(f.sizeBytes)}</Td>
+                  <Td>{f.uploadedBy?.name ?? "—"}</Td>
+                  <Td>{formatDate(f.createdAt)}</Td>
+                  <Td>
+                    <div className="flex items-center justify-end gap-1">
                       <a
-                        href={`/api/files/${f.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium hover:text-accent"
+                        href={`/api/files/${f.id}?download=1`}
+                        aria-label={`Baixar ${f.fileName}`}
+                        title="Baixar"
+                        className="rounded p-1.5 text-ink-soft hover:bg-canvas hover:text-ink"
                       >
-                        {f.title}
+                        <Download size={15} />
                       </a>
-                      {f.note ? <p className="text-xs text-ink-faint">{f.note}</p> : null}
-                    </td>
-                    <td className="px-4 py-2.5">{f.kind}</td>
-                    <td className="px-4 py-2.5 tabular-nums">{f.reference ?? "—"}</td>
-                    <td className="px-4 py-2.5">{f.issuedAt ? formatDate(f.issuedAt) : "—"}</td>
-                    <td className="px-4 py-2.5 tabular-nums">{formatBytes(f.sizeBytes)}</td>
-                    <td className="px-4 py-2.5 text-xs text-ink-soft">
-                      {formatDate(f.createdAt)}
-                      {f.uploadedBy ? ` · ${f.uploadedBy.name}` : ""}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <a
-                          href={`/api/files/${f.id}?download=1`}
-                          aria-label={`Baixar ${f.fileName}`}
-                          title="Baixar"
-                          className="rounded p-1.5 text-ink-soft hover:bg-canvas hover:text-ink"
-                        >
-                          <Download size={15} />
-                        </a>
-                        {canUpload ? (
-                          <DeleteButton
-                            compact
-                            action={deleteProjectFile}
-                            idField="fileId"
-                            id={f.id}
-                            confirm="Excluir este arquivo? Não tem como recuperar."
-                          />
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                      {canUpload ? (
+                        <DeleteButton
+                          compact
+                          action={deleteProjectFile}
+                          idField="fileId"
+                          id={f.id}
+                          confirm="Excluir este arquivo? Não tem como recuperar."
+                        />
+                      ) : null}
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {manage ? (
-        <p className="text-xs text-ink-faint">
-          Sua organização usa {formatBytes(used)} · limite compartilhado da plataforma: {formatBytes(ORG_QUOTA_BYTES)}.
+        <p className="border-t border-line px-4 py-3 text-xs text-ink-faint">
+          Sua organização usa {formatBytes(used)} · limite compartilhado da plataforma:{" "}
+          {formatBytes(ORG_QUOTA_BYTES)}.
         </p>
       ) : null}
     </div>

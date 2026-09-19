@@ -23,9 +23,14 @@ import {
 export function ProjectFileUpload({
   projectId,
   kindSuggestions,
+  onDone,
+  onCancel,
 }: {
   projectId: string;
   kindSuggestions: string[];
+  /** Chamado depois que o arquivo foi enviado e registrado. */
+  onDone?: () => void;
+  onCancel?: () => void;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -68,6 +73,7 @@ export function ProjectFileUpload({
       } else {
         form.reset();
         router.refresh();
+        onDone?.();
       }
     } catch (err) {
       setError((err as Error).message || "Falha no envio.");
@@ -123,6 +129,11 @@ export function ProjectFileUpload({
         <Button type="submit" disabled={busy}>
           {busy ? `Enviando… ${progress}%` : "Enviar arquivo"}
         </Button>
+        {onCancel ? (
+          <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+            Cancelar
+          </Button>
+        ) : null}
       </div>
     </form>
   );
