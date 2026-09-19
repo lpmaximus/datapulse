@@ -1,39 +1,44 @@
 @import "tailwindcss";
 
 /*
- * Paleta clara no padrão visual do monday.com: moldura cinza-azulada,
- * superfícies brancas, texto grafite, acento azul e status em cor sólida.
+ * Identidade visual DataPulse: azul principal #2563EB, navy #0F172A,
+ * cinzas slate e status semânticos (sucesso, atenção, crítico, alerta).
+ * Tipografia Inter.
  */
 @theme {
-  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
-  --color-frame: #eceff8;
-  --color-canvas: #f6f7fb;
+  --color-frame: #eef2f8;
+  --color-canvas: #f6f8fc;
   --color-surface: #ffffff;
-  --color-line: #e6e9ef;
-  --color-line-strong: #c3c6d4;
-  --color-ink: #323338;
-  --color-ink-soft: #676879;
-  --color-ink-faint: #9699a6;
-  --color-accent: #0073ea;
-  --color-accent-soft: #cce5ff;
-  --color-accent-strong: #0060b9;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-ink: #0f172a;
+  --color-ink-soft: #64748b;
+  --color-ink-faint: #94a3b8;
+  --color-accent: #2563eb;
+  --color-accent-soft: #dbeafe;
+  --color-accent-strong: #1d4ed8;
+  --color-brand-secondary: #3b82f6;
+  --color-brand-light: #60a5fa;
+  --color-navy: #0f172a;
 
   /* Status sólidos (célula colorida inteira) */
-  --color-st-done: #00c875;
-  --color-st-working: #fdab3d;
-  --color-st-stuck: #df2f4a;
-  --color-st-blue: #579bfc;
-  --color-st-purple: #a25ddc;
-  --color-st-gray: #c4c4c4;
-  --color-st-dark: #797e93;
-  --color-st-yellow: #ffcb00;
+  --color-st-done: #10b981;
+  --color-st-working: #f59e0b;
+  --color-st-stuck: #ef4444;
+  --color-st-alert: #fb923c;
+  --color-st-blue: #3b82f6;
+  --color-st-purple: #8b5cf6;
+  --color-st-gray: #94a3b8;
+  --color-st-dark: #64748b;
+  --color-st-yellow: #facc15;
 
-  /* Prioridade (escala separada do status, como no monday) */
-  --color-pr-low: #579bfc;
-  --color-pr-medium: #5559df;
-  --color-pr-high: #401694;
-  --color-pr-critical: #333333;
+  /* Prioridade (escala azul → navy, separada do status) */
+  --color-pr-low: #60a5fa;
+  --color-pr-medium: #2563eb;
+  --color-pr-high: #1e3a8a;
+  --color-pr-critical: #0f172a;
 }
 
 html,
@@ -53,16 +58,16 @@ body {
 
 /* Faixas do DRI — mesma escala usada em lib/dri.ts */
 .band-low {
-  --band: #16a34a;
+  --band: #10b981;
 }
 .band-watch {
-  --band: #ca8a04;
+  --band: #f59e0b;
 }
 .band-high {
-  --band: #ea580c;
+  --band: #fb923c;
 }
 .band-critical {
-  --band: #dc2626;
+  --band: #ef4444;
 }
 
 /* Toggle switch estilo "ativar/desligar" das tabelas densas */

@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { logout } from "@/app/actions/auth";
+import { Logo } from "@/components/logo";
 
 export interface NavUser {
   name: string;
@@ -240,14 +241,7 @@ export function AppShell({
         </button>
 
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="flex items-end gap-[3px]" aria-hidden>
-            <span className="h-2.5 w-2 rounded-full bg-st-stuck" />
-            <span className="h-3.5 w-2 rounded-full bg-st-working" />
-            <span className="h-2.5 w-2 rounded-full bg-st-done" />
-          </span>
-          <span className="text-[17px] font-bold tracking-tight text-ink">
-            DataPulse
-          </span>
+          <Logo size={28} />
         </Link>
 
         <form

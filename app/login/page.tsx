@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { LoginForm } from "@/components/login-form";
+import { Logo } from "@/components/logo";
 import { Card } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -16,11 +17,9 @@ export default async function LoginPage({
   return (
     <div className="mx-auto max-w-sm py-12">
       <div className="mb-6 text-center">
-        <p className="text-xl font-semibold tracking-tight">
-          Data<span className="text-accent">Pulse</span>
-        </p>
+        <Logo size={44} className="justify-center" />
         <p className="mt-1 text-sm text-ink-soft">
-          Onde este projeto vai travar?
+          Inteligência para projetos em movimento
         </p>
       </div>
       <Card>
