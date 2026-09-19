@@ -209,6 +209,7 @@ export async function submitRevision(
         select: {
           id: true,
           projectId: true,
+          responsibleId: true,
           project: { select: { status: true, organizationId: true } },
         },
       },
@@ -222,6 +223,10 @@ export async function submitRevision(
     return { error: "Revisão não encontrada." };
   }
   if (!isProjectWritable(revision.document.project.status)) return { error: READONLY_MESSAGE };
+  // Especialista enxerga o projeto todo, mas só emite documento que é dele.
+  if (!canManageProjects(user) && revision.document.responsibleId !== user.id) {
+    return { error: "Só o gerente ou o responsável pelo documento podem emiti-lo." };
+  }
 
   const fromStatus = revision.status as DocumentStatus;
   if (!isActionAllowed(fromStatus, "SUBMITTED")) {
@@ -316,6 +321,7 @@ export async function recordAnalysis(
           select: {
             id: true,
             projectId: true,
+            responsibleId: true,
             project: { select: { status: true, organizationId: true } },
           },
         },
@@ -338,8 +344,12 @@ export async function recordAnalysis(
   if (!code || !code.isActive) return { error: "Código de análise inválido." };
 
   // Só o especialista designado ou quem gerencia o projeto pode dar parecer.
-  if (revision.specialistId && revision.specialistId !== user.id) {
-    if (!canManageProjects(user)) {
+  // Sem designado, vale o responsável pelo documento; nunca "qualquer especialista".
+  if (!canManageProjects(user)) {
+    const allowed = revision.specialistId
+      ? revision.specialistId === user.id
+      : revision.document.responsibleId === user.id;
+    if (!allowed) {
       return { error: "Você não é o especialista designado para esta revisão." };
     }
   }

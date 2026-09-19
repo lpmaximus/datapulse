@@ -190,10 +190,14 @@ export async function DocumentDetail({
     writable &&
     current != null &&
     current.status === "IN_REVIEW" &&
-    (current.specialist?.id === user.id || canManageProjects(user));
+    (canManageProjects(user) ||
+      (current.specialist ? current.specialist.id === user.id : doc.responsibleId === user.id));
 
   const canSubmit =
-    writable && current != null && isActionAllowed(current.status, "SUBMITTED");
+    writable &&
+    current != null &&
+    isActionAllowed(current.status, "SUBMITTED") &&
+    (canManageProjects(user) || doc.responsibleId === user.id);
 
   return (
     <div className="space-y-8">
