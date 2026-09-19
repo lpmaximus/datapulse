@@ -98,7 +98,7 @@ export default async function MyWorkPage() {
   const myTasks: MyTaskRow[] = await prisma.milestone.findMany({
     where: {
       assigneeId: user.id,
-      status: { not: "DONE" },
+      status: { notIn: ["DONE", "CANCELLED"] },
       project: { status: "ACTIVE" },
     },
     orderBy: [{ forecastDate: "asc" }, { plannedDate: "asc" }],

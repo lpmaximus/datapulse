@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole, requireUser, canManageProjects } from "@/lib/authz";
 import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
 import { assertPackageUsable, recomputePackages } from "@/lib/server/package-service";
+import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import {
   actionForEffect,
   daysBetween,
@@ -270,6 +271,7 @@ export async function submitRevision(
   ]);
 
   await recomputePackages([revision.milestoneId]);
+  await recalculateProjectDRI(revision.document.projectId);
 
   revalidatePath(`/documents/${revision.document.id}`);
   revalidatePath(`/projects/${revision.document.projectId}/documents`);
@@ -375,6 +377,7 @@ export async function recordAnalysis(
   ]);
 
   await recomputePackages([revision.milestoneId]);
+  await recalculateProjectDRI(revision.document.projectId);
 
   revalidatePath(`/documents/${revision.document.id}`);
   revalidatePath(`/projects/${revision.document.projectId}/documents`);
@@ -506,6 +509,7 @@ export async function createRevision(
   // Emitir a sucessora fecha o trabalho da revisão anterior no pacote dela
   // (comentada/reprovada deixa de estar "com o emissor"), e abre trabalho no novo.
   await recomputePackages([last?.milestoneId, packageId]);
+  await recalculateProjectDRI(document.projectId);
 
   revalidatePath(`/documents/${documentId}`);
   revalidatePath(`/projects/${document.projectId}/documents`);

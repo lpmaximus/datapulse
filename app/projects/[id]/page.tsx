@@ -166,9 +166,9 @@ export default async function ProjectPage({
 
   // Só as folhas contam para avanço/cronograma — marco com filhas não soma de novo.
   const leaves = leafTasks(tasks);
-  // Restrição dominante olha qualquer tarefa/marco (também os com filhas — DRI do
-  // marco vem de sinais próprios, não do rollup), não só o topo da árvore.
-  const openFlat = tasks.filter(isTaskOpen).sort((a, b) => scoreOf(b) - scoreOf(a));
+  // Restrição dominante: só folhas em aberto. O DRI do marco que agrupa é o pior das
+  // filhas, então incluí-lo repetiria a mesma restrição com o nome do marco.
+  const openFlat = leaves.filter(isTaskOpen).sort((a, b) => scoreOf(b) - scoreOf(a));
   const dominant = openFlat[0] && scoreOf(openFlat[0]) > 0 ? openFlat[0] : null;
   const progress = projectProgress(leaves);
   const health = scheduleHealth(leaves, now);
@@ -235,7 +235,7 @@ export default async function ProjectPage({
             <ProgressBar value={progress} />
           </div>
           <p className="mt-3 text-xs text-ink-soft">
-            {leaves.filter((t) => !isTaskOpen(t)).length} de {leaves.length} tarefa(s) concluída(s) · ponderado pela duração
+            {leaves.filter((t) => t.status === "DONE").length} de {leaves.filter((t) => t.status !== "CANCELLED").length} tarefa(s) concluída(s) · ponderado pela duração
           </p>
         </Card>
         <Card>

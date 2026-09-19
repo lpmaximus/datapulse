@@ -31,6 +31,23 @@ export interface SystemicSignalInput {
   replanCount?: number | null;
 }
 
+/**
+ * Sinais operacionais: o que já está registrado no banco sobre quem trava a
+ * tarefa (impedimentos, solicitações vencidas, revisões paradas em análise).
+ * Entram na Camada 1 como componentes que só existem quando a condição existe:
+ * ausência de impedimento não "esfria" um atraso de cronograma.
+ */
+export interface OperationalInput {
+  /** Data de abertura de cada impedimento ainda não resolvido. */
+  openImpedimentDates: Date[];
+  /** Prazo de cada solicitação pendente (nulo = sem prazo declarado). */
+  pendingRequestDueDates: (Date | null)[];
+  /** Desde quando cada revisão do pacote está em análise. */
+  reviewsInReviewSince: Date[];
+  /** Maior nº de revisões entre os documentos do pacote (ciclos de retrabalho). */
+  maxRevisionsPerDocument: number;
+}
+
 export interface MilestoneInput {
   id: string;
   name: string;
@@ -41,6 +58,7 @@ export interface MilestoneInput {
   actualDate?: Date | null;
   humanSignals: HumanSignalInput[];
   systemicSignals: SystemicSignalInput[];
+  operational?: OperationalInput;
 }
 
 export interface Component {
@@ -69,7 +87,7 @@ export interface DRIResult {
   };
 }
 
-export const FORMULA_VERSION = "mvp-1";
+export const FORMULA_VERSION = "mvp-2";
 
 /** Janelas de normalização. Recalibrar após o piloto (Semana 6). */
 export const DRI_CONFIG = {
@@ -83,6 +101,14 @@ export const DRI_CONFIG = {
   silenceHorizonDays: 21,
   replanCap: 3,
   openIssuesCap: 20,
+  /** Impedimento aberto há tanto tempo já satura o componente. */
+  impedimentHorizonDays: 21,
+  /** Solicitação vencida há tanto tempo já satura. */
+  requestOverdueHorizonDays: 14,
+  /** Revisão parada em análise há tanto tempo já satura. */
+  reviewStallHorizonDays: 14,
+  /** Nº de revisões de um mesmo documento que já satura o retrabalho (4 = 3 devoluções). */
+  revisionCyclesCap: 4,
   criticalityFactor: {
     LOW: 0.85,
     MEDIUM: 1,
@@ -165,11 +191,62 @@ export function computeHumanScore(
   return { score: weightedBlend(components), components, used: fresh.length };
 }
 
-/** Camada 1 — desvio objetivo de cronograma e custo. */
+/**
+ * Componentes operacionais. Cada um só aparece quando a condição existe
+ * (há impedimento, há solicitação vencida, há revisão em análise, há
+ * documento devolvido) — a ausência não é evidência de saúde.
+ */
+export function computeOperationalComponents(
+  op: OperationalInput | undefined,
+  now: Date,
+): Record<string, Component> {
+  const components: Record<string, Component> = {};
+  if (!op) return components;
+
+  if (op.openImpedimentDates.length > 0) {
+    const oldest = Math.max(...op.openImpedimentDates.map((d) => daysBetween(now, d)));
+    components.openImpediment = {
+      value: clamp((Math.max(0, oldest) / DRI_CONFIG.impedimentHorizonDays) * 100),
+      weight: 0.35,
+    };
+  }
+
+  const overdue = op.pendingRequestDueDates
+    .filter((d): d is Date => !!d && d.getTime() < now.getTime())
+    .map((d) => daysBetween(now, d));
+  if (overdue.length > 0) {
+    components.overdueRequests = {
+      value: clamp((Math.max(...overdue) / DRI_CONFIG.requestOverdueHorizonDays) * 100),
+      weight: 0.15,
+    };
+  }
+
+  if (op.reviewsInReviewSince.length > 0) {
+    const stalled = Math.max(...op.reviewsInReviewSince.map((d) => daysBetween(now, d)));
+    components.reviewStall = {
+      value: clamp((Math.max(0, stalled) / DRI_CONFIG.reviewStallHorizonDays) * 100),
+      weight: 0.2,
+    };
+  }
+
+  if (op.maxRevisionsPerDocument >= 2) {
+    components.revisionCycles = {
+      value: clamp(
+        ((op.maxRevisionsPerDocument - 1) / (DRI_CONFIG.revisionCyclesCap - 1)) * 100,
+      ),
+      weight: 0.1,
+    };
+  }
+
+  return components;
+}
+
+/** Camada 1 — desvio objetivo de cronograma e custo, mais sinais operacionais. */
 export function computeSystemicScore(
   milestone: Pick<MilestoneInput, "plannedDate" | "forecastDate" | "actualDate">,
   signals: SystemicSignalInput[],
   now: Date,
+  operational?: OperationalInput,
 ): { score: number | null; components: Record<string, Component>; used: number } {
   const components: Record<string, Component> = {};
   const latest = [...signals].sort(
@@ -178,7 +255,12 @@ export function computeSystemicScore(
 
   const plannedDate = latest?.plannedDate ?? milestone.plannedDate ?? null;
   const actualDate = latest?.actualDate ?? milestone.actualDate ?? null;
-  const effectiveDate = actualDate ?? milestone.forecastDate ?? now;
+  // Tarefa aberta cuja previsão já passou não "termina" no dia previsto: ela
+  // continua atrasada até alguém concluir ou reprogramar. Sem isso, prazo
+  // vencido sem reprogramação teria atraso zero.
+  const forecast = milestone.forecastDate;
+  const effectiveDate =
+    actualDate ?? (forecast && forecast.getTime() > now.getTime() ? forecast : now);
 
   let slipDays: number | null = null;
   if (latest?.delayDays != null) {
@@ -215,6 +297,8 @@ export function computeSystemicScore(
     };
   }
 
+  Object.assign(components, computeOperationalComponents(operational, now));
+
   return {
     score: weightedBlend(components),
     components,
@@ -228,7 +312,12 @@ export function computeMilestoneDRI(
   now: Date = new Date(),
 ): DRIResult {
   const human = computeHumanScore(milestone.humanSignals, now);
-  const systemic = computeSystemicScore(milestone, milestone.systemicSignals, now);
+  const systemic = computeSystemicScore(
+    milestone,
+    milestone.systemicSignals,
+    now,
+    milestone.operational,
+  );
 
   // Marco já entregue não é restrição: o gargalo está adiante.
   if (milestone.actualDate && milestone.actualDate.getTime() <= now.getTime()) {
@@ -328,6 +417,19 @@ export function computeProjectDRI(
     dominant: Math.round(dominant * 10) / 10,
     contextual: Math.round(contextual * 10) / 10,
   };
+}
+
+/**
+ * DRI de um Marco que agrupa tarefas: o pior das filhas. O marco só é tão
+ * saudável quanto sua restrição mais forte (TOC) — não é média, e não soma de
+ * novo o atraso que já está contado na filha.
+ */
+export function aggregateGroupDRI(
+  children: { name: string; score: number }[],
+): { score: number; dominantChild: string | null; childCount: number } {
+  if (children.length === 0) return { score: 0, dominantChild: null, childCount: 0 };
+  const top = children.reduce((a, b) => (b.score > a.score ? b : a));
+  return { score: top.score, dominantChild: top.name, childCount: children.length };
 }
 
 export type DRIBand = "low" | "watch" | "high" | "critical";

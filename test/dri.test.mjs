@@ -221,3 +221,113 @@ test("clamp protege contra NaN", () => {
   assert.equal(clamp(150), 100);
   assert.equal(clamp(-10), 0);
 });
+
+/* ------------------- mvp-2: sinais operacionais e agregação ------------------- */
+
+import { computeOperationalComponents, aggregateGroupDRI, FORMULA_VERSION } from "../lib/dri.ts";
+
+const noOp = {
+  openImpedimentDates: [],
+  pendingRequestDueDates: [],
+  reviewsInReviewSince: [],
+  maxRevisionsPerDocument: 0,
+};
+
+test("versão da fórmula", () => {
+  assert.equal(FORMULA_VERSION, "mvp-2");
+});
+
+test("prazo previsto já vencido, sem conclusão, continua gerando atraso até hoje", () => {
+  const r = computeSystemicScore(
+    { plannedDate: daysAgo(20), forecastDate: daysAgo(10), actualDate: null },
+    [],
+    NOW,
+  );
+  // atraso = hoje − planejado = 20 dias → 20/30
+  assert.ok(Math.abs(r.components.scheduleSlip.value - (20 / 30) * 100) < 0.01);
+});
+
+test("previsão futura continua valendo como data efetiva", () => {
+  const r = computeSystemicScore(
+    { plannedDate: daysAgo(10), forecastDate: daysAhead(5), actualDate: null },
+    [],
+    NOW,
+  );
+  // atraso = previsão − planejado = 15 dias
+  assert.ok(Math.abs(r.components.scheduleSlip.value - (15 / 30) * 100) < 0.01);
+});
+
+test("sem nenhuma condição operacional, nenhum componente operacional", () => {
+  assert.deepEqual(computeOperationalComponents(noOp, NOW), {});
+  assert.deepEqual(computeOperationalComponents(undefined, NOW), {});
+});
+
+test("impedimento aberto: pesa pelo mais antigo e satura em 21 dias", () => {
+  const half = computeOperationalComponents(
+    { ...noOp, openImpedimentDates: [daysAgo(2), daysAgo(10.5)] },
+    NOW,
+  );
+  assert.ok(Math.abs(half.openImpediment.value - 50) < 0.01);
+  const full = computeOperationalComponents({ ...noOp, openImpedimentDates: [daysAgo(40)] }, NOW);
+  assert.equal(full.openImpediment.value, 100);
+});
+
+test("solicitação vencida: só conta a com prazo passado; sem prazo ou no prazo não", () => {
+  const c = computeOperationalComponents(
+    { ...noOp, pendingRequestDueDates: [daysAgo(7), daysAhead(3), null] },
+    NOW,
+  );
+  assert.ok(Math.abs(c.overdueRequests.value - 50) < 0.01);
+  const none = computeOperationalComponents(
+    { ...noOp, pendingRequestDueDates: [daysAhead(3), null] },
+    NOW,
+  );
+  assert.equal(none.overdueRequests, undefined);
+});
+
+test("revisão parada em análise: 7 dias = metade do horizonte de 14", () => {
+  const c = computeOperationalComponents({ ...noOp, reviewsInReviewSince: [daysAgo(7)] }, NOW);
+  assert.ok(Math.abs(c.reviewStall.value - 50) < 0.01);
+});
+
+test("ciclos de revisão: 1 revisão não pesa; 4 saturam", () => {
+  assert.equal(
+    computeOperationalComponents({ ...noOp, maxRevisionsPerDocument: 1 }, NOW).revisionCycles,
+    undefined,
+  );
+  const two = computeOperationalComponents({ ...noOp, maxRevisionsPerDocument: 2 }, NOW);
+  assert.ok(Math.abs(two.revisionCycles.value - (1 / 3) * 100) < 0.01);
+  const four = computeOperationalComponents({ ...noOp, maxRevisionsPerDocument: 4 }, NOW);
+  assert.equal(four.revisionCycles.value, 100);
+});
+
+test("impedimento antigo sozinho já vira restrição, sem datas nem sinais", () => {
+  const r = computeMilestoneDRI(
+    { ...baseMilestone, operational: { ...noOp, openImpedimentDates: [daysAgo(21)] } },
+    NOW,
+  );
+  assert.equal(r.score, 100);
+  assert.ok(r.breakdown.systemic.openImpediment);
+});
+
+test("tarefa concluída zera o DRI mesmo com impedimento antigo registrado", () => {
+  const r = computeMilestoneDRI(
+    {
+      ...baseMilestone,
+      actualDate: daysAgo(1),
+      operational: { ...noOp, openImpedimentDates: [daysAgo(30)] },
+    },
+    NOW,
+  );
+  assert.equal(r.score, 0);
+});
+
+test("marco que agrupa: pior das filhas, não média", () => {
+  const g = aggregateGroupDRI([
+    { name: "A", score: 20 },
+    { name: "B", score: 80 },
+    { name: "C", score: 50 },
+  ]);
+  assert.deepEqual(g, { score: 80, dominantChild: "B", childCount: 3 });
+  assert.deepEqual(aggregateGroupDRI([]), { score: 0, dominantChild: null, childCount: 0 });
+});
