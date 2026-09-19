@@ -13,6 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "import:master": "tsx scripts/import-master.ts",
     "import:mpp": "tsx scripts/import-mpp.ts",
+    "acc:explore": "tsx --env-file=.env scripts/acc-explore.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {
