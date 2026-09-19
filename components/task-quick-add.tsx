@@ -70,7 +70,7 @@ function TaskEntryRow({
               placeholder="Nova tarefa — digite e tecle Enter"
               className={cellInput + " flex-1"}
             />
-            <select form={formId} name="kind" defaultValue="TASK" aria-label="Tipo" className={cellInput + " w-24 border-l border-line"}>
+            <select form={formId} name="kind" defaultValue="TASK" aria-label="Tipo" className={cellInput + " w-24! shrink-0 border-l border-line"}>
               <option value="TASK">Tarefa</option>
               <option value="MILESTONE">Marco</option>
             </select>

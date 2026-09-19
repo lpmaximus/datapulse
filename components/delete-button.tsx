@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { Trash2 } from "lucide-react";
@@ -44,6 +45,33 @@ export function DeleteButton({
   const [armed, setArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Balão da linha da tabela: a tabela rola dentro de um contêiner com
+  // overflow, que cortaria um balão `absolute`. Ele vai para o <body> com
+  // posição fixa, ancorado no ícone, e abre para cima quando falta espaço.
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number; up: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!armed || !compact) return;
+    const update = () => {
+      const r = anchorRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const up = window.innerHeight - r.bottom < 160;
+      setPos({
+        top: up ? r.top - 4 : r.bottom + 4,
+        right: Math.max(8, window.innerWidth - r.right),
+        up,
+      });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [armed, compact]);
 
   function run() {
     startTransition(async () => {
@@ -90,8 +118,18 @@ export function DeleteButton({
     <span
       className={clsx(
         "flex flex-wrap items-center gap-2 text-xs",
-        compact && "absolute right-0 top-full z-20 mt-1 w-64 whitespace-normal rounded-md border border-line bg-surface p-3 text-left shadow-lg",
+        compact && "z-[70] w-64 whitespace-normal rounded-md border border-line bg-surface p-3 text-left shadow-lg",
       )}
+      style={
+        compact && pos
+          ? {
+              position: "fixed",
+              top: pos.top,
+              right: pos.right,
+              transform: pos.up ? "translateY(-100%)" : undefined,
+            }
+          : undefined
+      }
       onClick={(e) => e.stopPropagation()}
     >
       <span className="text-red-700">{error ?? confirm}</span>
@@ -114,11 +152,11 @@ export function DeleteButton({
   // Na linha da tabela a confirmação abre num balão, sem alargar a coluna.
   if (compact) {
     return (
-      <span className="relative inline-block">
+      <span ref={anchorRef} className="inline-block">
         <span className="inline-flex p-1.5 text-red-700">
           <Trash2 size={14} />
         </span>
-        {panel}
+        {pos ? createPortal(panel, document.body) : null}
       </span>
     );
   }

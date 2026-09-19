@@ -79,7 +79,7 @@ function DocumentEntryRow({
               name="number"
               aria-label="Nº do documento"
               placeholder="Nº"
-              className={cellInput + " w-32 border-r border-line"}
+              className={cellInput + " w-32! shrink-0 border-r border-line"}
             />
             <input
               form={formId}
@@ -123,7 +123,7 @@ function DocumentEntryRow({
             name="revisionName"
             defaultValue="R00"
             aria-label="Revisão inicial"
-            className={cellInput + " w-20 text-center font-mono text-xs"}
+            className={cellInput + " w-20! shrink-0 text-center font-mono text-xs"}
           />
         </EntryCell>
 
@@ -146,7 +146,7 @@ function DocumentEntryRow({
               type="date"
               name="dueAt"
               aria-label="Prazo da 1ª análise"
-              className={cellInput + " w-36"}
+              className={cellInput + " w-36! shrink-0"}
             />
             <EntryAddButton formId={formId} pending={pending} label="" />
           </div>
