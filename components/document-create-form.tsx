@@ -5,7 +5,9 @@ import { useFormStatus } from "react-dom";
 import { Plus, X } from "lucide-react";
 import { createDocument, type DocumentFormState } from "@/app/actions/documents";
 import { Button, Field, inputClass } from "@/components/ui";
+import { PackageSelect } from "@/components/package-select";
 import type {
+  PackageOption,
   EmpresaRow,
   DisciplineRow,
   ProjectOption,
@@ -35,12 +37,14 @@ function Submit() {
 export function DocumentCreateForm({
   projectId,
   projects,
+  packages,
   disciplines,
   firms,
   users,
 }: {
   projectId?: string;
   projects?: ProjectOption[];
+  packages: PackageOption[];
   disciplines: DisciplineRow[];
   firms: EmpresaRow[];
   users: UserOption[];
@@ -118,6 +122,19 @@ export function DocumentCreateForm({
           ) : (
             <input type="hidden" name="projectId" value={projectId ?? ""} />
           )}
+
+          <div className="sm:col-span-3">
+            <Field
+              label="Pacote de revisão"
+              hint="Emissão (tarefa) em que este documento chega, dentro de um marco."
+            >
+              <PackageSelect
+                packages={packages}
+                showProject={!!projects}
+                className={inputClass}
+              />
+            </Field>
+          </div>
 
           <Field label="Nº do documento" hint="Como o cliente identifica.">
             <input name="number" className={inputClass} placeholder="PE-ELE-001" />

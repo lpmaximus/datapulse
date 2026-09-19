@@ -8,7 +8,13 @@
  */
 
 export type TaskKind = "TASK" | "MILESTONE";
-export type TaskStatus = "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "BLOCKED" | "DONE";
+export type TaskStatus =
+  | "NOT_STARTED"
+  | "IN_PROGRESS"
+  | "IN_REVIEW"
+  | "BLOCKED"
+  | "DONE"
+  | "CANCELLED";
 export type Priority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type ProjectStatus = "ACTIVE" | "PAUSED" | "CLOSED";
 
@@ -23,6 +29,7 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   IN_REVIEW: "Em revisão",
   BLOCKED: "Impedida",
   DONE: "Concluída",
+  CANCELLED: "Cancelada",
 };
 
 /**
@@ -36,6 +43,7 @@ export const TASK_STATUS_COLOR: Record<TaskStatus, string> = {
   IN_REVIEW: "bg-st-purple",
   BLOCKED: "bg-st-stuck",
   DONE: "bg-st-done",
+  CANCELLED: "bg-st-cancelled",
 };
 
 export const TASK_STATUS_ORDER: TaskStatus[] = [
@@ -44,6 +52,7 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
   "IN_REVIEW",
   "NOT_STARTED",
   "BLOCKED",
+  "CANCELLED",
 ];
 
 export const PRIORITY_LABEL: Record<Priority, string> = {
@@ -97,8 +106,16 @@ export function taskDueDate(t: Pick<TaskDates, "plannedDate" | "forecastDate">):
   return t.forecastDate ?? t.plannedDate ?? null;
 }
 
+/** Em aberto = nem concluída nem cancelada. Cancelada não conta como atraso. */
 export function isTaskOpen(t: Pick<TaskDates, "status">): boolean {
-  return t.status !== "DONE";
+  return t.status !== "DONE" && t.status !== "CANCELLED";
+}
+
+/** Tipo (texto livre em `Milestone.type`) que identifica o pacote de revisão. */
+export const PACKAGE_TYPE = "Pacote de revisão";
+
+export function isPackageType(type: string | null | undefined): boolean {
+  return type === PACKAGE_TYPE;
 }
 
 /** Atrasada = em aberto e com prazo anterior a hoje (o próprio dia ainda vale). */
@@ -162,7 +179,9 @@ export function scheduleHealth(tasks: TaskDates[], now: Date): ScheduleHealth {
  * Marco não tem duração — conta como peso 1 dia (0% ou 100%), para não
  * dominar nem sumir. Tarefa sem datas também pesa 1.
  */
-export function projectProgress(tasks: TaskDates[]): number | null {
+export function projectProgress(allTasks: TaskDates[]): number | null {
+  // Cancelada sai do cálculo: não é trabalho a fazer nem feito.
+  const tasks = allTasks.filter((t) => t.status !== "CANCELLED");
   if (tasks.length === 0) return null;
   let weighted = 0;
   let total = 0;
@@ -265,9 +284,15 @@ export interface RollupResult {
  * alcançado quando a última terminar); prazo real só é preenchido quando
  * todas as filhas estiverem concluídas.
  */
-export function rollupMilestone(children: TaskDates[]): RollupResult {
-  if (children.length === 0) {
+export function rollupMilestone(allChildren: TaskDates[]): RollupResult {
+  if (allChildren.length === 0) {
     return { status: "NOT_STARTED", progress: 0, forecastDate: null, actualDate: null };
+  }
+  // Filhas canceladas ficam fora do rollup; se todas foram canceladas, o
+  // marco também está cancelado.
+  const children = allChildren.filter((c) => c.status !== "CANCELLED");
+  if (children.length === 0) {
+    return { status: "CANCELLED", progress: 0, forecastDate: null, actualDate: null };
   }
   const progress = projectProgress(children) ?? 0;
   const allDone = children.every((c) => c.status === "DONE");

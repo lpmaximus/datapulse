@@ -53,6 +53,7 @@ export const DOCUMENT_SELECT = {
       notes: true,
       specialist: { select: { id: true, name: true } },
       analysisCode: { select: { id: true, tag: true, name: true } },
+      milestone: { select: { id: true, name: true, parent: { select: { name: true } } } },
       _count: { select: { transitions: true } },
     },
   },

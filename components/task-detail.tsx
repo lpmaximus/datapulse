@@ -31,7 +31,9 @@ import {
   slipDays,
   taskDueDate,
   TASK_KIND_LABEL,
+  isPackageType,
 } from "@/lib/tasks";
+import { DocumentStatusChip } from "@/components/document-status";
 import { isRequestOpen } from "@/lib/requests";
 import type { MilestoneDetailRow, MilestoneRequestRow, UserOption } from "@/types/models";
 
@@ -110,6 +112,22 @@ export async function TaskDetail({
           orderBy: { name: "asc" },
         })
       : [];
+
+  const isPackage = isPackageType(task.type);
+  const packageRevisions = isPackage
+    ? await prisma.documentRevision.findMany({
+        where: { milestoneId: taskId },
+        orderBy: [{ document: { number: "asc" } }, { document: { name: "asc" } }, { sequence: "asc" }],
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          dueAt: true,
+          analysisCode: { select: { tag: true } },
+          document: { select: { id: true, number: true, name: true } },
+        },
+      })
+    : [];
 
   const [requests, candidates]: [MilestoneRequestRow[], UserOption[]] = await Promise.all([
     prisma.signalRequest.findMany({
@@ -255,6 +273,7 @@ export async function TaskDetail({
               users={candidates}
               milestoneOptions={milestoneOptions}
               childCount={task.children.length}
+              isPackage={isPackage}
               task={{
                 id: task.id,
                 name: task.name,
@@ -297,6 +316,44 @@ export async function TaskDetail({
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+      ) : null}
+
+      {isPackage ? (
+        <section>
+          <SectionTitle hint={`${packageRevisions.length} revisão(ões) — status e prazo deste pacote vêm delas`}>
+            Documentos do pacote
+          </SectionTitle>
+          <div className="overflow-hidden rounded-lg border border-line bg-surface">
+            {packageRevisions.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-ink-faint">
+                Nenhum documento neste pacote. Cadastre em Documentos escolhendo este pacote.
+              </p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {packageRevisions.map((r) => (
+                  <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+                    <Link href={`/documents/${r.document.id}`} className="min-w-0 truncate text-sm text-ink hover:text-accent">
+                      {r.document.number ? `${r.document.number} — ` : ""}
+                      {r.document.name}
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded border border-line bg-canvas px-2 py-0.5 font-mono text-xs font-semibold">
+                        {r.name}
+                      </span>
+                      <DocumentStatusChip status={r.status} />
+                      {r.analysisCode ? (
+                        <span className="rounded border border-line px-1.5 py-0.5 font-mono text-[11px] text-ink-soft">
+                          {r.analysisCode.tag}
+                        </span>
+                      ) : null}
+                      {r.dueAt ? <span className="text-xs text-ink-faint">prazo {formatDate(r.dueAt)}</span> : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
       ) : null}

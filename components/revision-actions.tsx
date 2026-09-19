@@ -10,7 +10,8 @@ import {
 } from "@/app/actions/documents";
 import { Button, Field, inputClass } from "@/components/ui";
 import { EFFECT_LABEL, type AnalysisCodeLike } from "@/lib/documents";
-import type { UserOption } from "@/types/models";
+import { PackageSelect } from "@/components/package-select";
+import type { PackageOption, UserOption } from "@/types/models";
 
 function Submit({ label, pendingLabel }: { label: string; pendingLabel: string }) {
   const { pending } = useFormStatus();
@@ -131,9 +132,11 @@ export function AnalysisForm({
 export function NewRevisionForm({
   documentId,
   suggestedName,
+  packages,
 }: {
   documentId: string;
   suggestedName: string;
+  packages: PackageOption[];
 }) {
   const [state, formAction] = useActionState<TransitionState, FormData>(
     createRevision,
@@ -151,6 +154,13 @@ export function NewRevisionForm({
           className={inputClass}
           placeholder="R01"
         />
+      </Field>
+
+      <Field
+        label="Pacote de revisão"
+        hint="Cada emissão é uma tarefa dentro de um marco. Em geral, um pacote novo."
+      >
+        <PackageSelect packages={packages} className={inputClass} />
       </Field>
 
       <Field label="Emitida em">

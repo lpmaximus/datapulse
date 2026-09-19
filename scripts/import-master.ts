@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { hashPassword, generateTemporaryPassword } from "../lib/password";
+import { groupLegacyRevisionsIntoPackages } from "../lib/server/package-service";
 import { daysBetween, type DocumentAction, type DocumentStatus } from "../lib/documents";
 import {
   parseMaster,
@@ -319,7 +320,13 @@ async function main(): Promise<void> {
     revisions += doc.revisions.length;
   }
 
+  // Toda revisão fica dentro de um pacote (Tarefa) dentro de um Marco. A carga
+  // não sabe de emissões reais, então agrupa como o legado: projeto + dia de
+  // emissão + disciplina, no Marco "Legado — documentos existentes".
+  const grouped = await groupLegacyRevisionsIntoPackages(prisma, { organizationId: org.id });
+
   log(`\nCarga concluída em "${org.name}".`);
+  log(`  pacotes     ${grouped.packages} novo(s) para ${grouped.revisions} revisão(ões)`);
   log(`  projetos    ${projectId.size}`);
   log(`  documentos  ${docs}`);
   log(`  revisões    ${revisions}`);

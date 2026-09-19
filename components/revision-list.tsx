@@ -48,6 +48,9 @@ export function RevisionList({ revisions }: { revisions: RevisionRow[] }) {
           </div>
 
           <p className="mt-1 text-xs text-ink-faint">
+            {r.milestone
+              ? `pacote ${r.milestone.name}${r.milestone.parent ? ` (${r.milestone.parent.name})` : ""} · `
+              : "sem pacote · "}
             {r.specialist ? `analista ${r.specialist.name}` : "sem analista designado"}
             {r.issuedAt ? ` · emitida ${formatDate(r.issuedAt)}` : ""}
             {r.dueAt ? ` · prazo ${formatDate(r.dueAt)}` : ""}

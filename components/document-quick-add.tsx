@@ -14,13 +14,16 @@ import {
   entryRowClass,
   onEntryKeyDown,
 } from "@/components/grid-entry";
-import type { DisciplineRow, ProjectOption } from "@/types/models";
+import { PackageSelect } from "@/components/package-select";
+import type { DisciplineRow, PackageOption, ProjectOption } from "@/types/models";
 
 export interface DocumentQuickAddConfig {
   /** Dentro de um projeto ele já é conhecido. */
   projectId?: string;
   /** Na visão geral o projeto é escolhido na própria linha. */
   projects?: ProjectOption[];
+  /** Pacotes de revisão (Tarefas) onde o documento pode ser emitido — obrigatório escolher um. */
+  packages: PackageOption[];
   disciplines: DisciplineRow[];
 }
 
@@ -40,6 +43,7 @@ export function DocumentQuickAdd(props: DocumentQuickAddConfig & { showProject: 
 function DocumentEntryRow({
   projectId,
   projects,
+  packages,
   disciplines,
   showProject,
   onClose,
@@ -125,7 +129,14 @@ function DocumentEntryRow({
 
         <EntryBlank />
         <EntryBlank />
-        <EntryBlank />
+        <EntryCell>
+          <PackageSelect
+            form={formId}
+            packages={packages}
+            showProject={showProject}
+            className={cellInput}
+          />
+        </EntryCell>
         <EntryBlank />
 
         <EntryCell>

@@ -88,7 +88,8 @@ export interface ProjectMemberRow {
 }
 
 export type TaskKindValue = "TASK" | "MILESTONE";
-export type TaskStatusValue = "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "BLOCKED" | "DONE";
+export type TaskStatusValue = "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "BLOCKED" | "DONE"
+  | "CANCELLED";
 
 /** Campos de tarefa acrescentados ao antigo "marco". */
 export interface TaskFieldsRow {
@@ -475,7 +476,25 @@ export interface RevisionRow {
   notes: string | null;
   specialist: { id: string; name: string } | null;
   analysisCode: { id: string; tag: string; name: string } | null;
+  /** Pacote de revisão (Tarefa) em que foi emitida. Nulo só no legado sem backfill. */
+  milestone: { id: string; name: string; parent: { name: string } | null } | null;
   _count: { transitions: number };
+}
+
+/** Pacote de revisão escolhível ao emitir um documento/revisão. */
+export interface PackageOption {
+  id: string;
+  name: string;
+  projectId: string;
+  projectName: string;
+  marcoId: string;
+  marcoName: string;
+}
+
+/** Marco onde um pacote novo pode ser criado. */
+export interface MarcoOption {
+  id: string;
+  name: string;
 }
 
 export interface DocumentTableRow {

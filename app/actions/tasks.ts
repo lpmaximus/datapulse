@@ -5,10 +5,13 @@ import { prisma } from "@/lib/prisma";
 import { requireRole, requireUser, canManageProjects } from "@/lib/authz";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import { projectIsWritable, READONLY_MESSAGE } from "@/lib/server/project-guard";
+import { recomputeRollup } from "@/lib/server/rollup";
+import { recomputePackage } from "@/lib/server/package-service";
 import {
   normalizeTaskUpdate,
+  isPackageType,
+  PACKAGE_TYPE,
   validateParentLink,
-  rollupMilestone,
   buildDeadlineChange,
   type Priority,
   type TaskKind,
@@ -27,11 +30,23 @@ function optDate(fd: FormData, key: string): Date | null {
 }
 
 const KINDS: TaskKind[] = ["TASK", "MILESTONE"];
-const STATUSES: TaskStatus[] = ["NOT_STARTED", "IN_PROGRESS", "IN_REVIEW", "BLOCKED", "DONE"];
+const STATUSES: TaskStatus[] = [
+  "NOT_STARTED",
+  "IN_PROGRESS",
+  "IN_REVIEW",
+  "BLOCKED",
+  "DONE",
+  "CANCELLED",
+];
 const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
 function pick<T extends string>(value: string, allowed: T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function kindIsNotTask(fd: FormData): boolean {
+  const k = str(fd, "kind");
+  return k !== "" && k !== "TASK";
 }
 
 export interface TaskFormState {
@@ -53,56 +68,6 @@ function checkDates(startDate: Date | null, plannedDate: Date | null): string | 
     return "O início não pode ser depois do término planejado.";
   }
   return null;
-}
-
-/**
- * Recalcula status/avanço/prazos do Marco a partir das Tarefas filhas —
- * chamado sempre que uma filha é criada/editada/movida, ou o próprio Marco
- * teve uma filha adicionada/removida. Grava histórico quando o prazo previsto
- * do Marco mudar por causa disso.
- */
-async function recomputeRollup(milestoneId: string) {
-  const children = await prisma.milestone.findMany({
-    where: { parentId: milestoneId },
-    select: {
-      kind: true,
-      status: true,
-      progress: true,
-      startDate: true,
-      plannedDate: true,
-      forecastDate: true,
-      actualDate: true,
-    },
-  });
-  if (children.length === 0) return;
-
-  const current = await prisma.milestone.findUnique({
-    where: { id: milestoneId },
-    select: { forecastDate: true },
-  });
-  const result = rollupMilestone(children);
-  const change = current ? buildDeadlineChange(current.forecastDate, result.forecastDate) : null;
-
-  await prisma.milestone.update({
-    where: { id: milestoneId },
-    data: {
-      status: result.status,
-      progress: result.progress,
-      forecastDate: result.forecastDate,
-      actualDate: result.actualDate,
-    },
-  });
-
-  if (change) {
-    await prisma.deadlineChange.create({
-      data: {
-        milestoneId,
-        fromDate: change.fromDate,
-        toDate: change.toDate,
-        reason: "Recalculado a partir das tarefas filhas.",
-      },
-    });
-  }
 }
 
 /** Carrega um marco candidato a pai e valida o vínculo antes de gravar. */
@@ -144,6 +109,10 @@ export async function createTask(
   if (dateError) return { error: dateError };
 
   const rawParentId = str(formData, "parentId") || null;
+  // Pacote de revisão é sempre uma Tarefa dentro de um Marco.
+  if (isPackageType(str(formData, "type")) && (kind !== "TASK" || !rawParentId)) {
+    return { error: "Pacote de revisão precisa estar dentro de um marco." };
+  }
   const parentResult = kind === "TASK" ? await resolveParent(rawParentId, { projectId, kind }) : { parentId: null };
   if ("error" in parentResult) return { error: parentResult.error };
 
@@ -202,6 +171,7 @@ export async function updateTask(
       id: true,
       projectId: true,
       kind: true,
+      type: true,
       parentId: true,
       assigneeId: true,
       startDate: true,
@@ -220,7 +190,17 @@ export async function updateTask(
   }
 
   const childCount = await prisma.milestone.count({ where: { parentId: taskId } });
-  const isGroup = childCount > 0;
+  // Pacote de revisão se comporta como grupo: status/avanço/prazo vêm das
+  // revisões dentro dele, não do formulário.
+  const isPackage = isPackageType(task.type);
+  const isGroup = childCount > 0 || isPackage;
+
+  if (isManager && !isPackage && isPackageType(str(formData, "type"))) {
+    return { error: "O tipo \"Pacote de revisão\" é reservado; crie o pacote pela tela de documentos." };
+  }
+  if (isPackage && isManager && kindIsNotTask(formData)) {
+    return { error: "Um pacote de revisão é sempre uma tarefa." };
+  }
 
   // Marco com filhas não muda de tipo, e status/avanço/prazo vêm do rollup — não do formulário.
   const kind: TaskKind = isGroup
@@ -234,6 +214,7 @@ export async function updateTask(
   let parentId = task.parentId;
   if (isManager && kind === "TASK") {
     const rawParentId = str(formData, "parentId") || null;
+    if (isPackage && !rawParentId) return { error: "Pacote de revisão precisa estar dentro de um marco." };
     if (rawParentId !== task.parentId) {
       const parentResult = await resolveParent(rawParentId, { id: task.id, projectId: task.projectId, kind });
       if ("error" in parentResult) return { error: parentResult.error };
@@ -266,7 +247,7 @@ export async function updateTask(
       ? {
           name: str(formData, "name") || undefined,
           kind,
-          type: str(formData, "type") || null,
+          type: isPackage ? PACKAGE_TYPE : str(formData, "type") || null,
           criticality: pick(str(formData, "criticality"), PRIORITIES, "MEDIUM"),
           assigneeId,
         }
@@ -308,7 +289,8 @@ export async function updateTask(
   }
 
   // Recalcula o(s) marco(s) afetado(s): o próprio (se agrupa) e o antigo/novo pai, se mudou.
-  if (isGroup) await recomputeRollup(taskId);
+  if (isPackage) await recomputePackage(taskId);
+  else if (isGroup) await recomputeRollup(taskId);
   if (parentId !== task.parentId) {
     if (task.parentId) await recomputeRollup(task.parentId);
     if (parentId) await recomputeRollup(parentId);
@@ -330,6 +312,7 @@ async function loadForImpediment(taskId: string, organizationId: string) {
       id: true,
       projectId: true,
       status: true,
+      type: true,
       assigneeId: true,
       parentId: true,
       project: { select: { status: true } },
@@ -377,12 +360,13 @@ export async function addImpediment(
         createdById: user.id,
       },
     }),
-    ...(task.status !== "DONE"
+    ...(task.status !== "DONE" && task.status !== "CANCELLED"
       ? [prisma.milestone.update({ where: { id: taskId }, data: { status: "BLOCKED" } })]
       : []),
   ]);
 
-  if (task.parentId) await recomputeRollup(task.parentId);
+  if (isPackageType(task.type)) await recomputePackage(task.id);
+  else if (task.parentId) await recomputeRollup(task.parentId);
   revalidateTask(task.projectId, taskId);
   return { ok: true, at: Date.now() };
 }
@@ -411,11 +395,15 @@ export async function resolveImpediment(formData: FormData): Promise<void> {
   const stillOpen = await prisma.impediment.count({
     where: { milestoneId: task.id, resolvedAt: null },
   });
-  if (stillOpen === 0 && task.status === "BLOCKED") {
-    await prisma.milestone.update({ where: { id: task.id }, data: { status: "IN_PROGRESS" } });
+  if (isPackageType(task.type)) {
+    // O status do pacote é projeção das revisões; sem bloqueio, volta ao que elas dizem.
+    await recomputePackage(task.id);
+  } else {
+    if (stillOpen === 0 && task.status === "BLOCKED") {
+      await prisma.milestone.update({ where: { id: task.id }, data: { status: "IN_PROGRESS" } });
+    }
+    if (task.parentId) await recomputeRollup(task.parentId);
   }
-
-  if (task.parentId) await recomputeRollup(task.parentId);
   revalidateTask(task.projectId, task.id);
 }
 
@@ -437,10 +425,27 @@ export async function deleteTask(formData: FormData): Promise<DeleteResult> {
 
   const task = await prisma.milestone.findFirst({
     where: { id: taskId, project: { organizationId: me.organizationId } },
-    select: { id: true, projectId: true, parentId: true },
+    select: { id: true, projectId: true, parentId: true, kind: true, type: true },
   });
   if (!task) return { error: "Tarefa não encontrada." };
   if (!(await projectIsWritable(task.projectId, me.organizationId))) return { error: READONLY_MESSAGE };
+
+  // Pacote com revisões ou marco com pacotes não se exclui: as revisões
+  // ficariam sem pacote e os pacotes sem marco.
+  if (isPackageType(task.type)) {
+    const revisions = await prisma.documentRevision.count({ where: { milestoneId: task.id } });
+    if (revisions > 0) {
+      return { error: "Este pacote tem revisões de documento e não pode ser excluído. Para encerrá-lo, cancele as revisões." };
+    }
+  }
+  if (task.kind === "MILESTONE") {
+    const packages = await prisma.milestone.count({
+      where: { parentId: task.id, type: PACKAGE_TYPE },
+    });
+    if (packages > 0) {
+      return { error: "Este marco tem pacotes de revisão. Mova os pacotes para outro marco antes de excluí-lo." };
+    }
+  }
 
   await prisma.milestone.delete({ where: { id: task.id } });
   if (task.parentId) await recomputeRollup(task.parentId);

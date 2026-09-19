@@ -178,3 +178,38 @@ test("histórico de reprogramação só grava quando havia prazo anterior e ele 
     toDate: d("2026-09-25"),
   });
 });
+
+/* ------------------------- status Cancelada ------------------------- */
+
+import { isTaskOpen, isPackageType, PACKAGE_TYPE } from "../lib/tasks.ts";
+
+test("Cancelada não é aberta nem atrasa", () => {
+  const t = task({ status: "CANCELLED", plannedDate: d("2026-01-01") });
+  assert.equal(isTaskOpen(t), false);
+  assert.equal(isTaskOverdue(t, NOW), false);
+});
+
+test("projectProgress ignora tarefas canceladas", () => {
+  const p = projectProgress([
+    task({ status: "DONE", progress: 100 }),
+    task({ status: "CANCELLED", progress: 0 }),
+  ]);
+  assert.equal(p, 100);
+  assert.equal(projectProgress([task({ status: "CANCELLED" })]), null);
+});
+
+test("rollup do marco: filhas canceladas saem; todas canceladas = marco Cancelado", () => {
+  const r = rollupMilestone([
+    task({ status: "DONE", progress: 100, plannedDate: d("2026-09-01"), actualDate: d("2026-09-02") }),
+    task({ status: "CANCELLED", plannedDate: d("2026-12-01") }),
+  ]);
+  assert.equal(r.status, "DONE");
+  assert.equal(r.forecastDate.toISOString().slice(0, 10), "2026-09-01");
+  assert.equal(rollupMilestone([task({ status: "CANCELLED" })]).status, "CANCELLED");
+});
+
+test("isPackageType", () => {
+  assert.equal(isPackageType(PACKAGE_TYPE), true);
+  assert.equal(isPackageType("Engenharia"), false);
+  assert.equal(isPackageType(null), false);
+});

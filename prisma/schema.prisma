@@ -137,6 +137,8 @@ enum TaskStatus {
   IN_REVIEW
   BLOCKED
   DONE
+  /// Cancelada: fora do avanço, do atraso e do rollup do Marco.
+  CANCELLED
 }
 
 /// Tarefa do projeto. O nome da tabela continua `Milestone` porque DRI,
@@ -186,6 +188,10 @@ model Milestone {
   impediments     Impediment[]
   requests        Request[]
   deadlineChanges DeadlineChange[]
+  /// Se a tarefa é um pacote de revisão (type "Pacote de revisão"), as
+  /// revisões de documento emitidas nele. Status/avanço/prazo do pacote são
+  /// projeção destas revisões (ver lib/documents.ts, projectPackageStatus).
+  documentRevisions DocumentRevision[]
 
   @@index([projectId])
   @@index([projectId, criticality])
@@ -630,6 +636,13 @@ model DocumentRevision {
   documentId String
   document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
+  /// Pacote de revisão (Tarefa) em que esta revisão foi emitida — modelo do
+  /// ACC: os documentos chegam juntos numa emissão e essa emissão é a tarefa.
+  /// Nulo só no legado anterior aos pacotes (backfill-packages.ts); toda
+  /// revisão nova exige pacote, validado na Server Action.
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+
   /// Identificador da revisão (REV_DOC): "R00", "A", "0"...
   name String
   /// Ordem cronológica, para não depender de ordenar string.
@@ -664,6 +677,7 @@ model DocumentRevision {
   transitions DocumentTransition[]
 
   @@unique([documentId, name])
+  @@index([milestoneId])
   @@index([documentId, sequence])
   @@index([status])
   @@index([specialistId, status])

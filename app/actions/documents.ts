@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireRole, requireUser, canManageProjects } from "@/lib/authz";
 import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
+import { assertPackageUsable, recomputePackages } from "@/lib/server/package-service";
 import {
   actionForEffect,
   daysBetween,
@@ -26,6 +27,13 @@ function optDate(fd: FormData, key: string): Date | null {
   if (!v) return null;
   const d = new Date(v + "T00:00:00.000Z");
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Pacote mudou de estado: quadro do projeto, painel e "minhas demandas" também. */
+function revalidatePackages(projectId: string) {
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/");
+  revalidatePath("/my-work");
 }
 
 export interface DocumentFormState {
@@ -113,6 +121,12 @@ export async function createDocument(
     return { error: `Já existe um documento "${name}" neste projeto.` };
   }
 
+  // Toda revisão nasce dentro de um pacote (Tarefa), que por sua vez fica
+  // dentro de um Marco. Sem pacote o documento não entra no fluxo do projeto.
+  const packageId = str(formData, "packageId");
+  const packageError = await assertPackageUsable(packageId, projectId, user.organizationId);
+  if (packageError) return { error: packageError };
+
   const revisionName = str(formData, "revisionName") || "R00";
 
   await prisma.document.create({
@@ -128,6 +142,7 @@ export async function createDocument(
       revisions: {
         create: {
           name: revisionName,
+          milestoneId: packageId,
           sequence: 0,
           status: "DRAFT",
           round: 0,
@@ -150,8 +165,11 @@ export async function createDocument(
     },
   });
 
+  await recomputePackages([packageId]);
+
   revalidatePath(`/projects/${projectId}/documents`);
   revalidatePath("/documents");
+  revalidatePackages(projectId);
 
   return { created: number ? `${number} — ${name}` : name, at: Date.now() };
 }
@@ -184,6 +202,7 @@ export async function submitRevision(
       round: true,
       updatedAt: true,
       inReviewSince: true,
+      milestoneId: true,
       document: {
         select: {
           id: true,
@@ -250,10 +269,12 @@ export async function submitRevision(
     }),
   ]);
 
+  await recomputePackages([revision.milestoneId]);
+
   revalidatePath(`/documents/${revision.document.id}`);
   revalidatePath(`/projects/${revision.document.projectId}/documents`);
   revalidatePath("/documents");
-  revalidatePath("/my-work");
+  revalidatePackages(revision.document.projectId);
 
   return { ok: true };
 }
@@ -284,6 +305,7 @@ export async function recordAnalysis(
         round: true,
         inReviewSince: true,
         specialistId: true,
+        milestoneId: true,
         document: {
           select: {
             id: true,
@@ -352,10 +374,12 @@ export async function recordAnalysis(
     }),
   ]);
 
+  await recomputePackages([revision.milestoneId]);
+
   revalidatePath(`/documents/${revision.document.id}`);
   revalidatePath(`/projects/${revision.document.projectId}/documents`);
   revalidatePath("/documents");
-  revalidatePath("/my-work");
+  revalidatePackages(revision.document.projectId);
 
   return { ok: true };
 }
@@ -384,7 +408,7 @@ export async function createRevision(
       revisions: {
         orderBy: { sequence: "desc" },
         take: 1,
-        select: { id: true, name: true, sequence: true, status: true },
+        select: { id: true, name: true, sequence: true, status: true, milestoneId: true },
       },
     },
   });
@@ -406,6 +430,16 @@ export async function createRevision(
           : `A revisão ${last.name} ainda não foi enviada para análise.`,
     };
   }
+
+  // A nova revisão é emitida num pacote (normalmente um pacote novo, como no
+  // ACC: cada emissão é uma tarefa). Marco pai e pacote são obrigatórios.
+  const packageId = str(formData, "packageId");
+  const packageError = await assertPackageUsable(
+    packageId,
+    document.projectId,
+    user.organizationId,
+  );
+  if (packageError) return { error: packageError };
 
   const name = str(formData, "name") || nextRevisionName(last?.name ?? null);
 
@@ -447,6 +481,7 @@ export async function createRevision(
       data: {
         documentId,
         name,
+        milestoneId: packageId,
         sequence: (last?.sequence ?? -1) + 1,
         status: "DRAFT",
         round: 0,
@@ -468,8 +503,13 @@ export async function createRevision(
     }),
   ]);
 
+  // Emitir a sucessora fecha o trabalho da revisão anterior no pacote dela
+  // (comentada/reprovada deixa de estar "com o emissor"), e abre trabalho no novo.
+  await recomputePackages([last?.milestoneId, packageId]);
+
   revalidatePath(`/documents/${documentId}`);
   revalidatePath(`/projects/${document.projectId}/documents`);
+  revalidatePackages(document.projectId);
 
   return { ok: true };
 }
@@ -555,6 +595,7 @@ export async function deleteDocument(formData: FormData): Promise<DeleteResult> 
       id: true,
       projectId: true,
       project: { select: { status: true, organizationId: true } },
+      revisions: { select: { milestoneId: true } },
     },
   });
   if (!doc || doc.project.organizationId !== user.organizationId) {
@@ -563,6 +604,8 @@ export async function deleteDocument(formData: FormData): Promise<DeleteResult> 
   if (!isProjectWritable(doc.project.status)) return { error: READONLY_MESSAGE };
 
   await prisma.document.delete({ where: { id: documentId } });
+  await recomputePackages(doc.revisions.map((r) => r.milestoneId));
+  revalidatePackages(doc.projectId);
 
   revalidatePath(`/projects/${doc.projectId}/documents`);
   revalidatePath("/documents");

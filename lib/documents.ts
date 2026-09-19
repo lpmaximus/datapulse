@@ -370,6 +370,95 @@ export const DEFAULT_ANALYSIS_CODES: {
   { tag: "CLD", name: "Cancelado", effect: "CANCELS", sortOrder: 4 },
 ];
 
+/* ------------------------------------------------------------------------ */
+/* Pacote de revisão (Tarefa) — estado projetado a partir das revisões       */
+/* ------------------------------------------------------------------------ */
+
+export interface PackageRevisionInput {
+  status: DocumentStatus;
+  dueAt: Date | null;
+  analyzedAt: Date | null;
+  /**
+   * Existe revisão posterior do mesmo documento? Comentada/reprovada só fecha
+   * o trabalho deste pacote quando a nova revisão já foi emitida (em outro
+   * pacote); antes disso a bola está com o emissor e o pacote segue aberto.
+   */
+  hasSuccessor: boolean;
+}
+
+export interface PackageProjection {
+  status: "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "BLOCKED" | "DONE" | "CANCELLED";
+  /** 0–100: revisões do pacote com parecer final ÷ revisões ativas. */
+  progress: number;
+  /** Maior prazo entre as revisões ainda abertas. */
+  forecastDate: Date | null;
+  /** Só preenchido quando o pacote está concluído: último parecer. */
+  actualDate: Date | null;
+}
+
+/** Revisão com parecer final dentro do pacote (não depende mais dele). */
+export function isFinalInPackage(r: PackageRevisionInput): boolean {
+  if (r.status === "APPROVED" || r.status === "SUPERSEDED") return true;
+  if (r.status === "COMMENTED" || r.status === "REJECTED") return r.hasSuccessor;
+  return false;
+}
+
+/**
+ * Estado da Tarefa-pacote a partir das revisões que ela contém. Não é digitado:
+ * é a soma do que existe dentro, no mesmo espírito do rollup do Marco.
+ *
+ * - Todas canceladas → Cancelada (cancelada não conta no avanço).
+ * - Todas com parecer final → Concluída.
+ * - Todas em rascunho → A fazer.
+ * - Nada pendente com o emissor e ao menos uma em análise → Em revisão.
+ * - Demais casos com movimento → Em andamento.
+ * - Impedimento ativo na tarefa → Impedida (exceto se já concluída/cancelada).
+ */
+export function projectPackageStatus(
+  revisions: PackageRevisionInput[],
+  opts: { blocked?: boolean } = {},
+): PackageProjection {
+  const active = revisions.filter((r) => r.status !== "CANCELLED");
+
+  if (revisions.length === 0) {
+    return { status: "NOT_STARTED", progress: 0, forecastDate: null, actualDate: null };
+  }
+  if (active.length === 0) {
+    return { status: "CANCELLED", progress: 0, forecastDate: null, actualDate: null };
+  }
+
+  const finals = active.filter(isFinalInPackage);
+  const open = active.filter((r) => !isFinalInPackage(r));
+  const progress = Math.round((finals.length / active.length) * 100);
+
+  const dues = open.map((r) => r.dueAt).filter((d): d is Date => !!d);
+  const forecastDate = dues.length ? new Date(Math.max(...dues.map((d) => d.getTime()))) : null;
+
+  if (open.length === 0) {
+    const analyzed = active.map((r) => r.analyzedAt).filter((d): d is Date => !!d);
+    const actualDate = analyzed.length
+      ? new Date(Math.max(...analyzed.map((d) => d.getTime())))
+      : null;
+    return { status: "DONE", progress: 100, forecastDate: null, actualDate };
+  }
+
+  if (opts.blocked) {
+    return { status: "BLOCKED", progress, forecastDate, actualDate: null };
+  }
+
+  const anyInReview = open.some((r) => r.status === "IN_REVIEW");
+  const pendingWithIssuer = open.some((r) => r.status !== "IN_REVIEW");
+  const allDraft = open.length === active.length && open.every((r) => r.status === "DRAFT");
+
+  const status: PackageProjection["status"] = allDraft
+    ? "NOT_STARTED"
+    : anyInReview && !pendingWithIssuer
+      ? "IN_REVIEW"
+      : "IN_PROGRESS";
+
+  return { status, progress, forecastDate, actualDate: null };
+}
+
 /**
  * Filtro de busca da lista documental, compartilhado pela visão do projeto e
  * pela geral. Fica aqui para as duas telas procurarem pelos MESMOS campos —

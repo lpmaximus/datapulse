@@ -6,6 +6,7 @@ import { DocumentTable, DOCUMENT_SELECT, currentRevision } from "@/components/do
 import { Modal } from "@/components/modal";
 import { DocumentDetail } from "@/components/document-detail";
 import { daysBetween, documentSearchFilter } from "@/lib/documents";
+import { loadPackageOptions } from "@/lib/server/package-options";
 import type {
   DocumentTableRow,
   UserOption,
@@ -60,6 +61,8 @@ export default async function DocumentsPage({
         }),
       ])
     : [[], []];
+
+  const packages = canManage ? await loadPackageOptions(user.organizationId) : [];
 
   const now = new Date();
   const stuck = documents.filter((d) => {
@@ -121,7 +124,7 @@ export default async function DocumentsPage({
           <DocumentTable
             documents={documents}
             showProject
-            quickAdd={canManage ? { projects, disciplines } : undefined}
+            quickAdd={canManage ? { projects, packages, disciplines } : undefined}
             canDelete={canManage}
           />
         )}

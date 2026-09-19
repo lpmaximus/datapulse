@@ -173,6 +173,7 @@ export function TaskEditForm({
   fullEdit,
   milestoneOptions = [],
   childCount = 0,
+  isPackage = false,
 }: {
   task: EditableTask;
   users: UserOption[];
@@ -181,6 +182,8 @@ export function TaskEditForm({
   milestoneOptions?: { id: string; name: string }[];
   /** Quantas tarefas pertencem a este registro — > 0 significa que é um marco-grupo. */
   childCount?: number;
+  /** Pacote de revisão: status/avanço/prazo vêm das revisões e o marco é obrigatório. */
+  isPackage?: boolean;
 }) {
   const [state, action] = useActionState<TaskFormState, FormData>(updateTask, {});
   const [status, setStatus] = useState(task.status);
@@ -188,6 +191,7 @@ export function TaskEditForm({
   const [kind, setKind] = useState(task.kind);
   const milestone = kind === "MILESTONE";
   const isGroup = childCount > 0;
+  const isLocked = isGroup || isPackage;
 
   return (
     <form action={action} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -200,11 +204,11 @@ export function TaskEditForm({
               <input name="name" defaultValue={task.name} required className={inputClass} />
             </Field>
           </div>
-          <Field label="Tipo" hint={isGroup ? "Marco com tarefas dentro não muda de tipo" : undefined}>
+          <Field label="Tipo" hint={isPackage ? "Pacote de revisão é sempre uma tarefa" : isGroup ? "Marco com tarefas dentro não muda de tipo" : undefined}>
             <select
               name="kind"
               value={kind}
-              disabled={isGroup}
+              disabled={isLocked}
               onChange={(e) => setKind(e.currentTarget.value)}
               className={inputClass}
             >
@@ -219,12 +223,25 @@ export function TaskEditForm({
             <AssigneeSelect users={users} defaultValue={task.assigneeId ?? ""} />
           </Field>
           <Field label="Categoria">
-            <input name="type" defaultValue={task.type ?? ""} className={inputClass} />
+            <input
+              name="type"
+              defaultValue={task.type ?? ""}
+              disabled={isPackage}
+              className={inputClass}
+            />
           </Field>
           {!milestone && !isGroup && milestoneOptions.length > 0 ? (
-            <Field label="Marco" hint="Agrupa esta tarefa dentro de um marco, opcional">
-              <select name="parentId" defaultValue={task.parentId ?? ""} className={inputClass}>
-                <option value="">Sem marco</option>
+            <Field
+              label="Marco"
+              hint={isPackage ? "Obrigatório: o pacote sempre fica dentro de um marco" : "Agrupa esta tarefa dentro de um marco, opcional"}
+            >
+              <select
+                name="parentId"
+                defaultValue={task.parentId ?? ""}
+                required={isPackage}
+                className={inputClass}
+              >
+                {isPackage ? null : <option value="">Sem marco</option>}
                 {milestoneOptions.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
@@ -236,10 +253,11 @@ export function TaskEditForm({
         </>
       ) : null}
 
-      {isGroup ? (
+      {isLocked ? (
         <div className="sm:col-span-2 lg:col-span-4 rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-ink-soft">
-          Status, avanço e prazo deste marco vêm das {childCount}{" "}
-          {childCount === 1 ? "tarefa filha" : "tarefas filhas"} — calculados automaticamente, não são digitados aqui.
+          {isPackage
+            ? "Status, avanço e prazo deste pacote vêm das revisões de documento emitidas nele — calculados automaticamente, não são digitados aqui."
+            : `Status, avanço e prazo deste marco vêm das ${childCount} ${childCount === 1 ? "tarefa filha" : "tarefas filhas"} — calculados automaticamente, não são digitados aqui.`}
         </div>
       ) : (
         <>

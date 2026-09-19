@@ -355,3 +355,86 @@ test("passagens: eventos fora de ordem são lidos em ordem cronológica e cancel
   assert.equal(passages[0].outcome, "APPROVED");
   assert.equal(buildPassages([], D("2026-03-05")).length, 0);
 });
+
+/* ---------------------- pacote de revisão (Tarefa) ---------------------- */
+
+import { projectPackageStatus, isFinalInPackage } from "../lib/documents.ts";
+
+const pd = (s) => new Date(s + "T00:00:00Z");
+const prev = (over = {}) => ({
+  status: "DRAFT",
+  dueAt: null,
+  analyzedAt: null,
+  hasSuccessor: false,
+  ...over,
+});
+
+test("pacote vazio é A fazer, 0%", () => {
+  const r = projectPackageStatus([]);
+  assert.equal(r.status, "NOT_STARTED");
+  assert.equal(r.progress, 0);
+});
+
+test("pacote com tudo em rascunho é A fazer", () => {
+  const r = projectPackageStatus([prev(), prev()]);
+  assert.equal(r.status, "NOT_STARTED");
+  assert.equal(r.progress, 0);
+});
+
+test("pacote todo em análise é Em revisão, com o maior prazo", () => {
+  const r = projectPackageStatus([
+    prev({ status: "IN_REVIEW", dueAt: pd("2026-10-01") }),
+    prev({ status: "IN_REVIEW", dueAt: pd("2026-10-10") }),
+  ]);
+  assert.equal(r.status, "IN_REVIEW");
+  assert.equal(r.forecastDate.toISOString().slice(0, 10), "2026-10-10");
+});
+
+test("em análise + rascunho pendente com o emissor é Em andamento", () => {
+  const r = projectPackageStatus([prev({ status: "IN_REVIEW" }), prev({ status: "DRAFT" })]);
+  assert.equal(r.status, "IN_PROGRESS");
+});
+
+test("comentada sem revisão sucessora mantém o pacote aberto (bola com o emissor)", () => {
+  const r = projectPackageStatus([
+    prev({ status: "APPROVED", analyzedAt: pd("2026-09-10") }),
+    prev({ status: "COMMENTED", analyzedAt: pd("2026-09-12"), hasSuccessor: false }),
+  ]);
+  assert.equal(r.status, "IN_PROGRESS");
+  assert.equal(r.progress, 50);
+});
+
+test("comentada COM sucessora fecha o pacote: Concluída, data real = último parecer", () => {
+  const r = projectPackageStatus([
+    prev({ status: "APPROVED", analyzedAt: pd("2026-09-10") }),
+    prev({ status: "REJECTED", analyzedAt: pd("2026-09-12"), hasSuccessor: true }),
+  ]);
+  assert.equal(r.status, "DONE");
+  assert.equal(r.progress, 100);
+  assert.equal(r.actualDate.toISOString().slice(0, 10), "2026-09-12");
+});
+
+test("revisão cancelada não conta no avanço; todas canceladas = Cancelada", () => {
+  const some = projectPackageStatus([
+    prev({ status: "CANCELLED" }),
+    prev({ status: "APPROVED", analyzedAt: pd("2026-09-10") }),
+  ]);
+  assert.equal(some.status, "DONE");
+  assert.equal(some.progress, 100);
+  const all = projectPackageStatus([prev({ status: "CANCELLED" })]);
+  assert.equal(all.status, "CANCELLED");
+});
+
+test("impedimento ativo → Impedida, mas não sobrepõe Concluída", () => {
+  const open = projectPackageStatus([prev({ status: "IN_REVIEW" })], { blocked: true });
+  assert.equal(open.status, "BLOCKED");
+  const done = projectPackageStatus([prev({ status: "APPROVED" })], { blocked: true });
+  assert.equal(done.status, "DONE");
+});
+
+test("isFinalInPackage", () => {
+  assert.equal(isFinalInPackage(prev({ status: "APPROVED" })), true);
+  assert.equal(isFinalInPackage(prev({ status: "IN_REVIEW" })), false);
+  assert.equal(isFinalInPackage(prev({ status: "REJECTED", hasSuccessor: true })), true);
+  assert.equal(isFinalInPackage(prev({ status: "REJECTED" })), false);
+});

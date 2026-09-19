@@ -29,6 +29,7 @@ import {
   type DocumentStatus,
 } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
+import { loadPackageOptions } from "@/lib/server/package-options";
 import type {
   DocumentDetailRow,
   DocumentTransitionRow,
@@ -49,6 +50,7 @@ const REVISION_SELECT = {
   notes: true,
   specialist: { select: { id: true, name: true } },
   analysisCode: { select: { id: true, tag: true, name: true } },
+  milestone: { select: { id: true, name: true, parent: { select: { name: true } } } },
   _count: { select: { transitions: true } },
 } as const;
 
@@ -121,6 +123,8 @@ export async function DocumentDetail({
       revision: { select: { id: true, name: true } },
     },
   });
+
+  const packages = await loadPackageOptions(user.organizationId, doc.project.id);
 
   const [specialists, codes]: [UserOption[], AnalysisCodeLike[]] = await Promise.all([
     prisma.user.findMany({
@@ -342,6 +346,7 @@ export async function DocumentDetail({
                   <NewRevisionForm
                     documentId={doc.id}
                     suggestedName={nextRevisionName(current?.name ?? null)}
+                    packages={packages}
                   />
                 )}
               </Card>

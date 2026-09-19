@@ -10,6 +10,8 @@ import { DocumentTable, DOCUMENT_SELECT } from "@/components/document-table";
 import { Modal } from "@/components/modal";
 import { DocumentDetail } from "@/components/document-detail";
 import { documentSearchFilter } from "@/lib/documents";
+import { loadMarcoOptions, loadPackageOptions } from "@/lib/server/package-options";
+import { PackageCreateForm } from "@/components/package-create-form";
 import type {
   DocumentTableRow,
   UserOption,
@@ -59,6 +61,13 @@ export default async function ProjectDocumentsPage({
       })
     : [];
 
+  const [packages, marcos] = canManage
+    ? await Promise.all([
+        loadPackageOptions(user.organizationId, id),
+        loadMarcoOptions(user.organizationId, id),
+      ])
+    : [[], []];
+
   return (
     <div className="space-y-8">
       <div className="overflow-hidden rounded-lg border border-line bg-surface">
@@ -80,6 +89,8 @@ export default async function ProjectDocumentsPage({
           ) : null}
         </div>
 
+        {canManage ? <PackageCreateForm projectId={id} marcos={marcos} /> : null}
+
         <div>
           <Toolbar placeholder="Pesquisar por nº, nome, tipo ou disciplina" />
         </div>
@@ -95,7 +106,7 @@ export default async function ProjectDocumentsPage({
         ) : (
           <DocumentTable
             documents={documents}
-            quickAdd={canManage ? { projectId: id, disciplines } : undefined}
+            quickAdd={canManage ? { projectId: id, packages, disciplines } : undefined}
             canDelete={canManage}
           />
         )}
