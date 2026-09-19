@@ -25,7 +25,11 @@ import {
 } from "@/components/task-ui";
 import { TaskCreateForm } from "@/components/task-forms";
 import { TaskQuickAdd } from "@/components/task-quick-add";
-import { FormPanel } from "@/components/form-panel";
+import { Modal } from "@/components/modal";
+import { TaskDetail } from "@/components/task-detail";
+import { RequestDetail } from "@/components/request-detail";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteTask } from "@/app/actions/tasks";
 import { ClickableRow } from "@/components/clickable-row";
 import { RequestCreateForm } from "@/components/request-forms";
 import { RequestTable } from "@/components/request-table";
@@ -47,8 +51,15 @@ import type { ProjectDetailRow, ProjectTaskRow, UserOption, ProjectMemberRow, Re
 
 export const dynamic = "force-dynamic";
 
-export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProjectPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ task?: string; request?: string }>;
+}) {
   const { id } = await params;
+  const { task: openTask, request: openRequest } = await searchParams;
   const user = await requireUser(`/projects/${id}`);
 
   const project: ProjectDetailRow | null = await prisma.project.findFirst({
@@ -201,9 +212,6 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                 <input type="hidden" name="projectId" value={project.id} />
                 <Button variant="outline" type="submit">Recalcular DRI</Button>
               </form>
-              <a href="#nova-tarefa">
-                <Button>+ Nova tarefa</Button>
-              </a>
             </>
           ) : null}
         </div>
@@ -326,21 +334,14 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               now={now}
               currency={project.currency}
               quickAdd={manage && writable ? <TaskQuickAdd projectId={project.id} users={allUsers} /> : undefined}
+              canDelete={manage && writable}
             />
             {doneTree.length > 0 ? (
-              <TaskGroup title="Concluídas" tone="done" tasks={doneTree} projectId={project.id} now={now} currency={project.currency} collapsed />
+              <TaskGroup title="Concluídas" tone="done" tasks={doneTree} projectId={project.id} now={now} currency={project.currency} collapsed canDelete={manage && writable} />
             ) : null}
           </>
         )}
       </section>
-
-      {manage && writable ? (
-        <section className="scroll-mt-20">
-          <FormPanel id="nova-tarefa" label="Nova tarefa — formulário completo">
-            <TaskCreateForm projectId={project.id} users={allUsers} milestoneOptions={milestoneOptions} />
-          </FormPanel>
-        </section>
-      ) : null}
 
       <section className="space-y-4">
         <SectionTitle hint="Documento de referência, informação complementar — tudo que precisa ser cobrado até concluir">
@@ -355,12 +356,18 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           currentUserId={user.id}
           quickAdd={writable ? { users: allUsers } : undefined}
         />
-        {writable ? (
-          <FormPanel id="nova-solicitacao" label="Nova solicitação — formulário completo">
-            <RequestCreateForm projectId={project.id} users={allUsers} documents={documentOptions} />
-          </FormPanel>
-        ) : null}
       </section>
+
+      {openTask ? (
+        <Modal title="Tarefa" fullHref={`/projects/${id}/tasks/${openTask}`}>
+          <TaskDetail id={id} taskId={openTask} user={user} variant="modal" />
+        </Modal>
+      ) : null}
+      {openRequest ? (
+        <Modal title="Solicitação" fullHref={`/projects/${id}/requests/${openRequest}`}>
+          <RequestDetail id={id} requestId={openRequest} user={user} variant="modal" />
+        </Modal>
+      ) : null}
 
       {manage ? (
         <section>
@@ -469,6 +476,7 @@ function TaskGroup({
   currency,
   collapsed = false,
   quickAdd,
+  canDelete = false,
 }: {
   title: string;
   tone: "accent" | "done";
@@ -479,6 +487,8 @@ function TaskGroup({
   collapsed?: boolean;
   /** Linha de cadastro direto ao final da lista. */
   quickAdd?: React.ReactNode;
+  /** Mostra o botão de excluir em cada linha. */
+  canDelete?: boolean;
 }) {
   function taskRow(t: ProjectTaskRow, depth: number) {
     const due = t.actualDate ?? taskDueDate(t);
@@ -486,13 +496,11 @@ function TaskGroup({
     const slip = slipDays(t);
     const score = t.driScores[0]?.score ?? 0;
     return (
-      <ClickableRow key={t.id} href={`/projects/${projectId}/tasks/${t.id}`} className="border-b border-line hover:bg-canvas">
+      <ClickableRow key={t.id} openParam="task" openId={t.id} className="border-b border-line hover:bg-canvas">
         <Td className="max-w-[340px] pl-5">
           <div className="flex items-center gap-2" style={depth ? { paddingLeft: `${depth * 18}px` } : undefined}>
             <KindMark kind={t.kind} />
-            <Link href={`/projects/${projectId}/tasks/${t.id}`} className="truncate text-ink hover:text-accent">
-              {t.name}
-            </Link>
+            <span className="truncate text-ink">{t.name}</span>
             {t._count.impediments > 0 ? (
               <span className="shrink-0 rounded-full bg-st-stuck/10 px-1.5 text-[11px] font-medium text-st-stuck">
                 {t._count.impediments} impedimento(s)
@@ -533,6 +541,21 @@ function TaskGroup({
         </Td>
         <Td align="right">{formatCurrency(toNumber(t.economicImpact), currency)}</Td>
         <Td>{score > 0 ? <DRIBadge score={score} showLabel={false} /> : <span className="text-ink-faint">—</span>}</Td>
+        <Td className="w-10 text-center">
+          {canDelete ? (
+            <DeleteButton
+              compact
+              action={deleteTask}
+              idField="taskId"
+              id={t.id}
+              confirm={
+                (t.children ?? []).length > 0
+                  ? "Excluir este marco? As tarefas dele ficam sem marco."
+                  : "Excluir esta tarefa e o histórico dela?"
+              }
+            />
+          ) : null}
+        </Td>
       </ClickableRow>
     );
   }
@@ -567,12 +590,15 @@ function TaskGroup({
               <Th className="w-[140px]">Prazo</Th>
               <Th align="right">Impacto</Th>
               <Th>DRI</Th>
+              <Th className="w-10">
+                <span className="sr-only">Excluir</span>
+              </Th>
             </tr>
           </thead>
           <tbody>
             {tasks.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-3 pl-6 text-sm text-ink-faint">
+                <td colSpan={10} className="py-3 pl-6 text-sm text-ink-faint">
                   Nenhuma tarefa neste grupo.
                 </td>
               </tr>

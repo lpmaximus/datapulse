@@ -533,3 +533,39 @@ export async function updateDocumentMetadata(formData: FormData): Promise<void> 
   revalidatePath(`/documents/${documentId}`);
   revalidatePath(`/projects/${doc.projectId}/documents`);
 }
+
+export interface DeleteResult {
+  ok?: boolean;
+  error?: string;
+}
+
+/**
+ * Exclui o documento inteiro: revisões, passagens e histórico vão junto, e os
+ * vínculos com solicitações se desfazem (as solicitações ficam). É a única
+ * forma de remover um documento cadastrado por engano.
+ */
+export async function deleteDocument(formData: FormData): Promise<DeleteResult> {
+  const user = await requireRole(["ADMIN", "MANAGER"]);
+  const documentId = str(formData, "documentId");
+  if (!documentId) return { error: "Documento não identificado." };
+
+  const doc = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: {
+      id: true,
+      projectId: true,
+      project: { select: { status: true, organizationId: true } },
+    },
+  });
+  if (!doc || doc.project.organizationId !== user.organizationId) {
+    return { error: "Documento não encontrado." };
+  }
+  if (!isProjectWritable(doc.project.status)) return { error: READONLY_MESSAGE };
+
+  await prisma.document.delete({ where: { id: documentId } });
+
+  revalidatePath(`/projects/${doc.projectId}/documents`);
+  revalidatePath("/documents");
+  revalidatePath("/my-work");
+  return { ok: true };
+}

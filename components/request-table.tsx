@@ -7,6 +7,8 @@ import { RequestQuickAdd, type RequestQuickAddConfig } from "@/components/reques
 import { Th, Td } from "@/components/table-ui";
 import { RequestStatusCell } from "@/components/task-ui";
 import { RequestRescheduleForm, ResolveRequestButton, DismissRequestButton } from "@/components/request-forms";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteRequest } from "@/app/actions/requests";
 import { isRequestOverdue } from "@/lib/requests";
 import { formatDate } from "@/lib/format";
 import type { RequestRow } from "@/types/models";
@@ -20,6 +22,7 @@ export function RequestTable({
   manage,
   currentUserId,
   showLink = true,
+  openMode = "modal",
   quickAdd,
 }: {
   requests: RequestRow[];
@@ -32,6 +35,8 @@ export function RequestTable({
   showLink?: boolean;
   /** Linha de cadastro direto ao final da lista. Com ela, a tabela aparece mesmo vazia. */
   quickAdd?: RequestQuickAddConfig;
+  /** Clique na linha: pop-up na própria página, ou navegar para a tela completa. */
+  openMode?: "modal" | "page";
 }) {
   if (requests.length === 0 && !quickAdd) {
     return <Empty>Nenhuma solicitação registrada.</Empty>;
@@ -56,19 +61,17 @@ export function RequestTable({
             const isOwner = r.owner?.id === currentUserId;
             const canResolve = writable && r.status === "PENDING" && (manage || isOwner);
             const canDismiss = writable && r.status === "PENDING" && manage;
+            const canDelete = writable && (manage || isOwner);
             return (
               <ClickableRow
                 key={r.id}
-                href={`/projects/${projectId}/requests/${r.id}`}
+                {...(openMode === "modal"
+                  ? { openParam: "request" as const, openId: r.id }
+                  : { href: `/projects/${projectId}/requests/${r.id}` })}
                 className="border-t border-line hover:bg-canvas/60"
               >
                 <Td className="max-w-[320px] pl-4">
-                  <Link
-                    href={`/projects/${projectId}/requests/${r.id}`}
-                    className="block truncate text-ink hover:text-accent"
-                  >
-                    {r.description}
-                  </Link>
+                  <p className="truncate text-ink">{r.description}</p>
                   {r.type ? <p className="truncate text-xs text-ink-faint">{r.type}</p> : null}
                   {r.documents.length > 0 ? (
                     <p className="truncate text-xs text-ink-faint">
@@ -106,6 +109,15 @@ export function RequestTable({
                   <div className="flex items-center justify-end gap-3">
                     {canResolve ? <ResolveRequestButton requestId={r.id} /> : null}
                     {canDismiss ? <DismissRequestButton requestId={r.id} /> : null}
+                    {canDelete ? (
+                      <DeleteButton
+                        compact
+                        action={deleteRequest}
+                        idField="requestId"
+                        id={r.id}
+                        confirm="Excluir esta solicitação?"
+                      />
+                    ) : null}
                   </div>
                 </Td>
               </ClickableRow>

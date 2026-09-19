@@ -271,3 +271,26 @@ export async function reopenRequest(formData: FormData): Promise<void> {
   });
   revalidateRequest(request.projectId, request.milestoneId, requestId);
 }
+
+export interface DeleteResult {
+  ok?: boolean;
+  error?: string;
+}
+
+/** Exclui a solicitação (com o histórico de prazo e os vínculos a documentos). */
+export async function deleteRequest(formData: FormData): Promise<DeleteResult> {
+  const user = await requireUser();
+  const requestId = str(formData, "requestId");
+  if (!requestId) return { error: "Solicitação não identificada." };
+
+  const request = await loadRequest(requestId, user.organizationId);
+  if (!request) return { error: "Solicitação não encontrada." };
+  if (request.project.status !== "ACTIVE") return { error: READONLY_MESSAGE };
+  if (!canManageProjects(user) && request.ownerId !== user.id) {
+    return { error: "Só o gerente ou o responsável pela solicitação podem excluí-la." };
+  }
+
+  await prisma.request.delete({ where: { id: requestId } });
+  revalidateRequest(request.projectId, request.milestoneId, requestId);
+  return { ok: true };
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 /**
  * Peças da linha de entrada "estilo planilha": cada campo vive numa célula da
@@ -69,3 +69,45 @@ export function EntryFeedback({ error, ok }: { error?: string; ok?: string }) {
 
 /** Marca a linha de entrada: fundo levemente tingido e ícone no lugar do checkbox. */
 export const entryRowClass = "border-b border-dashed border-line-strong bg-accent-soft/20";
+
+/**
+ * Última linha da tabela: o botão que cria uma linha nova. Só ele aparece até
+ * o usuário querer cadastrar — nada de formulário ocupando a tela.
+ */
+export function AddRowTrigger({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <tr className="border-b border-line">
+      <td colSpan={99} className="p-0">
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-ink-soft hover:bg-canvas hover:text-accent"
+        >
+          <Plus size={14} />
+          {label}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+export function EntryCancel({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Cancelar (Esc)"
+      aria-label="Cancelar"
+      className="flex w-full items-center justify-center px-2 py-2 text-ink-faint hover:text-red-700"
+    >
+      <X size={15} />
+    </button>
+  );
+}
+
+/** Esc dentro da linha de entrada cancela o cadastro. */
+export function onEntryKeyDown(cancel: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") cancel();
+  };
+}

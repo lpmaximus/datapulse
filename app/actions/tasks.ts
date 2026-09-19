@@ -418,3 +418,34 @@ export async function resolveImpediment(formData: FormData): Promise<void> {
   if (task.parentId) await recomputeRollup(task.parentId);
   revalidateTask(task.projectId, task.id);
 }
+
+export interface DeleteResult {
+  ok?: boolean;
+  error?: string;
+}
+
+/**
+ * Exclui uma tarefa/marco. Impedimentos, sinais, histórico de prazo e pontuação
+ * do DRI dela vão junto (é o que o banco faz em cascata); solicitações ligadas
+ * a ela continuam, só desvinculadas, e as tarefas filhas de um marco ficam sem
+ * marco. Se era filha, o marco de origem é recalculado.
+ */
+export async function deleteTask(formData: FormData): Promise<DeleteResult> {
+  const me = await requireRole(["ADMIN", "MANAGER"]);
+  const taskId = str(formData, "taskId");
+  if (!taskId) return { error: "Tarefa não identificada." };
+
+  const task = await prisma.milestone.findFirst({
+    where: { id: taskId, project: { organizationId: me.organizationId } },
+    select: { id: true, projectId: true, parentId: true },
+  });
+  if (!task) return { error: "Tarefa não encontrada." };
+  if (!(await projectIsWritable(task.projectId, me.organizationId))) return { error: READONLY_MESSAGE };
+
+  await prisma.milestone.delete({ where: { id: task.id } });
+  if (task.parentId) await recomputeRollup(task.parentId);
+  await recalculateProjectDRI(task.projectId);
+
+  revalidateTask(task.projectId);
+  return { ok: true };
+}

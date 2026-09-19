@@ -1,15 +1,18 @@
 "use client";
 
-import { useActionState, useEffect, useId, useRef } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { createRequest, type RequestFormState } from "@/app/actions/requests";
 import {
+  AddRowTrigger,
   EntryAddButton,
   EntryBlank,
+  EntryCancel,
   EntryCell,
   EntryFeedback,
   cellInput,
   entryRowClass,
+  onEntryKeyDown,
 } from "@/components/grid-entry";
 import type { UserOption } from "@/types/models";
 
@@ -25,30 +28,36 @@ export interface RequestQuickAddConfig {
  * coluna. Enter grava e o foco volta ao pedido. Tipo e documentos se completam
  * na tela da solicitação ou no formulário completo.
  */
-export function RequestQuickAdd({
+export function RequestQuickAdd(props: RequestQuickAddConfig & { projectId: string; showLink: boolean }) {
+  const [open, setOpen] = useState(false);
+  if (!open) return <AddRowTrigger label="Nova solicitação" onClick={() => setOpen(true)} />;
+  return <RequestEntryRow {...props} onClose={() => setOpen(false)} />;
+}
+
+function RequestEntryRow({
   projectId,
   milestoneId,
   users,
   showLink,
-}: RequestQuickAddConfig & { projectId: string; showLink: boolean }) {
+  onClose,
+}: RequestQuickAddConfig & { projectId: string; showLink: boolean; onClose: () => void }) {
   const formId = useId();
   const [state, action, pending] = useActionState<RequestFormState, FormData>(createRequest, {});
   const rowRef = useRef<HTMLTableRowElement>(null);
 
+  // Gravou: a linha vira registro da lista e a de entrada se fecha.
   useEffect(() => {
-    if (!state.at) return;
-    const row = rowRef.current;
-    if (!row) return;
-    for (const name of ["description", "waitingOn", "dueAt"]) {
-      const el = row.querySelector<HTMLInputElement>(`[name="${name}"]`);
-      if (el) el.value = "";
-    }
-    row.querySelector<HTMLInputElement>('[name="description"]')?.focus();
+    if (state.at) onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.at]);
+
+  useEffect(() => {
+    rowRef.current?.querySelector<HTMLInputElement>('[name="description"]')?.focus();
+  }, []);
 
   return (
     <>
-      <tr ref={rowRef} className={entryRowClass}>
+      <tr ref={rowRef} className={entryRowClass} onKeyDown={onEntryKeyDown(onClose)}>
         <EntryCell>
           <form id={formId} action={action} className="hidden">
             <input type="hidden" name="projectId" value={projectId} />
@@ -85,10 +94,13 @@ export function RequestQuickAdd({
         </EntryCell>
         {showLink ? <EntryBlank /> : null}
         <EntryCell>
-          <EntryAddButton formId={formId} pending={pending} label="" />
+          <div className="flex items-center">
+            <EntryAddButton formId={formId} pending={pending} label="" />
+            <EntryCancel onClick={onClose} />
+          </div>
         </EntryCell>
       </tr>
-      <EntryFeedback error={state.error} ok={state.ok ? "Solicitação registrada." : undefined} />
+      <EntryFeedback error={state.error} />
     </>
   );
 }

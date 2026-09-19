@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import clsx from "clsx";
 import { AlertCircle, Check, ChevronDown } from "lucide-react";
 import { Th, Td, RowCheckbox } from "@/components/table-ui";
 import { DocumentQuickAdd, type DocumentQuickAddConfig } from "@/components/document-quick-add";
+import { DeleteButton } from "@/components/delete-button";
+import { deleteDocument } from "@/app/actions/documents";
+import { MODAL_PARAMS } from "@/components/modal";
 import {
   DocumentStatusChip,
   StatusDistribution,
@@ -46,9 +49,12 @@ export function DocumentBoard({
   documents,
   showProject = false,
   quickAdd,
+  canDelete = false,
 }: {
   documents: DocumentTableRow[];
   showProject?: boolean;
+  /** Mostra o botão de excluir em cada linha. */
+  canDelete?: boolean;
   /** Linha de cadastro direto, exibida ao final do grupo "Em andamento". */
   quickAdd?: DocumentQuickAddConfig;
 }) {
@@ -79,6 +85,7 @@ export function DocumentBoard({
             group={g}
             showProject={showProject}
             quickAdd={g.key === "open" ? quickAdd : undefined}
+            canDelete={canDelete}
           />
         ))}
     </div>
@@ -89,10 +96,12 @@ function BoardGroup({
   group,
   showProject,
   quickAdd,
+  canDelete,
 }: {
   group: Group;
   showProject: boolean;
   quickAdd?: DocumentQuickAddConfig;
+  canDelete: boolean;
 }) {
   const [open, setOpen] = useState(true);
   const now = new Date();
@@ -150,11 +159,14 @@ function BoardGroup({
                 <Th className="min-w-[150px]">Responsável</Th>
                 <Th align="right">Revisões</Th>
                 <Th className="w-[130px]">Prazo</Th>
+                <Th className="w-10">
+                  <span className="sr-only">Excluir</span>
+                </Th>
               </tr>
             </thead>
             <tbody>
               {group.rows.map((d) => (
-                <DocumentRow key={d.id} doc={d} showProject={showProject} now={now} />
+                <DocumentRow key={d.id} doc={d} showProject={showProject} now={now} canDelete={canDelete} />
               ))}
 
               {group.rows.length === 0 ? (
@@ -188,6 +200,7 @@ function BoardGroup({
                     </span>
                   )}
                 </td>
+                <td />
               </tr>
             </tbody>
           </table>
@@ -201,12 +214,16 @@ function DocumentRow({
   doc: d,
   showProject,
   now,
+  canDelete,
 }: {
   doc: DocumentTableRow;
   showProject: boolean;
   now: Date;
+  canDelete: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const rev = currentRevision(d);
   const stuck = rev?.status === "IN_REVIEW" ? daysBetween(now, rev.inReviewSince) : null;
   const closed = rev ? CLOSED_STATUSES.has(rev.status) : false;
@@ -216,7 +233,10 @@ function DocumentRow({
     <tr
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return;
-        router.push(`/documents/${d.id}`);
+        const params = new URLSearchParams(searchParams.toString());
+        for (const key of MODAL_PARAMS) params.delete(key);
+        params.set("doc", d.id);
+        router.push(`${pathname}?${params}`, { scroll: false });
       }}
       className="group cursor-pointer border-b border-line hover:bg-canvas"
     >
@@ -225,13 +245,10 @@ function DocumentRow({
       </Td>
       <Td className="max-w-[320px]">
         <div className="flex items-center gap-2">
-          <Link
-            href={`/documents/${d.id}`}
-            className="truncate text-ink hover:text-accent"
-          >
+          <span className="truncate text-ink">
             {d.number ? <span className="text-ink-faint">{d.number} · </span> : null}
             {d.name}
-          </Link>
+          </span>
           <StuckBadge days={stuck} />
         </div>
         {d.designFirm ? (
@@ -298,6 +315,17 @@ function DocumentRow({
             {formatDate(rev?.dueAt ?? null)}
           </span>
         </span>
+      </Td>
+      <Td className="w-10 text-center">
+        {canDelete ? (
+          <DeleteButton
+            compact
+            action={deleteDocument}
+            idField="documentId"
+            id={d.id}
+            confirm={`Excluir este documento e suas ${d.revisions.length} revisão(ões)?`}
+          />
+        ) : null}
       </Td>
     </tr>
   );

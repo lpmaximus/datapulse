@@ -3,7 +3,8 @@ import { requireUser, canManageProjects } from "@/lib/authz";
 import { Empty, Card } from "@/components/ui";
 import { Toolbar } from "@/components/table-ui";
 import { DocumentTable, DOCUMENT_SELECT, currentRevision } from "@/components/document-table";
-import { DocumentCreateForm } from "@/components/document-create-form";
+import { Modal } from "@/components/modal";
+import { DocumentDetail } from "@/components/document-detail";
 import { daysBetween, documentSearchFilter } from "@/lib/documents";
 import type {
   DocumentTableRow,
@@ -18,10 +19,10 @@ export const dynamic = "force-dynamic";
 export default async function DocumentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; filter?: string }>;
+  searchParams: Promise<{ q?: string; filter?: string; doc?: string }>;
 }) {
   const user = await requireUser("/documents");
-  const { q, filter } = await searchParams;
+  const { q, filter, doc: openDoc } = await searchParams;
 
   const documents: DocumentTableRow[] = await prisma.document.findMany({
     where: {
@@ -39,22 +40,12 @@ export default async function DocumentsPage({
 
   // Cadastrar daqui exige escolher o projeto — por isso a lista de projetos
   // só é buscada para quem pode cadastrar.
-  const [projects, users, disciplines, firms]: [
-    ProjectOption[],
-    UserOption[],
-    DisciplineRow[],
-    EmpresaRow[],
-  ] = canManage
+  const [projects, disciplines]: [ProjectOption[], DisciplineRow[]] = canManage
     ? await Promise.all([
         prisma.project.findMany({
           where: { status: "ACTIVE", organizationId: user.organizationId },
           orderBy: { name: "asc" },
           select: { id: true, name: true, osNumber: true },
-        }),
-        prisma.user.findMany({
-          where: { isActive: true, organizationId: user.organizationId },
-          select: { id: true, name: true, email: true, role: true, function: { select: { name: true } } },
-          orderBy: { name: "asc" },
         }),
         prisma.discipline.findMany({
           where: { isActive: true, organizationId: user.organizationId },
@@ -67,21 +58,8 @@ export default async function DocumentsPage({
             _count: { select: { documents: true } },
           },
         }),
-        prisma.empresa.findMany({
-          where: { isActive: true, organizationId: user.organizationId },
-          orderBy: { name: "asc" },
-          select: {
-            id: true,
-            name: true,
-            coordinatorName: true,
-            email: true,
-            phone: true,
-            isActive: true,
-            _count: { select: { projects: true, documents: true } },
-          },
-        }),
       ])
-    : [[], [], [], []];
+    : [[], []];
 
   const now = new Date();
   const stuck = documents.filter((d) => {
@@ -129,18 +107,7 @@ export default async function DocumentsPage({
           </p>
         </div>
 
-        {canManage ? (
-          <div className="mt-3">
-            <DocumentCreateForm
-              projects={projects}
-              disciplines={disciplines}
-              firms={firms}
-              users={users}
-            />
-          </div>
-        ) : null}
-
-        <div className={canManage ? "" : "mt-3"}>
+        <div>
           <Toolbar placeholder="Pesquisar por nº, nome, disciplina ou projeto" />
         </div>
 
@@ -155,9 +122,15 @@ export default async function DocumentsPage({
             documents={documents}
             showProject
             quickAdd={canManage ? { projects, disciplines } : undefined}
+            canDelete={canManage}
           />
         )}
       </div>
+      {openDoc ? (
+        <Modal title="Documento" fullHref={`/documents/${openDoc}`}>
+          <DocumentDetail id={openDoc} user={user} variant="modal" />
+        </Modal>
+      ) : null}
     </div>
   );
 }

@@ -1,16 +1,19 @@
 "use client";
 
-import { useActionState, useEffect, useId, useRef } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { createTask, type TaskFormState } from "@/app/actions/tasks";
 import { PRIORITY_LABEL } from "@/lib/tasks";
 import {
+  AddRowTrigger,
   EntryAddButton,
   EntryBlank,
+  EntryCancel,
   EntryCell,
   EntryFeedback,
   cellInput,
   entryRowClass,
+  onEntryKeyDown,
 } from "@/components/grid-entry";
 import type { UserOption } from "@/types/models";
 
@@ -22,24 +25,37 @@ import type { UserOption } from "@/types/models";
  * tela da tarefa ou no formulário completo.
  */
 export function TaskQuickAdd({ projectId, users }: { projectId: string; users: UserOption[] }) {
+  const [open, setOpen] = useState(false);
+  if (!open) return <AddRowTrigger label="Nova tarefa" onClick={() => setOpen(true)} />;
+  return <TaskEntryRow projectId={projectId} users={users} onClose={() => setOpen(false)} />;
+}
+
+function TaskEntryRow({
+  projectId,
+  users,
+  onClose,
+}: {
+  projectId: string;
+  users: UserOption[];
+  onClose: () => void;
+}) {
   const formId = useId();
   const [state, action, pending] = useActionState<TaskFormState, FormData>(createTask, {});
   const rowRef = useRef<HTMLTableRowElement>(null);
 
+  // Gravou: a linha vira registro da lista e a de entrada se fecha.
   useEffect(() => {
-    if (!state.at) return;
-    const row = rowRef.current;
-    if (!row) return;
-    for (const name of ["name", "startDate", "plannedDate", "economicImpact"]) {
-      const el = row.querySelector<HTMLInputElement>(`[name="${name}"]`);
-      if (el) el.value = "";
-    }
-    row.querySelector<HTMLInputElement>('[name="name"]')?.focus();
+    if (state.at) onClose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.at]);
+
+  useEffect(() => {
+    rowRef.current?.querySelector<HTMLInputElement>('[name="name"]')?.focus();
+  }, []);
 
   return (
     <>
-      <tr ref={rowRef} className={entryRowClass}>
+      <tr ref={rowRef} className={entryRowClass} onKeyDown={onEntryKeyDown(onClose)}>
         <EntryCell>
           <form id={formId} action={action} className="hidden">
             <input type="hidden" name="projectId" value={projectId} />
@@ -105,8 +121,11 @@ export function TaskQuickAdd({ projectId, users }: { projectId: string; users: U
         <EntryCell>
           <EntryAddButton formId={formId} pending={pending} label="" />
         </EntryCell>
+        <EntryCell className="w-10">
+          <EntryCancel onClick={onClose} />
+        </EntryCell>
       </tr>
-      <EntryFeedback error={state.error} ok={state.ok ? "Tarefa adicionada." : undefined} />
+      <EntryFeedback error={state.error} />
     </>
   );
 }

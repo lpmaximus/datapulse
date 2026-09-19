@@ -16,12 +16,16 @@ export function DocumentTable({
   documents,
   showProject = false,
   quickAdd,
+  canDelete = false,
 }: {
   documents: DocumentTableRow[];
   showProject?: boolean;
   quickAdd?: DocumentQuickAddConfig;
+  canDelete?: boolean;
 }) {
-  return <DocumentBoard documents={documents} showProject={showProject} quickAdd={quickAdd} />;
+  return (
+    <DocumentBoard documents={documents} showProject={showProject} quickAdd={quickAdd} canDelete={canDelete} />
+  );
 }
 
 export const DOCUMENT_SELECT = {
