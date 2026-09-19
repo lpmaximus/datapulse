@@ -25,7 +25,6 @@ import {
 } from "@/components/task-ui";
 import { TaskCreateForm } from "@/components/task-forms";
 import { TaskQuickAdd } from "@/components/task-quick-add";
-import { RequestQuickAdd } from "@/components/request-quick-add";
 import { FormPanel } from "@/components/form-panel";
 import { ClickableRow } from "@/components/clickable-row";
 import { RequestCreateForm } from "@/components/request-forms";
@@ -354,7 +353,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           writable={writable}
           manage={manage}
           currentUserId={user.id}
-          quickAdd={writable ? <RequestQuickAdd projectId={project.id} /> : undefined}
+          quickAdd={writable ? { users: allUsers } : undefined}
         />
         {writable ? (
           <FormPanel id="nova-solicitacao" label="Nova solicitação — formulário completo">
@@ -583,13 +582,7 @@ function TaskGroup({
                 ...(t.children ?? []).map((c) => taskRow(c, 1)),
               ])
             )}
-            {quickAdd ? (
-              <tr className="border-b border-line bg-canvas/40">
-                <td colSpan={9} className="px-4 py-2 pl-5">
-                  {quickAdd}
-                </td>
-              </tr>
-            ) : null}
+            {quickAdd}
           </tbody>
         </table>
       </div>

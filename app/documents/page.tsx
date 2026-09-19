@@ -4,7 +4,6 @@ import { Empty, Card } from "@/components/ui";
 import { Toolbar } from "@/components/table-ui";
 import { DocumentTable, DOCUMENT_SELECT, currentRevision } from "@/components/document-table";
 import { DocumentCreateForm } from "@/components/document-create-form";
-import { DocumentQuickAdd } from "@/components/document-quick-add";
 import { daysBetween, documentSearchFilter } from "@/lib/documents";
 import type {
   DocumentTableRow,
@@ -155,9 +154,7 @@ export default async function DocumentsPage({
           <DocumentTable
             documents={documents}
             showProject
-            quickAdd={
-              canManage ? <DocumentQuickAdd projects={projects} disciplines={disciplines} /> : undefined
-            }
+            quickAdd={canManage ? { projects, disciplines } : undefined}
           />
         )}
       </div>

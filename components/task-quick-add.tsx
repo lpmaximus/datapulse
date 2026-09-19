@@ -1,73 +1,112 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
-import { useFormStatus } from "react-dom";
+import { useActionState, useEffect, useId, useRef } from "react";
 import { Plus } from "lucide-react";
 import { createTask, type TaskFormState } from "@/app/actions/tasks";
-import { inputClass } from "@/components/ui";
+import { PRIORITY_LABEL } from "@/lib/tasks";
+import {
+  EntryAddButton,
+  EntryBlank,
+  EntryCell,
+  EntryFeedback,
+  cellInput,
+  entryRowClass,
+} from "@/components/grid-entry";
 import type { UserOption } from "@/types/models";
 
-function AddButton() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-strong disabled:opacity-50"
-    >
-      <Plus size={14} />
-      {pending ? "Adicionando…" : "Adicionar"}
-    </button>
-  );
-}
-
 /**
- * Cadastro direto na lista de tarefas: nome, tipo, responsável e término.
- * Prioridade, início, marco, categoria e impacto se completam na tela da
- * tarefa, ou pelo formulário completo abaixo da lista.
+ * Linha de entrada no fim da lista de tarefas, como uma linha em branco de
+ * planilha: cada campo na sua coluna (nome, responsável, prioridade, início,
+ * prazo, impacto). Enter grava e o foco volta ao nome. Responsável e
+ * prioridade ficam para a próxima da série; marco e categoria se completam na
+ * tela da tarefa ou no formulário completo.
  */
 export function TaskQuickAdd({ projectId, users }: { projectId: string; users: UserOption[] }) {
-  const [state, action] = useActionState<TaskFormState, FormData>(createTask, {});
-  const formRef = useRef<HTMLFormElement>(null);
+  const formId = useId();
+  const [state, action, pending] = useActionState<TaskFormState, FormData>(createTask, {});
+  const rowRef = useRef<HTMLTableRowElement>(null);
 
-  // Limpa só o nome e a data; responsável e tipo ficam para a próxima da série.
   useEffect(() => {
     if (!state.at) return;
-    const form = formRef.current;
-    if (!form) return;
-    const name = form.querySelector<HTMLInputElement>('input[name="name"]');
-    const date = form.querySelector<HTMLInputElement>('input[name="plannedDate"]');
-    if (name) name.value = "";
-    if (date) date.value = "";
-    name?.focus();
+    const row = rowRef.current;
+    if (!row) return;
+    for (const name of ["name", "startDate", "plannedDate", "economicImpact"]) {
+      const el = row.querySelector<HTMLInputElement>(`[name="${name}"]`);
+      if (el) el.value = "";
+    }
+    row.querySelector<HTMLInputElement>('[name="name"]')?.focus();
   }, [state.at]);
 
   return (
-    <form ref={formRef} action={action} className="flex flex-wrap items-center gap-2 py-1">
-      <input type="hidden" name="projectId" value={projectId} />
-      <input
-        name="name"
-        required
-        aria-label="Nome da tarefa"
-        placeholder="+ Nova tarefa — digite o nome e tecle Enter"
-        className={inputClass + " min-w-[260px] flex-1"}
-      />
-      <select name="kind" defaultValue="TASK" aria-label="Tipo" className={inputClass + " w-28"}>
-        <option value="TASK">Tarefa</option>
-        <option value="MILESTONE">Marco</option>
-      </select>
-      <select name="assigneeId" defaultValue="" aria-label="Responsável" className={inputClass + " w-48"}>
-        <option value="">Sem responsável</option>
-        {users.map((u) => (
-          <option key={u.id} value={u.id}>
-            {u.name}
-          </option>
-        ))}
-      </select>
-      <input type="date" name="plannedDate" aria-label="Término planejado" className={inputClass + " w-40"} />
-      <AddButton />
-      {state.error ? <span className="text-sm text-red-700">{state.error}</span> : null}
-      {state.ok && !state.error ? <span className="text-sm text-green-700">Tarefa adicionada.</span> : null}
-    </form>
+    <>
+      <tr ref={rowRef} className={entryRowClass}>
+        <EntryCell>
+          <form id={formId} action={action} className="hidden">
+            <input type="hidden" name="projectId" value={projectId} />
+          </form>
+          <div className="flex items-center">
+            <Plus size={14} className="ml-3 shrink-0 text-ink-faint" aria-hidden />
+            <input
+              form={formId}
+              name="name"
+              required
+              aria-label="Nome da tarefa"
+              placeholder="Nova tarefa — digite e tecle Enter"
+              className={cellInput + " flex-1"}
+            />
+            <select form={formId} name="kind" defaultValue="TASK" aria-label="Tipo" className={cellInput + " w-24 border-l border-line"}>
+              <option value="TASK">Tarefa</option>
+              <option value="MILESTONE">Marco</option>
+            </select>
+          </div>
+        </EntryCell>
+
+        <EntryCell>
+          <select form={formId} name="assigneeId" defaultValue="" aria-label="Responsável" className={cellInput}>
+            <option value="">—</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+        </EntryCell>
+
+        <EntryBlank />
+
+        <EntryCell>
+          <select form={formId} name="criticality" defaultValue="MEDIUM" aria-label="Prioridade" className={cellInput}>
+            {Object.entries(PRIORITY_LABEL).map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </EntryCell>
+
+        <EntryBlank />
+
+        <EntryCell>
+          <input form={formId} type="date" name="startDate" aria-label="Início" className={cellInput} />
+        </EntryCell>
+        <EntryCell>
+          <input form={formId} type="date" name="plannedDate" aria-label="Término planejado" className={cellInput} />
+        </EntryCell>
+        <EntryCell>
+          <input
+            form={formId}
+            name="economicImpact"
+            inputMode="numeric"
+            aria-label="Impacto econômico"
+            placeholder="Impacto"
+            className={cellInput + " text-right"}
+          />
+        </EntryCell>
+        <EntryCell>
+          <EntryAddButton formId={formId} pending={pending} label="" />
+        </EntryCell>
+      </tr>
+      <EntryFeedback error={state.error} ok={state.ok ? "Tarefa adicionada." : undefined} />
+    </>
   );
 }

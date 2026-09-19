@@ -1,4 +1,5 @@
 import { DocumentBoard } from "@/components/document-board";
+import type { DocumentQuickAddConfig } from "@/components/document-quick-add";
 import type { DocumentTableRow, RevisionRow } from "@/types/models";
 
 /** Revisão vigente = a de maior sequência. */
@@ -18,7 +19,7 @@ export function DocumentTable({
 }: {
   documents: DocumentTableRow[];
   showProject?: boolean;
-  quickAdd?: React.ReactNode;
+  quickAdd?: DocumentQuickAddConfig;
 }) {
   return <DocumentBoard documents={documents} showProject={showProject} quickAdd={quickAdd} />;
 }

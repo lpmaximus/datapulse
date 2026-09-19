@@ -8,7 +8,6 @@ import { Empty } from "@/components/ui";
 import { Toolbar } from "@/components/table-ui";
 import { DocumentTable, DOCUMENT_SELECT } from "@/components/document-table";
 import { DocumentCreateForm } from "@/components/document-create-form";
-import { DocumentQuickAdd } from "@/components/document-quick-add";
 import { documentSearchFilter } from "@/lib/documents";
 import type {
   DocumentTableRow,
@@ -127,9 +126,7 @@ export default async function ProjectDocumentsPage({
         ) : (
           <DocumentTable
             documents={documents}
-            quickAdd={
-              canManage ? <DocumentQuickAdd projectId={id} disciplines={disciplines} /> : undefined
-            }
+            quickAdd={canManage ? { projectId: id, disciplines } : undefined}
           />
         )}
       </div>

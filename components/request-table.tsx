@@ -3,6 +3,7 @@ import Link from "next/link";
 import clsx from "clsx";
 import { Empty } from "@/components/ui";
 import { ClickableRow } from "@/components/clickable-row";
+import { RequestQuickAdd, type RequestQuickAddConfig } from "@/components/request-quick-add";
 import { Th, Td } from "@/components/table-ui";
 import { RequestStatusCell } from "@/components/task-ui";
 import { RequestRescheduleForm, ResolveRequestButton, DismissRequestButton } from "@/components/request-forms";
@@ -30,7 +31,7 @@ export function RequestTable({
   /** Mostra a coluna "Vínculo" — desligue quando já está na página da tarefa. */
   showLink?: boolean;
   /** Linha de cadastro direto ao final da lista. Com ela, a tabela aparece mesmo vazia. */
-  quickAdd?: React.ReactNode;
+  quickAdd?: RequestQuickAddConfig;
 }) {
   if (requests.length === 0 && !quickAdd) {
     return <Empty>Nenhuma solicitação registrada.</Empty>;
@@ -117,13 +118,7 @@ export function RequestTable({
               </td>
             </tr>
           ) : null}
-          {quickAdd ? (
-            <tr className="border-t border-line bg-canvas/40">
-              <td colSpan={99} className="px-4 py-2">
-                {quickAdd}
-              </td>
-            </tr>
-          ) : null}
+          {quickAdd ? <RequestQuickAdd projectId={projectId} showLink={showLink} {...quickAdd} /> : null}
         </tbody>
       </table>
     </div>

@@ -6,6 +6,7 @@ import { useState } from "react";
 import clsx from "clsx";
 import { AlertCircle, Check, ChevronDown } from "lucide-react";
 import { Th, Td, RowCheckbox } from "@/components/table-ui";
+import { DocumentQuickAdd, type DocumentQuickAddConfig } from "@/components/document-quick-add";
 import {
   DocumentStatusChip,
   StatusDistribution,
@@ -49,7 +50,7 @@ export function DocumentBoard({
   documents: DocumentTableRow[];
   showProject?: boolean;
   /** Linha de cadastro direto, exibida ao final do grupo "Em andamento". */
-  quickAdd?: React.ReactNode;
+  quickAdd?: DocumentQuickAddConfig;
 }) {
   const groups: Group[] = [
     {
@@ -91,7 +92,7 @@ function BoardGroup({
 }: {
   group: Group;
   showProject: boolean;
-  quickAdd?: React.ReactNode;
+  quickAdd?: DocumentQuickAddConfig;
 }) {
   const [open, setOpen] = useState(true);
   const now = new Date();
@@ -164,13 +165,7 @@ function BoardGroup({
                 </tr>
               ) : null}
 
-              {quickAdd ? (
-                <tr className="border-b border-line bg-canvas/40">
-                  <td colSpan={99} className="px-4 py-2">
-                    {quickAdd}
-                  </td>
-                </tr>
-              ) : null}
+              {quickAdd ? <DocumentQuickAdd {...quickAdd} showProject={showProject} /> : null}
 
               {/* Rodapé-resumo, como no monday: distribuição de status e janela de prazos. */}
               <tr className="bg-surface">
