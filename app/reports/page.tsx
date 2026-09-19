@@ -6,6 +6,7 @@ import { Th, Td } from "@/components/table-ui";
 import { formatDate } from "@/lib/format";
 import type { ProjectDriHistoryRow } from "@/types/models";
 import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import { projectVisibility } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export default async function ReportsPage() {
   const user = await requireUser("/reports");
 
   const projects: ProjectDriHistoryRow[] = await prisma.project.findMany({
-    where: { organizationId: user.organizationId },
+    where: projectVisibility(user),
     select: {
       id: true,
       name: true,

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireRole, requireUser, canManageProjects } from "@/lib/authz";
+import { requireRole, requireWriter, canManageProjects } from "@/lib/authz";
 import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
 import { assertPackageUsable, recomputePackages } from "@/lib/server/package-service";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
@@ -18,6 +18,7 @@ import {
   type DocumentAction,
   type DocumentStatus,
 } from "@/lib/documents";
+import { canSeeProject } from "@/lib/server/project-access";
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
@@ -190,7 +191,7 @@ export async function submitRevision(
   _prev: TransitionState,
   formData: FormData,
 ): Promise<TransitionState> {
-  const user = await requireUser();
+  const user = await requireWriter();
 
   const revisionId = str(formData, "revisionId");
   if (!revisionId) return { error: "Revisão não identificada." };
@@ -214,7 +215,10 @@ export async function submitRevision(
     },
   });
   if (!revision) return { error: "Revisão não encontrada." };
-  if (revision.document.project.organizationId !== user.organizationId) {
+  if (
+    revision.document.project.organizationId !== user.organizationId ||
+    !(await canSeeProject(user, revision.document.projectId))
+  ) {
     return { error: "Revisão não encontrada." };
   }
   if (!isProjectWritable(revision.document.project.status)) return { error: READONLY_MESSAGE };
@@ -292,7 +296,7 @@ export async function recordAnalysis(
   _prev: TransitionState,
   formData: FormData,
 ): Promise<TransitionState> {
-  const user = await requireUser();
+  const user = await requireWriter();
 
   const revisionId = str(formData, "revisionId");
   const analysisCodeId = str(formData, "analysisCodeId");
@@ -324,7 +328,10 @@ export async function recordAnalysis(
   ]);
 
   if (!revision) return { error: "Revisão não encontrada." };
-  if (revision.document.project.organizationId !== user.organizationId) {
+  if (
+    revision.document.project.organizationId !== user.organizationId ||
+    !(await canSeeProject(user, revision.document.projectId))
+  ) {
     return { error: "Revisão não encontrada." };
   }
   if (!isProjectWritable(revision.document.project.status)) return { error: READONLY_MESSAGE };

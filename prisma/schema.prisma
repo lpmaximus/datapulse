@@ -39,6 +39,7 @@ model Organization {
   roleProfiles  RoleProfile[]
   projects      Project[]
   accConnections AccConnection[]
+  projectFiles   ProjectFile[]
 }
 
 /// Criticidade técnica do marco. Vira peso no DRI.
@@ -123,6 +124,7 @@ model Project {
   @@index([sectorId])
   @@index([designFirmId])
   @@index([organizationId])
+  files ProjectFile[]
 }
 
 /// Tipo de tarefa. Marco é ponto de verificação sem duração (convenção P6/MS Project).
@@ -511,6 +513,7 @@ model User {
   tasksAssigned      Milestone[]        @relation("TaskAssignee")
   impedimentsOwned   Impediment[]       @relation("ImpedimentOwner")
   requestsOwned       Request[]          @relation("RequestOwner")
+  filesUploaded       ProjectFile[]      @relation("FileUploader")
 
   @@index([role])
   @@index([isActive])
@@ -979,4 +982,43 @@ model AnalysisCode {
 
   @@unique([organizationId, tag])
   @@index([isActive, sortOrder])
+}
+
+/// Arquivo administrativo do projeto (ordem de serviço, processo SEI, contrato,
+/// controle...). Distinto de `Document`, que é o item controlado com revisões.
+/// O binário fica num Blob privado da Vercel; aqui só o registro. O download
+/// passa por /api/files/[id], que confere sessão, organização e visibilidade.
+model ProjectFile {
+  id String @id @default(cuid())
+
+  /// Raiz multi-tenant e base da cota de armazenamento por organização.
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  title String
+  /// Tipo livre ("Ordem de serviço", "Processo SEI", "Contrato"...), mesmo
+  /// padrão de `Milestone.type`.
+  kind      String
+  /// Número/referência (ex.: nº do processo SEI, nº da OS).
+  reference String?
+  /// Data do documento (não a do envio).
+  issuedAt  DateTime?
+  note      String?
+
+  /// Caminho do blob (`org/projeto/uuid-nome`). Único; nunca exposto como URL.
+  pathname    String @unique
+  fileName    String
+  contentType String
+  /// Tamanho lido do blob no registro — não confia no que o navegador informa.
+  sizeBytes   Int
+
+  uploadedById String?
+  uploadedBy   User?   @relation("FileUploader", fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([projectId, createdAt])
 }

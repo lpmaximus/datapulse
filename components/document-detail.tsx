@@ -35,6 +35,7 @@ import type {
   DocumentTransitionRow,
   UserOption,
 } from "@/types/models";
+import { canSeeProject } from "@/lib/server/project-access";
 
 const REVISION_SELECT = {
   id: true,
@@ -101,7 +102,9 @@ export async function DocumentDetail({
   // Documento não tem organizationId próprio — herda via projeto. Sem essa
   // checagem, o id de um documento de outra organização (adivinhado ou visto
   // em outro contexto) abriria a página normalmente.
-  if (!doc || doc.project.organizationId !== user.organizationId) return modal ? <Missing /> : notFound();
+  if (!doc || doc.project.organizationId !== user.organizationId || !(await canSeeProject(user, doc.project.id))) {
+    return modal ? <Missing /> : notFound();
+  }
 
   // Rastreamento consolidado: todos os eventos de todas as revisões.
   const transitions: DocumentTransitionRow[] = await prisma.documentTransition.findMany({

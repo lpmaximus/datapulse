@@ -48,6 +48,7 @@ import type {
   DashboardRequestRow,
   DashboardTaskRow,
 } from "@/types/models";
+import { projectVisibility } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -92,7 +93,7 @@ export default async function PainelPage({
   // pende de `projectWhere`) devolveria a carteira de todas as organizações.
   const projectWhere = {
     status: "ACTIVE" as const,
-    organizationId: user.organizationId,
+    AND: [projectVisibility(user)],
     ...(setor ? { sectorId: setor } : {}),
   };
 

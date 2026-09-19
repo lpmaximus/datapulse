@@ -6,6 +6,8 @@ import { ensureRespondentCookie, hashRespondent } from "@/lib/auth";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import { markRequestAnswered } from "@/app/actions/demands";
 import { getCurrentUser } from "@/lib/session";
+import { canRespondSignals } from "@/lib/authz";
+import { canSeeProject } from "@/lib/server/project-access";
 import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
 
 export interface SignalFormState {
@@ -48,6 +50,14 @@ export async function submitHumanSignal(
   // tarefa precisa ser da organização dele — senão daria para gravar sinal
   // numa tarefa de outra organização só sabendo/adivinhando o milestoneId.
   if (user && milestone.project.organizationId !== user.organizationId) {
+    return { error: "Tarefa não encontrada." };
+  }
+  // Executivo só lê painéis: não responde à Camada 2.
+  if (user && !canRespondSignals(user)) {
+    return { error: "Seu papel não responde a avaliações." };
+  }
+  // Logado: só avalia tarefa de projeto que enxerga (inclui quem foi convocado).
+  if (user && !(await canSeeProject(user, milestone.projectId))) {
     return { error: "Tarefa não encontrada." };
   }
   const respondentHash = user

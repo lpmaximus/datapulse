@@ -19,6 +19,7 @@ import {
   ResolveRequestButton,
 } from "@/components/request-forms";
 import type { RequestDetailRow, UserOption } from "@/types/models";
+import { projectVisibility } from "@/lib/visibility";
 
 /**
  * Conteúdo do registro de solicitação — tela completa (`variant="page"`) ou
@@ -38,7 +39,7 @@ export async function RequestDetail({
   const modal = variant === "modal";
 
   const request: RequestDetailRow | null = await prisma.request.findFirst({
-    where: { id: requestId, projectId: id, project: { organizationId: user.organizationId } },
+    where: { id: requestId, projectId: id, project: projectVisibility(user) },
     include: {
       project: { select: { id: true, name: true, status: true } },
       owner: { select: { id: true, name: true } },

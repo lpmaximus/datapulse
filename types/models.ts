@@ -130,7 +130,7 @@ export interface ProjectDetailRow {
   driScores: DRIScoreRow[];
   manager: { id: string; name: string; function: { name: string } | null } | null;
   members: ProjectMemberRow[];
-  _count: { documents: number };
+  _count: { documents: number; files: number };
 }
 
 export interface MilestoneDetailRow extends MilestoneRow, TaskFieldsRow {

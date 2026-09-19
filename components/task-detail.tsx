@@ -36,6 +36,7 @@ import {
 import { DocumentStatusChip } from "@/components/document-status";
 import { isRequestOpen } from "@/lib/requests";
 import type { MilestoneDetailRow, MilestoneRequestRow, UserOption } from "@/types/models";
+import { projectVisibility } from "@/lib/visibility";
 
 /**
  * Conteúdo do registro de tarefa/marco. Usado na tela completa
@@ -55,7 +56,7 @@ export async function TaskDetail({
   const modal = variant === "modal";
 
   const task: MilestoneDetailRow | null = await prisma.milestone.findFirst({
-    where: { id: taskId, projectId: id, project: { organizationId: user.organizationId } },
+    where: { id: taskId, projectId: id, project: projectVisibility(user) },
     include: {
       project: { select: { id: true, name: true, currency: true, status: true } },
       assignee: { select: { id: true, name: true } },

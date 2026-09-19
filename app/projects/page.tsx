@@ -7,6 +7,7 @@ import { Toolbar, Th, Td, RowCheckbox, StatusToggle, StatusDot, CollapsibleGroup
 import { formatCurrency, formatDate, toNumber } from "@/lib/format";
 import type { ProjectTableRow } from "@/types/models";
 import { Plus } from "lucide-react";
+import { projectVisibility } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function ProjectsPage({
 
   const projects: ProjectTableRow[] = await prisma.project.findMany({
     where: {
-      organizationId: user.organizationId,
+      AND: [projectVisibility(user)],
       ...(q
         ? {
             OR: [

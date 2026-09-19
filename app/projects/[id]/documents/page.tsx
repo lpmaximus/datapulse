@@ -18,6 +18,7 @@ import type {
   DisciplineRow,
   EmpresaRow,
 } from "@/types/models";
+import { projectVisibility } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export default async function ProjectDocumentsPage({
   const user = await requireUser(`/projects/${id}/documents`);
 
   const project = await prisma.project.findFirst({
-    where: { id, organizationId: user.organizationId },
+    where: { id, ...projectVisibility(user) },
     select: { id: true, name: true, status: true },
   });
   if (!project) notFound();

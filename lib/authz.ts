@@ -49,6 +49,18 @@ export async function requireUser(returnTo?: string): Promise<SessionUser> {
   return user;
 }
 
+/**
+ * Exige sessão e papel que grava. Executivo só lê: qualquer ação que altera
+ * dado chama isto (ou `requireRole`), nunca `requireUser` sozinho.
+ */
+export async function requireWriter(returnTo?: string): Promise<SessionUser> {
+  const user = await requireUser(returnTo);
+  if (user.role === "EXECUTIVE") {
+    redirect("/?error=sem-permissao");
+  }
+  return user;
+}
+
 export async function requireRole(roles: Role[], returnTo?: string): Promise<SessionUser> {
   const user = await requireUser(returnTo);
   if (!roles.includes(user.role)) {

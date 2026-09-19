@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUser, canManageProjects } from "@/lib/authz";
+import { requireWriter, canManageProjects } from "@/lib/authz";
 import { projectIsWritable, READONLY_MESSAGE } from "@/lib/server/project-guard";
 import { buildDeadlineChange } from "@/lib/tasks";
+import { projectVisibility } from "@/lib/visibility";
+import { canSeeProject } from "@/lib/server/project-access";
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
@@ -40,11 +42,12 @@ export async function createRequest(
   _prev: RequestFormState,
   formData: FormData,
 ): Promise<RequestFormState> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const projectId = str(formData, "projectId");
   const description = str(formData, "description");
   if (!projectId) return { error: "Projeto não identificado." };
   if (!description) return { error: "Descreva a solicitação." };
+  if (!(await canSeeProject(user, projectId))) return { error: "Projeto não encontrado." };
   if (!(await projectIsWritable(projectId, user.organizationId))) return { error: READONLY_MESSAGE };
 
   const milestoneId = str(formData, "milestoneId") || null;
@@ -93,9 +96,9 @@ export async function createRequest(
   return { ok: true, at: Date.now() };
 }
 
-async function loadRequest(requestId: string, organizationId: string) {
+async function loadRequest(requestId: string, user: { id: string; role: string; organizationId: string }) {
   return prisma.request.findFirst({
-    where: { id: requestId, project: { organizationId } },
+    where: { id: requestId, project: projectVisibility(user) },
     select: {
       id: true,
       projectId: true,
@@ -117,11 +120,11 @@ export async function rescheduleRequest(
   _prev: RequestFormState,
   formData: FormData,
 ): Promise<RequestFormState> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const requestId = str(formData, "requestId");
   if (!requestId) return { error: "Solicitação não identificada." };
 
-  const request = await loadRequest(requestId, user.organizationId);
+  const request = await loadRequest(requestId, user);
   if (!request) return { error: "Solicitação não encontrada." };
   if (request.project.status !== "ACTIVE") return { error: READONLY_MESSAGE };
   if (!canManageProjects(user) && request.ownerId !== user.id) {
@@ -145,11 +148,11 @@ export async function rescheduleRequest(
 
 /** Marca a solicitação como respondida/concluída. */
 export async function resolveRequest(formData: FormData): Promise<void> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const requestId = str(formData, "requestId");
   if (!requestId) return;
 
-  const request = await loadRequest(requestId, user.organizationId);
+  const request = await loadRequest(requestId, user);
   if (!request || request.project.status !== "ACTIVE" || request.status !== "PENDING") return;
   if (!canManageProjects(user) && request.ownerId !== user.id) return;
 
@@ -162,11 +165,11 @@ export async function resolveRequest(formData: FormData): Promise<void> {
 
 /** Cancela a solicitação (pedido não segue mais, sem virar "respondida"). */
 export async function dismissRequest(formData: FormData): Promise<void> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const requestId = str(formData, "requestId");
   if (!requestId) return;
 
-  const request = await loadRequest(requestId, user.organizationId);
+  const request = await loadRequest(requestId, user);
   if (!request || request.project.status !== "ACTIVE" || request.status !== "PENDING") return;
   if (!canManageProjects(user)) return;
 
@@ -186,11 +189,11 @@ export async function updateRequest(
   _prev: RequestFormState,
   formData: FormData,
 ): Promise<RequestFormState> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const requestId = str(formData, "requestId");
   if (!requestId) return { error: "Solicitação não identificada." };
 
-  const request = await loadRequest(requestId, user.organizationId);
+  const request = await loadRequest(requestId, user);
   if (!request) return { error: "Solicitação não encontrada." };
   if (request.project.status !== "ACTIVE") return { error: READONLY_MESSAGE };
   if (!canManageProjects(user) && request.ownerId !== user.id) {
@@ -257,11 +260,11 @@ export async function updateRequest(
 
 /** Reabre uma solicitação respondida ou cancelada (só o gerente). */
 export async function reopenRequest(formData: FormData): Promise<void> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const requestId = str(formData, "requestId");
   if (!requestId) return;
 
-  const request = await loadRequest(requestId, user.organizationId);
+  const request = await loadRequest(requestId, user);
   if (!request || request.project.status !== "ACTIVE" || request.status === "PENDING") return;
   if (!canManageProjects(user)) return;
 
@@ -279,11 +282,11 @@ export interface DeleteResult {
 
 /** Exclui a solicitação (com o histórico de prazo e os vínculos a documentos). */
 export async function deleteRequest(formData: FormData): Promise<DeleteResult> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const requestId = str(formData, "requestId");
   if (!requestId) return { error: "Solicitação não identificada." };
 
-  const request = await loadRequest(requestId, user.organizationId);
+  const request = await loadRequest(requestId, user);
   if (!request) return { error: "Solicitação não encontrada." };
   if (request.project.status !== "ACTIVE") return { error: READONLY_MESSAGE };
   if (!canManageProjects(user) && request.ownerId !== user.id) {

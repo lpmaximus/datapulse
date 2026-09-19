@@ -48,6 +48,7 @@ import {
 } from "@/lib/tasks";
 import { isRequestOpen } from "@/lib/requests";
 import type { ProjectDetailRow, ProjectTaskRow, UserOption, ProjectMemberRow, RequestRow } from "@/types/models";
+import { projectVisibility } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ export default async function ProjectPage({
   const user = await requireUser(`/projects/${id}`);
 
   const project: ProjectDetailRow | null = await prisma.project.findFirst({
-    where: { id, organizationId: user.organizationId },
+    where: { id, ...projectVisibility(user) },
     include: {
       milestones: {
         orderBy: [{ plannedDate: "asc" }, { createdAt: "asc" }],
@@ -101,7 +102,7 @@ export default async function ProjectPage({
           user: { select: { id: true, name: true, function: { select: { name: true } }, role: true } },
         },
       },
-      _count: { select: { documents: true } },
+      _count: { select: { documents: true, files: true } },
     },
   });
 
@@ -202,6 +203,9 @@ export default async function ProjectPage({
         <div className="flex flex-wrap items-center gap-2">
           <Link href={`/projects/${project.id}/documents`}>
             <Button variant="outline">Documentos ({project._count.documents})</Button>
+          </Link>
+          <Link href={`/projects/${project.id}/files`}>
+            <Button variant="outline">Arquivos ({project._count.files})</Button>
           </Link>
           {manage && writable ? (
             <>

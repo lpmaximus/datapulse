@@ -14,6 +14,7 @@ import type {
   EmpresaRow,
   ProjectOption,
 } from "@/types/models";
+import { projectVisibility } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ export default async function DocumentsPage({
   const documents: DocumentTableRow[] = await prisma.document.findMany({
     where: {
       // Documento não tem organizationId próprio — herda via projeto.
-      project: { organizationId: user.organizationId },
+      project: projectVisibility(user),
       ...(filter === "review" ? { revisions: { some: { status: "IN_REVIEW" } } } : {}),
       ...documentSearchFilter(q, true),
     },

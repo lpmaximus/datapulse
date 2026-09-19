@@ -6,6 +6,8 @@ import { Toolbar, Th, Td, RowCheckbox } from "@/components/table-ui";
 import { SignalTabs } from "@/components/signal-tabs";
 import { formatCurrency, formatDateTime, toNumber } from "@/lib/format";
 import type { HumanSignalTableRow, SystemicSignalTableRow } from "@/types/models";
+import { projectVisibility } from "@/lib/visibility";
+import type { SessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -50,18 +52,18 @@ export default async function SignalsPage({
       </div>
 
       {current === "human" ? (
-        <HumanSignalsTable q={q} organizationId={user.organizationId} />
+        <HumanSignalsTable q={q} user={user} />
       ) : (
-        <SystemicSignalsTable q={q} organizationId={user.organizationId} />
+        <SystemicSignalsTable q={q} user={user} />
       )}
     </div>
   );
 }
 
-async function HumanSignalsTable({ q, organizationId }: { q?: string; organizationId: string }) {
+async function HumanSignalsTable({ q, user }: { q?: string; user: SessionUser }) {
   const signals: HumanSignalTableRow[] = await prisma.humanSignal.findMany({
     where: {
-      milestone: { project: { organizationId } },
+      milestone: { project: projectVisibility(user) },
       ...(q
         ? {
             OR: [
@@ -139,10 +141,10 @@ async function HumanSignalsTable({ q, organizationId }: { q?: string; organizati
   );
 }
 
-async function SystemicSignalsTable({ q, organizationId }: { q?: string; organizationId: string }) {
+async function SystemicSignalsTable({ q, user }: { q?: string; user: SessionUser }) {
   const signals: SystemicSignalTableRow[] = await prisma.systemicSignal.findMany({
     where: {
-      milestone: { project: { organizationId } },
+      milestone: { project: projectVisibility(user) },
       ...(q
         ? {
             OR: [

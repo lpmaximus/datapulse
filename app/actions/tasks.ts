@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireRole, requireUser, canManageProjects } from "@/lib/authz";
+import { requireRole, requireWriter, canManageProjects } from "@/lib/authz";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import { projectIsWritable, READONLY_MESSAGE } from "@/lib/server/project-guard";
 import { recomputeRollup } from "@/lib/server/rollup";
@@ -17,6 +17,7 @@ import {
   type TaskKind,
   type TaskStatus,
 } from "@/lib/tasks";
+import { projectVisibility } from "@/lib/visibility";
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
@@ -159,14 +160,14 @@ export async function updateTask(
   _prev: TaskFormState,
   formData: FormData,
 ): Promise<TaskFormState> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const taskId = str(formData, "taskId");
   if (!taskId) return { error: "Tarefa não identificada." };
 
   // Tarefa/Marco não tem organizationId próprio — herda via projeto. Sem
   // filtrar aqui, um taskId de outra organização passaria como "encontrada".
   const task = await prisma.milestone.findFirst({
-    where: { id: taskId, project: { organizationId: user.organizationId } },
+    where: { id: taskId, project: projectVisibility(user) },
     select: {
       id: true,
       projectId: true,
@@ -305,9 +306,9 @@ export async function updateTask(
 
 /* ----------------------------- impedimentos ----------------------------- */
 
-async function loadForImpediment(taskId: string, organizationId: string) {
+async function loadForImpediment(taskId: string, user: { id: string; role: string; organizationId: string }) {
   return prisma.milestone.findFirst({
-    where: { id: taskId, project: { organizationId } },
+    where: { id: taskId, project: projectVisibility(user) },
     select: {
       id: true,
       projectId: true,
@@ -328,13 +329,13 @@ export async function addImpediment(
   _prev: TaskFormState,
   formData: FormData,
 ): Promise<TaskFormState> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const taskId = str(formData, "taskId");
   const description = str(formData, "description");
   if (!taskId) return { error: "Tarefa não identificada." };
   if (!description) return { error: "Descreva o que está travando." };
 
-  const task = await loadForImpediment(taskId, user.organizationId);
+  const task = await loadForImpediment(taskId, user);
   if (!task) return { error: "Tarefa não encontrada." };
   if (task.project.status !== "ACTIVE") return { error: READONLY_MESSAGE };
   if (!canManageProjects(user) && task.assigneeId !== user.id) {
@@ -373,7 +374,7 @@ export async function addImpediment(
 
 /** Resolve o impedimento. Sem outro bloqueio aberto, a tarefa volta a "Em andamento". */
 export async function resolveImpediment(formData: FormData): Promise<void> {
-  const user = await requireUser();
+  const user = await requireWriter();
   const impedimentId = str(formData, "impedimentId");
   if (!impedimentId) return;
 
@@ -383,7 +384,7 @@ export async function resolveImpediment(formData: FormData): Promise<void> {
   });
   if (!imp || imp.resolvedAt) return;
 
-  const task = await loadForImpediment(imp.milestoneId, user.organizationId);
+  const task = await loadForImpediment(imp.milestoneId, user);
   if (!task || task.project.status !== "ACTIVE") return;
   if (!canManageProjects(user) && task.assigneeId !== user.id) return;
 
