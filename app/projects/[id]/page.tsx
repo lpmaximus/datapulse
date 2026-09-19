@@ -207,6 +207,9 @@ export default async function ProjectPage({
           <Link href={`/projects/${project.id}/files`}>
             <Button variant="outline">Arquivos ({project._count.files})</Button>
           </Link>
+          <a href={`/api/reports/project/${project.id}`} target="_blank" rel="noreferrer">
+            <Button variant="outline">Relatório PDF</Button>
+          </a>
           {manage && writable ? (
             <>
               <Link href={`/projects/${project.id}/edit`}>

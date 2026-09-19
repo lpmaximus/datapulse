@@ -199,6 +199,11 @@ export async function TaskDetail({
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <DRIBadge score={latest?.score ?? 0} />
+            {isPackage ? (
+              <a href={`/api/reports/package/${task.id}`} target="_blank" rel="noreferrer">
+                <Button variant="outline">Ficha PDF</Button>
+              </a>
+            ) : null}
             {manage && writable ? (
               <DeleteButton
                 action={deleteTask}

@@ -5,7 +5,7 @@ import { Card, DRIBadge, Empty, SectionTitle } from "@/components/ui";
 import { Th, Td } from "@/components/table-ui";
 import { formatDate } from "@/lib/format";
 import type { ProjectDriHistoryRow } from "@/types/models";
-import { ArrowDown, ArrowUp, Minus } from "lucide-react";
+import { ArrowDown, ArrowUp, FileDown, Minus } from "lucide-react";
 import { projectVisibility } from "@/lib/visibility";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +91,43 @@ export default async function ReportsPage() {
       </div>
 
       <div>
+        <SectionTitle hint="Abrem em PDF, com os dados do momento e só do que você enxerga.">
+          Relatórios em PDF
+        </SectionTitle>
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card>
+            <p className="text-sm font-medium">Carteira</p>
+            <p className="mt-1 text-sm text-ink-soft">
+              Todos os projetos lado a lado: DRI, o que piorou na semana, atrasos, impedimentos,
+              solicitações vencidas e revisões paradas. Para a reunião de acompanhamento.
+            </p>
+            <a
+              href="/api/reports/portfolio"
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+            >
+              <FileDown size={15} /> Gerar PDF da carteira
+            </a>
+          </Card>
+          <Card>
+            <p className="text-sm font-medium">Status do projeto</p>
+            <p className="mt-1 text-sm text-ink-soft">
+              Restrições dominantes, cronograma, impedimentos, solicitações e situação documental.
+              Também serve para enviar ao cliente. Use o botão na tabela abaixo ou na página do projeto.
+            </p>
+          </Card>
+          <Card>
+            <p className="text-sm font-medium">Ficha do pacote</p>
+            <p className="mt-1 text-sm text-ink-soft">
+              Protocolo de uma emissão: documentos, pareceres, tempo parado em análise e trâmite
+              completo. Abra o pacote em Documentos e use o botão &quot;Ficha PDF&quot;.
+            </p>
+          </Card>
+        </div>
+      </div>
+
+      <div>
         <SectionTitle hint={`${rows.length} projeto(s) com histórico`}>
           Maiores variações
         </SectionTitle>
@@ -109,6 +146,7 @@ export default async function ReportsPage() {
                   <Th>DRI atual</Th>
                   <Th>Variação (7 dias)</Th>
                   <Th>Comparado a</Th>
+                  <Th>Relatório</Th>
                 </tr>
               </thead>
               <tbody>
@@ -135,6 +173,16 @@ export default async function ReportsPage() {
                     </Td>
                     <Td className="text-ink-faint">
                       {r.previous ? formatDate(r.previous.calculatedAt) : "sem comparação"}
+                    </Td>
+                    <Td>
+                      <a
+                        href={`/api/reports/project/${r.project.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-accent hover:underline"
+                      >
+                        <FileDown size={14} /> PDF
+                      </a>
                     </Td>
                   </tr>
                 ))}
