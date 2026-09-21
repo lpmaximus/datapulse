@@ -49,6 +49,7 @@ import type {
   DashboardTaskRow,
 } from "@/types/models";
 import { projectVisibility } from "@/lib/visibility";
+import { SpecialistDashboard } from "@/components/specialist-dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,9 @@ export default async function PainelPage({
   searchParams: Promise<{ setor?: string; resp?: string; prio?: string; q?: string }>;
 }) {
   const user = await requireUser("/");
+  // Especialista tem painel próprio: seus projetos e o que faz nos dos outros.
+  // Administrador e gerente seguem com o painel da carteira.
+  if (user.role === "SPECIALIST") return <SpecialistDashboard user={user} />;
   const { setor, resp, prio, q } = await searchParams;
   const now = new Date();
   const manage = canManageProjects(user);
