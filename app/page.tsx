@@ -49,6 +49,7 @@ import type {
   DashboardTaskRow,
 } from "@/types/models";
 import { projectVisibility } from "@/lib/visibility";
+import { WorkloadGrid } from "@/components/workload-grid";
 import { SpecialistDashboard } from "@/components/specialist-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -573,6 +574,8 @@ export default async function PainelPage({
               emptyText="Nenhum projeto com datas. Informe início/término no projeto ou nas tarefas."
             />
           </Panel>
+
+          {manage ? <WorkloadGrid user={user} basePath="/workload" /> : null}
 
           {/* ---------------------- carga, status e impedimentos -------------------- */}
           <section className="grid gap-4 xl:grid-cols-2">

@@ -69,6 +69,12 @@ const SECTIONS: NavSection[] = [
         icon: Clock,
         roles: ["ADMIN", "MANAGER", "SPECIALIST"],
       },
+      {
+        href: "/workload",
+        label: "Carga da equipe",
+        icon: Users,
+        roles: ["ADMIN", "MANAGER"],
+      },
     ],
   },
   {
