@@ -19,6 +19,7 @@ import {
   type DocumentStatus,
 } from "@/lib/documents";
 import { canSeeProject } from "@/lib/server/project-access";
+import { reviewDueDate } from "@/lib/business-days";
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
@@ -131,6 +132,12 @@ export async function createDocument(
 
   const revisionName = str(formData, "revisionName") || "R00";
 
+  // Vencimento padrão: entrada (envio da projetista) + 5 dias úteis. O prazo
+  // digitado é a exceção do gerente. Sem data de envio, o prazo nasce quando a
+  // revisão for emitida para análise.
+  const issuedAt = optDate(formData, "issuedAt");
+  const dueAt = optDate(formData, "dueAt") ?? (issuedAt ? reviewDueDate(issuedAt) : null);
+
   await prisma.document.create({
     data: {
       projectId,
@@ -148,8 +155,8 @@ export async function createDocument(
           sequence: 0,
           status: "DRAFT",
           round: 0,
-          issuedAt: optDate(formData, "issuedAt"),
-          dueAt: optDate(formData, "dueAt"),
+          issuedAt,
+          dueAt,
           externalUrl: str(formData, "externalUrl") || null,
           transitions: {
             create: {
@@ -204,6 +211,8 @@ export async function submitRevision(
       round: true,
       updatedAt: true,
       inReviewSince: true,
+      issuedAt: true,
+      dueAt: true,
       milestoneId: true,
       document: {
         select: {
@@ -246,7 +255,13 @@ export async function submitRevision(
 
   const now = new Date();
   const round = nextRound(revision.round, "SUBMITTED");
-  const dueAt = optDate(formData, "dueAt");
+  // Vencimento: o gerente pode fixar uma exceção; senão vale o prazo que a
+  // revisão já tem (entrada + 5 dias úteis desde o cadastro) ou, em revisão
+  // sem prazo (legado), entrada + 5 dias úteis calculado agora. O emissor que
+  // não é gerente não altera o prazo: o formulário chega desabilitado e o
+  // servidor ignora o campo de qualquer forma.
+  const managerDueAt = canManageProjects(user) ? optDate(formData, "dueAt") : null;
+  const dueAt = managerDueAt ?? revision.dueAt ?? reviewDueDate(revision.issuedAt ?? now);
 
   await prisma.$transaction([
     prisma.documentTransition.create({
@@ -470,6 +485,7 @@ export async function createRevision(
   if (duplicate) return { error: `Já existe a revisão "${name}" neste documento.` };
 
   const now = new Date();
+  const issuedAt = optDate(formData, "issuedAt") ?? now;
 
   // Só uma revisão APROVADA é marcada como substituída ao ser sucedida.
   // Comentada ou reprovada mantém seu desfecho: sobrescrever com SUPERSEDED
@@ -505,7 +521,9 @@ export async function createRevision(
         sequence: (last?.sequence ?? -1) + 1,
         status: "DRAFT",
         round: 0,
-        issuedAt: optDate(formData, "issuedAt") ?? now,
+        issuedAt,
+        // Novo ciclo, novo prazo: entrada + 5 dias úteis.
+        dueAt: reviewDueDate(issuedAt),
         externalUrl: str(formData, "externalUrl") || null,
         notes: str(formData, "notes") || null,
         transitions: {

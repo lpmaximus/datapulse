@@ -191,7 +191,7 @@ export function DocumentCreateForm({
           <Field label="Emitido em">
             <input type="date" name="issuedAt" className={inputClass} />
           </Field>
-          <Field label="Prazo da 1ª análise">
+          <Field label="Prazo da 1ª análise" hint="Em branco: data de envio + 5 dias úteis.">
             <input type="date" name="dueAt" className={inputClass} />
           </Field>
 

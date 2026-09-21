@@ -29,6 +29,7 @@ import {
   type DocumentStatus,
 } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
+import { reviewDueDate } from "@/lib/business-days";
 import { loadPackageOptions } from "@/lib/server/package-options";
 import type {
   DocumentDetailRow,
@@ -330,6 +331,12 @@ export async function DocumentDetail({
                 <SubmitRevisionForm
                   revisionId={current.id}
                   specialists={specialists}
+                  defaultDueAt={(
+                    current.dueAt ?? reviewDueDate(current.issuedAt ?? new Date())
+                  )
+                    .toISOString()
+                    .slice(0, 10)}
+                  canEditDueAt={canManageProjects(user)}
                 />
               </Card>
             </div>

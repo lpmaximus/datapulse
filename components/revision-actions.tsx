@@ -44,9 +44,15 @@ function Feedback({ state, okText }: { state: TransitionState; okText: string })
 export function SubmitRevisionForm({
   revisionId,
   specialists,
+  defaultDueAt,
+  canEditDueAt,
 }: {
   revisionId: string;
   specialists: UserOption[];
+  /** Vencimento padrão (AAAA-MM-DD): entrada + 5 dias úteis. */
+  defaultDueAt: string;
+  /** Só o gerente altera o vencimento; para os demais o campo é informativo. */
+  canEditDueAt: boolean;
 }) {
   const [state, formAction] = useActionState<TransitionState, FormData>(
     submitRevision,
@@ -69,8 +75,21 @@ export function SubmitRevisionForm({
         </select>
       </Field>
 
-      <Field label="Prazo para a análise">
-        <input type="date" name="dueAt" className={inputClass} />
+      <Field
+        label="Prazo para a análise"
+        hint={
+          canEditDueAt
+            ? "Padrão: data de envio + 5 dias úteis. Altere só em caso de exceção."
+            : "Data de envio + 5 dias úteis. Só o gerente altera."
+        }
+      >
+        <input
+          type="date"
+          name="dueAt"
+          defaultValue={defaultDueAt}
+          disabled={!canEditDueAt}
+          className={inputClass}
+        />
       </Field>
 
       <Field label="Observação">
