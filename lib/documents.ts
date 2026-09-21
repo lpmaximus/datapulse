@@ -28,7 +28,11 @@ export type DocumentAction =
   | "APPROVED"
   | "REVISED"
   | "SUPERSEDED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "DELEGATION_REQUESTED"
+  | "DELEGATION_ACCEPTED"
+  | "DELEGATION_DECLINED"
+  | "DELEGATION_CANCELLED";
 
 export type AnalysisEffect =
   | "APPROVES"
@@ -54,6 +58,10 @@ export const ACTION_LABEL: Record<DocumentAction, string> = {
   REVISED: "Nova revisão emitida",
   SUPERSEDED: "Substituído por revisão posterior",
   CANCELLED: "Cancelado",
+  DELEGATION_REQUESTED: "Delegação da análise pedida",
+  DELEGATION_ACCEPTED: "Delegação da análise aceita",
+  DELEGATION_DECLINED: "Delegação da análise recusada",
+  DELEGATION_CANCELLED: "Delegação da análise retirada",
 };
 
 export const STATUS_LABEL: Record<DocumentStatus, string> = {
@@ -97,6 +105,11 @@ const ACTION_TO_STATUS: Record<DocumentAction, DocumentStatus> = {
   REVISED: "DRAFT",
   SUPERSEDED: "SUPERSEDED",
   CANCELLED: "CANCELLED",
+  // Delegar a análise não muda o status da revisão: ela segue em análise.
+  DELEGATION_REQUESTED: "IN_REVIEW",
+  DELEGATION_ACCEPTED: "IN_REVIEW",
+  DELEGATION_DECLINED: "IN_REVIEW",
+  DELEGATION_CANCELLED: "IN_REVIEW",
 };
 
 export function statusAfter(action: DocumentAction): DocumentStatus {

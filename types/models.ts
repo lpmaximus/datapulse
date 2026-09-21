@@ -372,7 +372,11 @@ export type DocumentActionValue =
   | "APPROVED"
   | "REVISED"
   | "SUPERSEDED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "DELEGATION_REQUESTED"
+  | "DELEGATION_ACCEPTED"
+  | "DELEGATION_DECLINED"
+  | "DELEGATION_CANCELLED";
 export type SignalRequestStatusValue = "PENDING" | "ANSWERED" | "DISMISSED" | "EXPIRED";
 
 export interface UserTableRow {

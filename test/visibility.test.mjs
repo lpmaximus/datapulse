@@ -32,6 +32,19 @@ test("especialista designado numa revisão enxerga o projeto dela", () => {
   assert.deepEqual(hit, { documents: { some: { revisions: { some: { specialistId: "u1" } } } } });
 });
 
+test("destinatário de delegação pendente enxerga o projeto", () => {
+  const where = projectVisibility(u("SPECIALIST"));
+  const hit = where.OR.find((c) => JSON.stringify(c).includes("delegations"));
+  assert.ok(hit, "falta a condição por delegação");
+  assert.deepEqual(hit, {
+    documents: {
+      some: {
+        revisions: { some: { delegations: { some: { toUserId: "u1", status: "PENDING" } } } },
+      },
+    },
+  });
+});
+
 test("o filtro de organização nunca some", () => {
   for (const role of ["ADMIN", "MANAGER", "SPECIALIST", "EXECUTIVE"]) {
     assert.equal(projectVisibility(u(role)).organizationId, "org1");

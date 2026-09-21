@@ -510,6 +510,8 @@ model User {
   signalRequests   SignalRequest[]
   documentsOwned   Document[]      @relation("DocumentOwner")
   revisionsToAnalyze DocumentRevision[] @relation("RevisionSpecialist")
+  delegationsSent     AnalysisDelegation[] @relation("DelegationFrom")
+  delegationsReceived AnalysisDelegation[] @relation("DelegationTo")
   tasksAssigned      Milestone[]        @relation("TaskAssignee")
   impedimentsOwned   Impediment[]       @relation("ImpedimentOwner")
   requestsOwned       Request[]          @relation("RequestOwner")
@@ -678,6 +680,7 @@ model DocumentRevision {
   updatedAt DateTime @updatedAt
 
   transitions DocumentTransition[]
+  delegations AnalysisDelegation[]
 
   @@unique([documentId, name])
   @@index([milestoneId])
@@ -705,6 +708,14 @@ enum DocumentAction {
   /// Substituído por revisão posterior.
   SUPERSEDED
   CANCELLED
+  /// Delegação da análise: pedida pelo especialista da vez...
+  DELEGATION_REQUESTED
+  /// ...aceita pelo destinatário (a análise muda de mãos)...
+  DELEGATION_ACCEPTED
+  /// ...recusada (nada muda, com motivo)...
+  DELEGATION_DECLINED
+  /// ...ou retirada por quem pediu. Não muda status nem prazo da revisão.
+  DELEGATION_CANCELLED
 }
 
 /**
@@ -753,6 +764,48 @@ model DocumentTransition {
 
   @@index([revisionId, createdAt])
   @@index([assignedToId])
+}
+
+enum DelegationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  /// Retirada por quem pediu, ou encerrada porque a revisão foi analisada.
+  CANCELLED
+}
+
+/**
+ * Pedido de delegação da ANÁLISE de uma revisão (não do documento nem da
+ * emissão). Quem está com a análise propõe um colega; a análise só muda de mãos
+ * quando o destinatário aceita (`DocumentRevision.specialistId` passa a ser ele).
+ * Não altera status, ciclo nem vencimento da revisão. Cada passo também vai
+ * para o histórico (`DocumentTransition`, ações DELEGATION_*).
+ *
+ * Sem `organizationId` próprio: herda pela cadeia revisão → documento → projeto.
+ * Uma revisão tem no máximo um pedido PENDING por vez (garantido na ação).
+ */
+model AnalysisDelegation {
+  id         String           @id @default(cuid())
+  revisionId String
+  revision   DocumentRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  fromUserId String
+  from       User   @relation("DelegationFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId   String
+  to         User   @relation("DelegationTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  status DelegationStatus @default(PENDING)
+  /// Recado de quem pede.
+  note String?
+  /// Resposta do destinatário (obrigatória ao recusar).
+  responseNote String?
+
+  createdAt   DateTime  @default(now())
+  respondedAt DateTime?
+
+  @@index([revisionId, status])
+  @@index([toUserId, status])
+  @@index([fromUserId])
 }
 
 /* ------------------------------------------------------------------------ */

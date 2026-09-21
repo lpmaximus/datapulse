@@ -406,6 +406,15 @@ export async function recordAnalysis(
         inReviewSince: null,
       },
     }),
+    // Parecer dado com delegação ainda pendente: o pedido perde o sentido.
+    prisma.analysisDelegation.updateMany({
+      where: { revisionId: revision.id, status: "PENDING" },
+      data: {
+        status: "CANCELLED",
+        respondedAt: now,
+        responseNote: "Revisão analisada antes da resposta.",
+      },
+    }),
   ]);
 
   await recomputePackages([revision.milestoneId]);

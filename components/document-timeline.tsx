@@ -13,6 +13,10 @@ const DOT: Record<DocumentAction, string> = {
   REVISED: "bg-sky-400",
   SUPERSEDED: "bg-ink-faint",
   CANCELLED: "bg-ink-faint",
+  DELEGATION_REQUESTED: "bg-violet-400",
+  DELEGATION_ACCEPTED: "bg-violet-600",
+  DELEGATION_DECLINED: "bg-violet-300",
+  DELEGATION_CANCELLED: "bg-ink-faint",
 };
 
 /**
@@ -58,7 +62,7 @@ export function DocumentTimeline({
           </div>
 
           <p className="mt-1 text-xs text-ink-soft">
-            {t.fromStatus
+            {t.fromStatus && t.fromStatus !== t.toStatus
               ? `${STATUS_LABEL[t.fromStatus]} → ${STATUS_LABEL[t.toStatus]}`
               : STATUS_LABEL[t.toStatus]}
             {t.actorName ? ` · por ${t.actorName}` : ""}

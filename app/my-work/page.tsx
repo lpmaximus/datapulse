@@ -16,6 +16,7 @@ import type {
 import { DOCUMENT_SELECT, currentRevision } from "@/components/document-table";
 import { AlertTriangle, ClipboardCheck } from "lucide-react";
 import { KindMark, PriorityCell, ProgressBar, TaskStatusCell } from "@/components/task-ui";
+import { RespondDelegationForm } from "@/components/delegation-forms";
 import { isTaskOverdue, relativeDueLabel, taskDueDate } from "@/lib/tasks";
 
 export const dynamic = "force-dynamic";
@@ -111,6 +112,38 @@ export default async function MyWorkPage() {
   });
 
   const projectIds = memberships.map((m: { projectId: string }) => m.projectId);
+
+  // Análises que colegas pediram para eu assumir: só o destinatário decide.
+  const delegationsToMe = await prisma.analysisDelegation.findMany({
+    where: {
+      toUserId: user.id,
+      status: "PENDING",
+      revision: {
+        document: { project: { status: "ACTIVE", organizationId: user.organizationId } },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      note: true,
+      createdAt: true,
+      from: { select: { name: true } },
+      revision: {
+        select: {
+          name: true,
+          dueAt: true,
+          document: {
+            select: {
+              id: true,
+              number: true,
+              name: true,
+              project: { select: { id: true, name: true } },
+            },
+          },
+        },
+      },
+    },
+  });
 
   // As próprias respostas — visíveis só para quem as escreveu, via o mesmo
   // pseudônimo usado na gravação.
@@ -232,6 +265,45 @@ export default async function MyWorkPage() {
           </Card>
         )}
       </section>
+
+      {delegationsToMe.length > 0 ? (
+        <section>
+          <SectionTitle hint="A análise só passa a ser sua quando você aceitar">
+            Análises delegadas a você
+          </SectionTitle>
+          <div className="space-y-3">
+            {delegationsToMe.map((d) => {
+              const doc = d.revision.document;
+              return (
+                <Card key={d.id} className="space-y-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <Link
+                      href={`/documents/${doc.id}`}
+                      className="font-medium text-ink hover:text-accent"
+                    >
+                      {doc.number ? `${doc.number} — ` : ""}
+                      {doc.name}
+                    </Link>
+                    <span className="text-xs text-ink-faint">
+                      {doc.project.name} · rev. {d.revision.name} · vence{" "}
+                      {formatDate(d.revision.dueAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm text-ink-soft">
+                    {d.from.name} pediu em {formatDate(d.createdAt)}.
+                  </p>
+                  {d.note ? (
+                    <p className="rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink-soft">
+                      {d.note}
+                    </p>
+                  ) : null}
+                  <RespondDelegationForm delegationId={d.id} />
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <SectionTitle hint="Ordenadas por urgência">

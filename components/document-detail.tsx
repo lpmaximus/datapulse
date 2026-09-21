@@ -30,6 +30,12 @@ import {
 } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
 import { reviewDueDate } from "@/lib/business-days";
+import { currentAnalystId } from "@/lib/delegation";
+import {
+  RequestDelegationForm,
+  RespondDelegationForm,
+  WithdrawDelegationForm,
+} from "@/components/delegation-forms";
 import { loadPackageOptions } from "@/lib/server/package-options";
 import type {
   DocumentDetailRow,
@@ -200,6 +206,39 @@ export async function DocumentDetail({
     isActionAllowed(current.status, "SUBMITTED") &&
     (canManageProjects(user) || doc.responsibleId === user.id);
 
+  // Delegação da análise: um pedido pendente por revisão em análise.
+  const pendingDelegation =
+    current && current.status === "IN_REVIEW"
+      ? await prisma.analysisDelegation.findFirst({
+          where: { revisionId: current.id, status: "PENDING" },
+          select: {
+            id: true,
+            fromUserId: true,
+            toUserId: true,
+            note: true,
+            createdAt: true,
+            from: { select: { name: true } },
+            to: { select: { name: true } },
+          },
+        })
+      : null;
+  const analystId = current
+    ? currentAnalystId({
+        specialistId: current.specialist?.id ?? null,
+        responsibleId: doc.responsibleId,
+      })
+    : null;
+  const canRequestDelegation =
+    writable &&
+    current != null &&
+    current.status === "IN_REVIEW" &&
+    pendingDelegation == null &&
+    analystId === user.id &&
+    user.role !== "EXECUTIVE";
+  const delegationCandidates = specialists.filter(
+    (u) => u.id !== user.id && u.id !== (current?.specialist?.id ?? null),
+  );
+
   return (
     <div className="space-y-8">
       <section>
@@ -317,6 +356,42 @@ export async function DocumentDetail({
                 <AnalysisForm
                   revisionId={current.id}
                   codes={applicableCodes(current.status, codes)}
+                />
+              </Card>
+            </div>
+          ) : null}
+
+          {pendingDelegation && current ? (
+            <div>
+              <SectionTitle hint={`revisão ${current.name}`}>Delegação da análise</SectionTitle>
+              <Card className="space-y-3">
+                <p className="text-sm text-ink">
+                  <span className="font-medium">{pendingDelegation.from.name}</span> pediu que{" "}
+                  <span className="font-medium">{pendingDelegation.to.name}</span> assuma a
+                  análise, em {formatDate(pendingDelegation.createdAt)}. Aguardando a resposta.
+                </p>
+                {pendingDelegation.note ? (
+                  <p className="rounded-md border border-line bg-canvas px-3 py-2 text-sm text-ink-soft">
+                    {pendingDelegation.note}
+                  </p>
+                ) : null}
+                {writable && pendingDelegation.toUserId === user.id ? (
+                  <RespondDelegationForm delegationId={pendingDelegation.id} />
+                ) : null}
+                {writable && pendingDelegation.fromUserId === user.id ? (
+                  <WithdrawDelegationForm delegationId={pendingDelegation.id} />
+                ) : null}
+              </Card>
+            </div>
+          ) : null}
+
+          {canRequestDelegation && current ? (
+            <div>
+              <SectionTitle hint={`revisão ${current.name}`}>Delegar a análise</SectionTitle>
+              <Card>
+                <RequestDelegationForm
+                  revisionId={current.id}
+                  candidates={delegationCandidates}
                 />
               </Card>
             </div>
