@@ -5,9 +5,10 @@ import type { Prisma } from "@prisma/client";
  *
  * ADMIN e MANAGER veem a carteira inteira da organização. Especialista e
  * Executivo só veem projeto em que são gerente, membro alocado, responsável
- * por alguma tarefa, dono de alguma solicitação ou responsável por algum
- * documento. Fora disso o projeto "não existe" para eles — os filtros abaixo
- * entram na própria consulta, então um id colado na URL dá "não encontrado".
+ * por alguma tarefa, dono de alguma solicitação, responsável por algum
+ * documento ou especialista designado para analisar alguma revisão. Fora
+ * disso o projeto "não existe" para eles — os filtros abaixo entram na
+ * própria consulta, então um id colado na URL dá "não encontrado".
  */
 export function projectVisibility(user: {
   id: string;
@@ -24,6 +25,9 @@ export function projectVisibility(user: {
       { milestones: { some: { assigneeId: user.id } } },
       { requests: { some: { ownerId: user.id } } },
       { documents: { some: { responsibleId: user.id } } },
+      // Designado para analisar uma revisão precisa alcançar o projeto dela,
+      // mesmo sem ser responsável pelo documento (base da delegação de análise).
+      { documents: { some: { revisions: { some: { specialistId: user.id } } } } },
       // Convocado para avaliar (Camada 2) precisa alcançar a tarefa.
       { milestones: { some: { signalRequests: { some: { assigneeId: user.id, status: "PENDING" } } } } },
     ],

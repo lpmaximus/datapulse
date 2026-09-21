@@ -17,12 +17,19 @@ test("ESPECIALISTA e EXECUTIVO só veem projetos com vínculo", () => {
     assert.equal(where.organizationId, "org1");
     assert.ok(Array.isArray(where.OR) && where.OR.length >= 4);
     const json = JSON.stringify(where.OR);
-    for (const needle of ["managerId", "members", "assigneeId", "ownerId", "responsibleId", "signalRequests"]) {
+    for (const needle of ["managerId", "members", "assigneeId", "ownerId", "responsibleId", "specialistId", "signalRequests"]) {
       assert.ok(json.includes(needle), needle);
     }
     // Sempre o id do próprio usuário — nunca uma condição sem dono.
     assert.ok(json.includes('"u1"'));
   }
+});
+
+test("especialista designado numa revisão enxerga o projeto dela", () => {
+  const where = projectVisibility(u("SPECIALIST"));
+  const hit = where.OR.find((c) => c.documents?.some?.revisions);
+  assert.ok(hit, "falta a condição por revisão");
+  assert.deepEqual(hit, { documents: { some: { revisions: { some: { specialistId: "u1" } } } } });
 });
 
 test("o filtro de organização nunca some", () => {
