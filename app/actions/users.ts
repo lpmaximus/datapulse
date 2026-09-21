@@ -130,6 +130,40 @@ export async function updateUserCompany(formData: FormData): Promise<void> {
 }
 
 /**
+ * Disciplinas que o usuário domina (N:N, informativo: não altera permissão).
+ * Substitui o conjunto inteiro pelo enviado. Todo id é validado contra a
+ * organização do administrador.
+ */
+export async function setUserDisciplines(formData: FormData): Promise<void> {
+  const admin = await requireRole(["ADMIN"]);
+  const userId = str(formData, "userId");
+  if (!userId) return;
+
+  const user = await prisma.user.findFirst({
+    where: { id: userId, organizationId: admin.organizationId },
+    select: { id: true },
+  });
+  if (!user) return;
+
+  const wanted = [...new Set(formData.getAll("disciplineId").map((v) => String(v).trim()).filter(Boolean))];
+  const valid = wanted.length
+    ? await prisma.discipline.findMany({
+        where: { id: { in: wanted }, organizationId: admin.organizationId },
+        select: { id: true },
+      })
+    : [];
+  if (valid.length !== wanted.length) return;
+
+  await prisma.$transaction([
+    prisma.userDiscipline.deleteMany({ where: { userId: user.id } }),
+    ...(valid.length
+      ? [prisma.userDiscipline.createMany({ data: valid.map((d) => ({ userId: user.id, disciplineId: d.id })) })]
+      : []),
+  ]);
+  revalidatePath("/users");
+}
+
+/**
  * Ativa/desativa. Desativar encerra as sessões abertas na hora — sem isso o
  * usuário removido continuaria navegando até o cookie expirar.
  */

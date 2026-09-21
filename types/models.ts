@@ -386,6 +386,8 @@ export interface UserTableRow {
   role: RoleValue;
   function: { name: string } | null;
   company: { id: string; name: string } | null;
+  /** Disciplinas que o usuário domina (só os ids; o nome vem do cadastro). */
+  disciplines: { disciplineId: string }[];
   isActive: boolean;
   mustChangePassword: boolean;
   lastLoginAt: Date | null;

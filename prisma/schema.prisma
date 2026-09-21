@@ -125,6 +125,7 @@ model Project {
   @@index([designFirmId])
   @@index([organizationId])
   files ProjectFile[]
+  timeEntries TimeEntry[]
 }
 
 /// Tipo de tarefa. Marco é ponto de verificação sem duração (convenção P6/MS Project).
@@ -194,6 +195,7 @@ model Milestone {
   /// revisões de documento emitidas nele. Status/avanço/prazo do pacote são
   /// projeção destas revisões (ver lib/documents.ts, projectPackageStatus).
   documentRevisions DocumentRevision[]
+  timeEntries       TimeEntry[]
 
   @@index([projectId])
   @@index([projectId, criticality])
@@ -516,6 +518,8 @@ model User {
   impedimentsOwned   Impediment[]       @relation("ImpedimentOwner")
   requestsOwned       Request[]          @relation("RequestOwner")
   filesUploaded       ProjectFile[]      @relation("FileUploader")
+  timeEntries         TimeEntry[]
+  disciplines         UserDiscipline[]
 
   @@index([role])
   @@index([isActive])
@@ -622,6 +626,7 @@ model Document {
 
   revisions    DocumentRevision[]
   requestLinks RequestDocument[]
+  timeEntries  TimeEntry[]
 
   @@index([projectId])
   @@index([disciplineId])
@@ -916,6 +921,7 @@ model Discipline {
   createdAt DateTime @default(now())
 
   documents Document[]
+  specialists UserDiscipline[]
 
   @@unique([organizationId, tag])
   @@index([isActive])
@@ -1074,4 +1080,70 @@ model ProjectFile {
 
   @@index([organizationId])
   @@index([projectId, createdAt])
+}
+
+enum TimeCategory {
+  /// Execução de tarefa.
+  EXECUCAO
+  /// Análise de documento.
+  ANALISE
+  REUNIAO
+  /// Visita de campo.
+  CAMPO
+  /// Cliente ou órgão público.
+  CLIENTE
+  COORDENACAO
+  OUTRO
+}
+
+/**
+ * Horas lançadas pelo próprio especialista, por dia útil. Nasce PREVISTA
+ * (`plannedHours`, lançada com antecedência) e é ajustada depois para o
+ * REALIZADO (`actualHours`); para a carga vale o realizado quando existe.
+ * Só o dono grava e edita. Sem `organizationId` próprio: herda pelo usuário.
+ * Os vínculos (projeto, tarefa, documento) são opcionais — reunião e visita
+ * de campo muitas vezes não têm.
+ */
+model TimeEntry {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Dia de calendário (sem hora).
+  date DateTime @db.Date
+
+  category TimeCategory
+
+  plannedHours Decimal  @db.Decimal(4, 2)
+  actualHours  Decimal? @db.Decimal(4, 2)
+
+  projectId   String?
+  project     Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  documentId  String?
+  document    Document?  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  note String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, date])
+  @@index([date])
+  @@index([projectId])
+}
+
+/// Disciplinas que um especialista domina (N:N). Base para o coordenador
+/// filtrar quem pode absorver trabalho de cada disciplina.
+model UserDiscipline {
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  disciplineId String
+  discipline   Discipline @relation(fields: [disciplineId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, disciplineId])
+  @@index([disciplineId])
 }

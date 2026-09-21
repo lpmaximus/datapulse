@@ -5,21 +5,26 @@ import { Card, SectionTitle, Empty, Chip } from "@/components/ui";
 import { Toolbar, Th, Td, StatusToggle, CollapsibleGroup } from "@/components/table-ui";
 import { UserCreateForm } from "@/components/user-create-form";
 import { RoleSelect, CompanySelect, ResetPasswordButton } from "@/components/user-row-actions";
+import { DisciplinesEditor } from "@/components/disciplines-editor";
 import { formatDateTime } from "@/lib/format";
 import type { UserTableRow, JobFunctionRow, EmpresaRow } from "@/types/models";
 
 export const dynamic = "force-dynamic";
+
+type DisciplineOption = { id: string; tag: string; name: string };
 
 function UserRow({
   u,
   meId,
   companies,
   roleLabel,
+  disciplines,
 }: {
   u: UserTableRow;
   meId: string;
   companies: EmpresaRow[];
   roleLabel: Partial<Record<Role, string>>;
+  disciplines: DisciplineOption[];
 }) {
   return (
     <tr className="border-b border-line last:border-0 hover:bg-canvas/60">
@@ -47,6 +52,13 @@ function UserRow({
       </Td>
       <Td className="text-ink-soft">{u.function?.name ?? "—"}</Td>
       <Td>
+        <DisciplinesEditor
+          userId={u.id}
+          selected={u.disciplines.map((d) => d.disciplineId)}
+          disciplines={disciplines}
+        />
+      </Td>
+      <Td>
         <CompanySelect userId={u.id} companyId={u.company?.id ?? null} companies={companies} />
       </Td>
       <Td align="right">{u._count.memberships + u._count.managedProjects}</Td>
@@ -67,11 +79,12 @@ export default async function UsersPage({
   const me = await requireRole(["ADMIN"], "/users");
   const { q } = await searchParams;
 
-  const [users, functions, companies, roleProfiles]: [
+  const [users, functions, companies, roleProfiles, disciplines]: [
     UserTableRow[],
     JobFunctionRow[],
     EmpresaRow[],
     { role: Role; label: string; description: string | null }[],
+    DisciplineOption[],
   ] = await Promise.all([
     prisma.user.findMany({
       where: {
@@ -95,6 +108,7 @@ export default async function UsersPage({
         role: true,
         function: { select: { name: true } },
         company: { select: { id: true, name: true } },
+        disciplines: { select: { disciplineId: true } },
         isActive: true,
         mustChangePassword: true,
         lastLoginAt: true,
@@ -125,6 +139,11 @@ export default async function UsersPage({
     prisma.roleProfile.findMany({
       where: { organizationId: me.organizationId },
       select: { role: true, label: true, description: true },
+    }),
+    prisma.discipline.findMany({
+      where: { isActive: true, organizationId: me.organizationId },
+      orderBy: { tag: "asc" },
+      select: { id: true, tag: true, name: true },
     }),
   ]);
 
@@ -161,7 +180,8 @@ export default async function UsersPage({
                   <Th className="min-w-[200px]">Nome</Th>
                   <Th className="min-w-[180px]">E-mail</Th>
                   <Th>Papel</Th>
-                  <Th>Disciplina</Th>
+                  <Th>Função</Th>
+                  <Th>Disciplinas</Th>
                   <Th>Empresa</Th>
                   <Th align="right">Projetos</Th>
                   <Th align="right">Demandas</Th>
@@ -171,11 +191,11 @@ export default async function UsersPage({
               </thead>
               <tbody>
                 {activeUsers.map((u) => (
-                  <UserRow key={u.id} u={u} meId={me.id} companies={companies} roleLabel={roleLabel} />
+                  <UserRow key={u.id} u={u} meId={me.id} companies={companies} roleLabel={roleLabel} disciplines={disciplines} />
                 ))}
                 <CollapsibleGroup label="usuário(s) inativo(s)" count={inactiveUsers.length}>
                   {inactiveUsers.map((u) => (
-                    <UserRow key={u.id} u={u} meId={me.id} companies={companies} roleLabel={roleLabel} />
+                    <UserRow key={u.id} u={u} meId={me.id} companies={companies} roleLabel={roleLabel} disciplines={disciplines} />
                   ))}
                 </CollapsibleGroup>
               </tbody>
