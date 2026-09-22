@@ -99,6 +99,8 @@ export default async function MyWorkPage() {
   const myTasks: MyTaskRow[] = await prisma.milestone.findMany({
     where: {
       assigneeId: user.id,
+      // Marco não entra aqui: esta tela é de tarefas, não de pontos de controle.
+      kind: "TASK",
       status: { notIn: ["DONE", "CANCELLED"] },
       project: { status: "ACTIVE" },
     },
@@ -253,7 +255,7 @@ export default async function MyWorkPage() {
                       <td className="h-px border-r border-line p-0">
                         <PriorityCell value={t.criticality} fill />
                       </td>
-                      <Td>{t.kind === "MILESTONE" ? <span className="text-xs text-ink-faint">marco</span> : <ProgressBar value={t.progress} />}</Td>
+                      <Td><ProgressBar value={t.progress} /></Td>
                       <Td className={late ? "font-medium text-st-stuck" : "text-ink-soft"}>
                         {relativeDueLabel(taskDueDate(t), now)}
                       </Td>
