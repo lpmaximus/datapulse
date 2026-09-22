@@ -99,6 +99,7 @@ export async function createPackage(
     projectId: string;
     marcoId: string;
     name: string;
+    startDate?: Date | null;
     plannedDate?: Date | null;
     assigneeId?: string | null;
   },
@@ -123,6 +124,7 @@ export async function createPackage(
       kind: "TASK",
       type: PACKAGE_TYPE,
       status: "NOT_STARTED",
+      startDate: input.startDate ?? null,
       plannedDate: input.plannedDate ?? null,
       forecastDate: input.plannedDate ?? null,
       assigneeId: input.assigneeId ?? null,

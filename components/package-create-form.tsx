@@ -112,6 +112,7 @@ export function PackageCreateForm({
                 className={inputClass}
               />
               <input type="hidden" name="plannedDate" value={deadlineIso} />
+              <input type="hidden" name="startDate" value={initialDate} />
             </Field>
             <div className="text-sm text-ink-soft sm:col-span-3">
               Prazo:{" "}

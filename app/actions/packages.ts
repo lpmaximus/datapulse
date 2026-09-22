@@ -60,6 +60,7 @@ export async function createPackageAction(
     projectId,
     marcoId,
     name,
+    startDate: optDate(formData, "startDate"),
     plannedDate: optDate(formData, "plannedDate"),
     assigneeId,
   });
