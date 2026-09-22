@@ -9,9 +9,11 @@ import { Toolbar } from "@/components/table-ui";
 import { DocumentTable, DOCUMENT_SELECT } from "@/components/document-table";
 import { Modal } from "@/components/modal";
 import { DocumentDetail } from "@/components/document-detail";
+import { TaskDetail } from "@/components/task-detail";
 import { documentSearchFilter } from "@/lib/documents";
-import { loadMarcoOptions, loadPackageOptions } from "@/lib/server/package-options";
+import { loadMarcoOptions, loadPackageList, loadPackageOptions } from "@/lib/server/package-options";
 import { PackageCreateForm } from "@/components/package-create-form";
+import { PackageList } from "@/components/package-list";
 import type {
   DocumentTableRow,
   UserOption,
@@ -27,10 +29,10 @@ export default async function ProjectDocumentsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ q?: string; doc?: string }>;
+  searchParams: Promise<{ q?: string; doc?: string; task?: string }>;
 }) {
   const { id } = await params;
-  const { q, doc: openDoc } = await searchParams;
+  const { q, doc: openDoc, task: openTask } = await searchParams;
   const user = await requireUser(`/projects/${id}/documents`);
 
   const project = await prisma.project.findFirst({
@@ -62,12 +64,13 @@ export default async function ProjectDocumentsPage({
       })
     : [];
 
-  const [packages, marcos] = canManage
+  const [packages, marcos, packageList] = canManage
     ? await Promise.all([
         loadPackageOptions(user.organizationId, id),
         loadMarcoOptions(user.organizationId, id),
+        loadPackageList(user.organizationId, id),
       ])
-    : [[], []];
+    : [[], [], []];
 
   return (
     <div className="space-y-8">
@@ -90,7 +93,12 @@ export default async function ProjectDocumentsPage({
           ) : null}
         </div>
 
-        {canManage ? <PackageCreateForm projectId={id} marcos={marcos} /> : null}
+        {canManage ? (
+          <>
+            <PackageCreateForm projectId={id} marcos={marcos} />
+            <PackageList packages={packageList} />
+          </>
+        ) : null}
 
         <div>
           <Toolbar placeholder="Pesquisar por nº, nome, tipo ou disciplina" />
@@ -115,6 +123,11 @@ export default async function ProjectDocumentsPage({
       {openDoc ? (
         <Modal title="Documento" fullHref={`/documents/${openDoc}`}>
           <DocumentDetail id={openDoc} user={user} variant="modal" />
+        </Modal>
+      ) : null}
+      {openTask ? (
+        <Modal title="Pacote" fullHref={`/projects/${id}/tasks/${openTask}`}>
+          <TaskDetail id={id} taskId={openTask} user={user} variant="modal" />
         </Modal>
       ) : null}
     </div>

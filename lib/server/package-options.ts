@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { PACKAGE_TYPE } from "@/lib/tasks";
-import type { MarcoOption, PackageOption } from "@/types/models";
+import type { MarcoOption, PackageListRow, PackageOption } from "@/types/models";
 
 /**
  * Pacotes de revisão que aceitam documento novo (não cancelados, dentro de um
@@ -61,4 +61,52 @@ export async function loadMarcoOptions(
     orderBy: [{ plannedDate: "asc" }, { name: "asc" }],
     select: { id: true, name: true },
   });
+}
+
+/**
+ * Todos os pacotes de revisão do projeto (inclusive cancelados), para a
+ * lista de gestão em "Documentos" — editar (abre a tela da tarefa) e
+ * excluir (só quando `_count.documentRevisions === 0`; `deleteTask`
+ * confere isso de novo no servidor, esta contagem é só para a UI).
+ */
+export async function loadPackageList(
+  organizationId: string,
+  projectId: string,
+): Promise<PackageListRow[]> {
+  const rows = await prisma.milestone.findMany({
+    where: { type: PACKAGE_TYPE, projectId, project: { organizationId } },
+    orderBy: [{ parent: { name: "asc" } }, { createdAt: "desc" }],
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      progress: true,
+      plannedDate: true,
+      forecastDate: true,
+      createdAt: true,
+      parent: { select: { id: true, name: true } },
+      assignee: { select: { id: true, name: true } },
+      _count: { select: { documentRevisions: true } },
+    },
+  });
+  // Pacote sempre tem marco pai (regra de negócio); o flatMap só descarta
+  // um eventual registro legado sem isso, em vez de quebrar a tela.
+  return rows.flatMap((r) =>
+    r.parent
+      ? [
+          {
+            id: r.id,
+            name: r.name,
+            status: r.status,
+            progress: r.progress,
+            plannedDate: r.plannedDate,
+            forecastDate: r.forecastDate,
+            createdAt: r.createdAt,
+            marco: r.parent,
+            assignee: r.assignee,
+            _count: r._count,
+          },
+        ]
+      : [],
+  );
 }

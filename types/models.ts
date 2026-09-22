@@ -503,6 +503,20 @@ export interface MarcoOption {
   name: string;
 }
 
+/** Linha da lista de pacotes de revisão do projeto (gestão: editar/excluir). */
+export interface PackageListRow {
+  id: string;
+  name: string;
+  status: TaskStatusValue;
+  progress: number;
+  plannedDate: Date | null;
+  forecastDate: Date | null;
+  createdAt: Date;
+  marco: { id: string; name: string };
+  assignee: { id: string; name: string } | null;
+  _count: { documentRevisions: number };
+}
+
 export interface DocumentTableRow {
   id: string;
   number: string | null;
