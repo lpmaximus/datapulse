@@ -1,162 +1,363 @@
 import React from "react";
-import { Text, View } from "@react-pdf/renderer";
+import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { MeetingReport } from "@/lib/reports";
 import { MEETING_TOPIC_CATEGORIES } from "@/lib/meetings";
-import { COLORS, ReportDocument, SectionTitle, Table, fmtDate } from "./pdf-kit";
+import { fmtDate, fmtDateTime, COLORS } from "./pdf-kit";
 
-function BlockField({ label, value }: { label: string; value: string | null }) {
+/**
+ * Ata no padrão de formulário controlado do cliente (MRS) — visual
+ * ajustado (22/09/2026) para o modelo real da MRS enviado em PDF
+ * ("Padrão Ata.pdf"): título emoldurado, bloco de identificação em grade,
+ * barra teal (#006666, cor extraída por amostragem de pixel do PDF
+ * original) para "Ata de Reunião e Lista De Ações" e para as seções,
+ * cabeçalho de tabela em preto, grade cinza (#A6A6A6) nas células — e
+ * a mesma divisão em duas páginas (Lista de Presença / Ata).
+ *
+ * Ajuste só de estilo, por decisão do usuário: os CAMPOS continuam os que
+ * o DataPulse já coleta hoje (participante: nome/empresa/modo; tópico nas
+ * 5 categorias fixas). O PDF real da MRS tem campos que o DataPulse não
+ * tem ainda (e-mail/contato/presença do participante, "Tipo de Reunião",
+ * seções de título livre, "Cópias para", "Anexos da Reunião") — essas
+ * seções sem dado correspondente foram deixadas de fora em vez de
+ * aparecerem sempre vazias. "Tipo de Reunião" reaproveita `title`.
+ */
+
+const TEAL = "#006666";
+const GRID = "#A6A6A6";
+const BLACK = "#111111";
+
+const cs = StyleSheet.create({
+  page: {
+    fontFamily: "Helvetica",
+    fontSize: 8.5,
+    color: "#1A1A1A",
+    paddingTop: 26,
+    paddingBottom: 34,
+    paddingHorizontal: 26,
+  },
+  titleBox: {
+    borderWidth: 1,
+    borderColor: GRID,
+    paddingVertical: 6,
+    alignItems: "center",
+  },
+  titleText: { fontSize: 13, fontFamily: "Helvetica-Bold" },
+  metaBlock: {
+    flexDirection: "row",
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: GRID,
+  },
+  metaCol: {
+    flex: 1,
+    borderRightWidth: 1,
+    borderRightColor: GRID,
+    padding: 5,
+    justifyContent: "center",
+  },
+  metaColLast: { flex: 1, padding: 5, justifyContent: "center" },
+  metaLine: { fontSize: 8.5, marginBottom: 2 },
+  metaLabel: { fontFamily: "Helvetica-Bold" },
+  tealBarCenter: {
+    backgroundColor: TEAL,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: GRID,
+    paddingVertical: 4,
+    alignItems: "center",
+  },
+  tealBarCenterText: { color: "#FFFFFF", fontFamily: "Helvetica-Bold", fontSize: 9 },
+  tealBar: {
+    backgroundColor: TEAL,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: GRID,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  tealBarText: { color: "#FFFFFF", fontFamily: "Helvetica-Bold", fontSize: 9 },
+  blackBar: {
+    backgroundColor: BLACK,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: GRID,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+  },
+  blackBarText: { color: "#FFFFFF", fontFamily: "Helvetica-Bold", fontSize: 8 },
+  footer: {
+    position: "absolute",
+    left: 26,
+    right: 26,
+    bottom: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    fontSize: 7,
+    color: COLORS.faint,
+  },
+});
+
+type Header = MeetingReport["header"];
+
+function TitleBox({ children }: { children: string }) {
   return (
-    <View style={{ marginRight: 16, marginBottom: 6, minWidth: 90 }}>
-      <Text style={{ fontSize: 7, color: COLORS.faint }}>{label}</Text>
-      <Text style={{ fontSize: 9 }}>{value || "-"}</Text>
+    <View style={cs.titleBox}>
+      <Text style={cs.titleText}>{children}</Text>
     </View>
   );
 }
 
-function ParticipantColumn({ rows }: { rows: { name: string; company: string | null; mode: string | null }[] }) {
+/** Bloco Doc.Nº / Resp. / Tipo de Reunião | Projeto / Local | Data — igual nas duas páginas. */
+function IdentificationBlock({ h }: { h: Header }) {
   return (
-    <Table
-      columns={[
-        { header: "Participantes", w: 3, render: (p) => p.name },
-        { header: "Empresa", w: 1.6, render: (p) => p.company ?? "-" },
-        { header: "Assinatura", w: 1.6, render: (p) => p.mode ?? "-" },
-      ]}
-      rows={rows}
-      keyOf={(p, i) => `${p.name}-${i}`}
-      empty=""
-    />
+    <>
+      <View style={cs.metaBlock}>
+        <View style={cs.metaCol}>
+          <Text style={cs.metaLine}>
+            <Text style={cs.metaLabel}>Doc.Nº.: </Text>
+            {h.number != null ? String(h.number) : "-"}
+          </Text>
+          <Text style={cs.metaLine}>
+            <Text style={cs.metaLabel}>Resp.: </Text>
+            {h.preparedBy || "-"}
+          </Text>
+          <Text style={cs.metaLine}>
+            <Text style={cs.metaLabel}>Tipo de Reunião: </Text>
+            {h.title || "-"}
+          </Text>
+        </View>
+        <View style={cs.metaCol}>
+          <Text style={cs.metaLine}>
+            <Text style={cs.metaLabel}>Projeto: </Text>
+            {h.projectName}
+          </Text>
+          <Text style={cs.metaLine}>
+            <Text style={cs.metaLabel}>Local: </Text>
+            {h.location || "-"}
+          </Text>
+        </View>
+        <View style={cs.metaColLast}>
+          <Text style={cs.metaLine}>
+            <Text style={cs.metaLabel}>Data: </Text>
+            {fmtDate(h.date)}
+          </Text>
+          {h.startTime ? <Text style={cs.metaLine}>{h.startTime}</Text> : null}
+        </View>
+      </View>
+      <View style={cs.tealBarCenter}>
+        <Text style={cs.tealBarCenterText}>Ata de Reunião e Lista De Ações</Text>
+      </View>
+    </>
   );
 }
 
-/**
- * Ata no padrão de formulário controlado do cliente (ex.: MRS,
- * FOR-DPO-0040) — mesma forma do documento em Excel que a organização usa
- * hoje: bloco de identificação, participantes em duas colunas com
- * "assinatura", pauta e desenvolvimento sempre com as 5 categorias fixas
- * (Segurança, Meio Ambiente, Qualidade, Planejamento, Engenharia), mesmo
- * vazias. `header.meetingFormCode` traz o código/validade/classificação —
- * cadastrado no cliente (Cadastros > Clientes), não fixo no código.
- */
+interface Col<T> {
+  header: string;
+  w: number;
+  align?: "left" | "center" | "right";
+  render: (row: T) => React.ReactNode;
+}
+
+/** Tabela com grade cinza e cabeçalho branco — como no formulário original. */
+function GridTable<T>({
+  columns,
+  rows,
+  keyOf,
+  minRows = 0,
+}: {
+  columns: Col<T>[];
+  rows: T[];
+  keyOf: (row: T, i: number) => string;
+  minRows?: number;
+}) {
+  const padRows = Math.max(0, minRows - rows.length);
+  const cellStyle = (i: number, w: number) => ({
+    flexGrow: w,
+    flexBasis: 0,
+    borderRightWidth: i < columns.length - 1 ? 1 : 0,
+    borderRightColor: GRID,
+    padding: 3,
+  });
+  return (
+    <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: GRID }}>
+      <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: GRID }} fixed>
+        {columns.map((c, i) => (
+          <View key={c.header} style={cellStyle(i, c.w)}>
+            <Text style={{ fontSize: 7.5, fontFamily: "Helvetica-Bold", textAlign: c.align ?? "center" }}>
+              {c.header}
+            </Text>
+          </View>
+        ))}
+      </View>
+      {rows.map((r, i) => (
+        <View
+          key={keyOf(r, i)}
+          style={{ flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: GRID }}
+          wrap={false}
+        >
+          {columns.map((c, ci) => {
+            const content = c.render(r);
+            return (
+              <View key={c.header} style={cellStyle(ci, c.w)}>
+                {typeof content === "string" || typeof content === "number" ? (
+                  <Text style={{ fontSize: 8, textAlign: c.align ?? "left" }}>{content}</Text>
+                ) : (
+                  content
+                )}
+              </View>
+            );
+          })}
+        </View>
+      ))}
+      {Array.from({ length: padRows }).map((_, i) => (
+        <View
+          key={`pad-${i}`}
+          style={{ flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: GRID, minHeight: 13 }}
+        >
+          {columns.map((c, ci) => (
+            <View key={c.header} style={cellStyle(ci, c.w)} />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Footer({ docTitle, generatedAt }: { docTitle: string; generatedAt: Date }) {
+  return (
+    <View style={cs.footer} fixed>
+      <Text>
+        {docTitle} · Gerado pelo DataPulse em {fmtDateTime(generatedAt)}
+      </Text>
+      <Text render={({ pageNumber, totalPages }) => `${pageNumber}/${totalPages}`} />
+    </View>
+  );
+}
+
 export function MeetingReportClientPdf({ report }: { report: MeetingReport }) {
   const h = report.header;
-  const half = Math.ceil(report.participants.length / 2);
-  const colA = report.participants.slice(0, half);
-  const colB = report.participants.slice(half);
-  const outros = report.topicGroups.find((g) => g.category === "OUTROS");
+  const docTitle = `Ata de Reuniao - ${h.title || h.projectName}`;
 
   return (
-    <ReportDocument
-      docTitle={`Ata de Reuniao - ${h.title || h.projectName}`}
-      title="Formulário — Ata de Reunião"
-      subtitle={h.meetingFormCode ?? undefined}
-      generatedAt={report.generatedAt}
-    >
-      <Text style={{ fontSize: 7.5, color: COLORS.faint, marginBottom: 8 }}>
-        Consulte os GEDs e certifique-se de que esta é a versão atual deste documento.
-      </Text>
+    <Document title={docTitle} author="DataPulse" creator="DataPulse" producer="DataPulse">
+      {/* Página 1 — Lista de presença */}
+      <Page size="A4" style={cs.page}>
+        <TitleBox>LISTA DE PRESENÇA</TitleBox>
+        <IdentificationBlock h={h} />
 
-      <Text style={{ fontSize: 12, fontFamily: "Helvetica-Bold", marginBottom: 8 }}>
-        {h.title || h.subject || h.projectName}
-      </Text>
-
-      <View
-        style={{
-          flexDirection: "row",
-          flexWrap: "wrap",
-          borderTopWidth: 1,
-          borderBottomWidth: 1,
-          borderColor: COLORS.line,
-          paddingVertical: 6,
-        }}
-      >
-        <BlockField label="Data de realização" value={fmtDate(h.date)} />
-        <BlockField label="Local" value={h.location} />
-        <BlockField label="Horário" value={h.startTime} />
-        <BlockField label="Elaborado por" value={h.preparedBy} />
-        <BlockField label="Número da Ata" value={h.number != null ? String(h.number) : null} />
-        <BlockField label="Cliente" value={h.clientName} />
-      </View>
-
-      <SectionTitle>Participantes</SectionTitle>
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <View style={{ flex: 1 }}>
-          <ParticipantColumn rows={colA} />
+        <View style={cs.tealBar}>
+          <Text style={cs.tealBarText}>Participantes</Text>
         </View>
-        <View style={{ flex: 1 }}>
-          <ParticipantColumn rows={colB} />
-        </View>
-      </View>
+        <GridTable
+          columns={[
+            { header: "Nome", w: 3, align: "left", render: (p) => p.name },
+            { header: "Empresa", w: 1.4, render: (p) => p.company ?? "-" },
+            { header: "Modo", w: 1.4, render: (p) => p.mode ?? "-" },
+          ]}
+          rows={report.participants}
+          keyOf={(p, i) => `${p.name}-${i}`}
+          minRows={8}
+        />
 
-      <SectionTitle>Pauta</SectionTitle>
-      <Text style={{ fontSize: 9 }}>{h.subject || "-"}</Text>
+        {h.subject ? (
+          <>
+            <View style={[cs.tealBar, { marginTop: 10 }]}>
+              <Text style={cs.tealBarText}>Pauta</Text>
+            </View>
+            <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: GRID, padding: 6 }}>
+              <Text style={{ fontSize: 9 }}>{h.subject}</Text>
+            </View>
+          </>
+        ) : null}
 
-      <SectionTitle>Desenvolvimento</SectionTitle>
-      {MEETING_TOPIC_CATEGORIES.map((cat) => {
-        const group = report.topicGroups.find((g) => g.category === cat);
-        return (
-          <View key={cat} style={{ marginBottom: 6 }} wrap={false}>
-            <Text
+        <Footer docTitle={docTitle} generatedAt={report.generatedAt} />
+      </Page>
+
+      {/* Página 2 — Ata (desenvolvimento por categoria) */}
+      <Page size="A4" style={cs.page}>
+        <TitleBox>ATA DE REUNIÃO</TitleBox>
+        <IdentificationBlock h={h} />
+
+        <View style={{ flexDirection: "row", borderWidth: 1, borderTopWidth: 0, borderColor: GRID }}>
+          {[
+            { header: "Item", w: 0.6 },
+            { header: "Descrição", w: 6 },
+            { header: "Responsável", w: 1.6 },
+            { header: "Data", w: 1 },
+            { header: "Status", w: 1.2 },
+          ].map((c, i, arr) => (
+            <View
+              key={c.header}
               style={{
-                fontSize: 8,
-                fontFamily: "Helvetica-Bold",
-                backgroundColor: COLORS.surface,
+                flexGrow: c.w,
+                flexBasis: 0,
+                backgroundColor: BLACK,
+                borderRightWidth: i < arr.length - 1 ? 1 : 0,
+                borderRightColor: GRID,
                 padding: 3,
-                borderWidth: 1,
-                borderColor: COLORS.line,
               }}
             >
-              {cat}
-            </Text>
-            {group && group.items.length > 0 ? (
-              <Table
-                columns={[
-                  { header: "Data", w: 1, render: (t) => fmtDate(t.date) },
-                  { header: "O que?", w: 4, render: (t) => t.description },
-                  { header: "Quem?", w: 1.6, render: (t) => t.responsible ?? "-" },
-                  { header: "Quando?", w: 1, render: (t) => fmtDate(t.dueDate) },
-                  { header: "Status", w: 1.2, render: (t) => t.status },
-                ]}
-                rows={group.items}
-                keyOf={(t, i) => `${cat}-${i}`}
-              />
-            ) : null}
-          </View>
-        );
-      })}
-      {outros ? (
-        <View style={{ marginBottom: 6 }}>
-          <Text
-            style={{
-              fontSize: 8,
-              fontFamily: "Helvetica-Bold",
-              backgroundColor: COLORS.surface,
-              padding: 3,
-              borderWidth: 1,
-              borderColor: COLORS.line,
-            }}
-          >
-            OUTROS
-          </Text>
-          <Table
-            columns={[
-              { header: "Data", w: 1, render: (t) => fmtDate(t.date) },
-              { header: "O que?", w: 4, render: (t) => t.description },
-              { header: "Quem?", w: 1.6, render: (t) => t.responsible ?? "-" },
-              { header: "Quando?", w: 1, render: (t) => fmtDate(t.dueDate) },
-              { header: "Status", w: 1.2, render: (t) => t.status },
-            ]}
-            rows={outros.items}
-            keyOf={(t, i) => `outros-${i}`}
-          />
+              <Text style={{ fontSize: 7.5, fontFamily: "Helvetica-Bold", color: "#FFFFFF", textAlign: "center" }}>
+                {c.header}
+              </Text>
+            </View>
+          ))}
         </View>
-      ) : null}
 
-      {h.diverseSubjects ? (
-        <>
-          <SectionTitle>Assuntos diversos</SectionTitle>
-          <Text style={{ fontSize: 9 }}>{h.diverseSubjects}</Text>
-        </>
-      ) : null}
-    </ReportDocument>
+        {[...MEETING_TOPIC_CATEGORIES, "OUTROS"].map((cat, catIndex) => {
+          const group = report.topicGroups.find((g) => g.category === cat);
+          if (cat === "OUTROS" && !group) return null;
+          const n = catIndex + 1;
+          return (
+            <View key={cat}>
+              <View style={cs.blackBar} wrap={false}>
+                <Text style={cs.blackBarText}>
+                  {n}  {cat}
+                </Text>
+              </View>
+              {group && group.items.length > 0 ? (
+                <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: GRID }}>
+                  {group.items.map((t, i) => (
+                    <View key={`${cat}-${i}`} style={{ flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: GRID }} wrap={false}>
+                      <View style={{ flexGrow: 0.6, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
+                        <Text style={{ fontSize: 8 }}>{`${n}.${i + 1}`}</Text>
+                      </View>
+                      <View style={{ flexGrow: 6, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
+                        <Text style={{ fontSize: 8 }}>
+                          {t.date ? `${fmtDate(t.date)}: ` : ""}
+                          {t.description}
+                        </Text>
+                      </View>
+                      <View style={{ flexGrow: 1.6, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
+                        <Text style={{ fontSize: 8 }}>{t.responsible ?? "-"}</Text>
+                      </View>
+                      <View style={{ flexGrow: 1, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
+                        <Text style={{ fontSize: 8 }}>{fmtDate(t.dueDate)}</Text>
+                      </View>
+                      <View style={{ flexGrow: 1.2, flexBasis: 0, padding: 3 }}>
+                        <Text style={{ fontSize: 7.5 }}>{t.status}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+
+        {h.diverseSubjects ? (
+          <>
+            <View style={[cs.tealBar, { marginTop: 10 }]}>
+              <Text style={cs.tealBarText}>Assuntos diversos</Text>
+            </View>
+            <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: GRID, padding: 6 }}>
+              <Text style={{ fontSize: 9 }}>{h.diverseSubjects}</Text>
+            </View>
+          </>
+        ) : null}
+
+        <Footer docTitle={docTitle} generatedAt={report.generatedAt} />
+      </Page>
+    </Document>
   );
 }
