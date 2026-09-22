@@ -333,6 +333,7 @@ export default async function ProjectPage({
         </div>
         <div className="overflow-hidden rounded-lg border border-line bg-surface">
           <GanttChart
+            id="gantt-projeto"
             now={now}
             anchor={ganttAnchor}
             emptyText="Nenhuma tarefa com datas. Informe início e término planejado."

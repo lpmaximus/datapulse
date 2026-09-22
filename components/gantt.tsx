@@ -1,8 +1,41 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { Avatar } from "@/components/task-ui";
+import { ColumnResizeHandle, MIN_COL_WIDTH } from "@/components/table-ui";
 
 const DAY = 86_400_000;
+
+/** Largura da coluna "Item" — mesma metodologia das tabelas (table-ui.tsx),
+ * adaptada aqui porque o Gantt não é um `<table>`. Por `id`, como as demais. */
+const ITEM_COL_DEFAULT_WIDTH = 224; // era w-56 (14rem) fixo, agora é só o ponto de partida
+
+function useItemColumnWidth(id: string): [number, (px: number) => void] {
+  const key = `dp-colw2:${id}-item`;
+  const [width, setWidth] = useState(ITEM_COL_DEFAULT_WIDTH);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(key);
+      const parsed = raw ? Number(raw) : NaN;
+      if (Number.isFinite(parsed) && parsed > 0) setWidth(parsed);
+    } catch {
+      // localStorage indisponível — segue com o padrão.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  function commit(px: number) {
+    const next = Math.max(MIN_COL_WIDTH, Math.round(px));
+    setWidth(next);
+    try {
+      window.localStorage.setItem(key, String(next));
+    } catch {
+      // idem — não é crítico persistir.
+    }
+  }
+  return [width, commit];
+}
 
 export interface GanttRow {
   id: string;
@@ -40,6 +73,7 @@ const DAYMONTH = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", timeZone: "U
  * depois da janela é cortada na borda — a data completa fica no título.
  */
 export function GanttChart({
+  id = "gantt",
   rows,
   now,
   anchor,
@@ -47,6 +81,8 @@ export function GanttChart({
   emptyText = "Nada com datas para mostrar.",
   maxHeightClass = "max-h-[26rem]",
 }: {
+  /** Identifica esta linha do tempo para lembrar a largura da coluna "Item" — um por tela que tem Gantt. */
+  id?: string;
   rows: GanttRow[];
   now: Date;
   /** Data em torno da qual a janela é centralizada. Padrão: `now` (hoje) — ver `GanttDateNav`. */
@@ -56,6 +92,7 @@ export function GanttChart({
   /** Altura máxima da área rolável (classe Tailwind). Passa disso, rola. */
   maxHeightClass?: string;
 }) {
+  const [itemWidth, setItemWidth] = useItemColumnWidth(id);
   const from = new Date(startOfWeekUTC(anchor ?? now).getTime() - 7 * DAY);
   const to = new Date(from.getTime() + weeks * 7 * DAY);
   const span = to.getTime() - from.getTime();
@@ -80,7 +117,10 @@ export function GanttChart({
       <div className="min-w-[760px]">
         {/* cabeçalho — fixo no topo enquanto as linhas rolam */}
         <div className="sticky top-0 z-40 flex border-b border-line bg-surface text-xs text-ink-soft">
-          <div className="w-56 shrink-0 px-3 py-1.5 font-medium">Item</div>
+          <div className="relative shrink-0 px-3 py-1.5 font-medium" style={{ width: itemWidth }}>
+            Item
+            <ColumnResizeHandle getStartWidth={(cell) => cell.getBoundingClientRect().width} onCommit={setItemWidth} />
+          </div>
           <div className="relative flex-1">
             <div className="relative h-6 border-b border-line">
               {months.map((m, i) => (
@@ -124,8 +164,8 @@ export function GanttChart({
             return (
               <div key={r.id} className="flex border-b border-line last:border-0 hover:bg-canvas/60">
                 <div
-                  className="flex w-56 shrink-0 items-center gap-2 border-r border-line px-3 py-1.5"
-                  style={r.depth ? { paddingLeft: `${12 + r.depth * 14}px` } : undefined}
+                  className="flex shrink-0 items-center gap-2 border-r border-line px-3 py-1.5"
+                  style={{ width: itemWidth, paddingLeft: r.depth ? `${12 + r.depth * 14}px` : undefined }}
                 >
                   {r.owner !== undefined ? <Avatar name={r.owner} size={22} /> : null}
                   <div className="min-w-0">

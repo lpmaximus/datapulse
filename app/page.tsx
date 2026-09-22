@@ -574,6 +574,7 @@ export default async function PainelPage({
               <GanttDateNav />
             </div>
             <GanttChart
+              id="gantt-carteira"
               rows={ganttRows}
               now={now}
               anchor={ganttAnchor}
