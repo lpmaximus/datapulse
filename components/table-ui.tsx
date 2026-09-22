@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import clsx from "clsx";
 import { ChevronDown, RefreshCw, Search } from "lucide-react";
@@ -102,12 +102,23 @@ interface ColumnWidthsCtx {
 
 const ColumnWidthsContext = createContext<ColumnWidthsCtx | null>(null);
 
+// `useLayoutEffect` não roda no servidor (Next.js avisa se for usado sem
+// essa guarda); o efeito abaixo só faz sentido no cliente mesmo.
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
 /**
  * Envolve um `<table>` e guarda a largura de cada coluna (por chave estável,
  * normalmente derivada do texto do cabeçalho) em `localStorage`, por
  * `id` da tabela — cada tabela do app lembra seus próprios ajustes.
- * `table-layout: fixed` é o que faz o navegador respeitar a largura definida
- * no `<th>` em vez de recalcular pelo conteúdo.
+ *
+ * A tabela nasce em `table-layout: auto` (o navegador mede cada coluna pelo
+ * conteúdo, exatamente como antes de existir redimensionamento). Assim que
+ * monta — antes do navegador pintar a tela, então sem "pulo" visível — a
+ * gente mede a largura natural de cada coluna e trava a tabela em
+ * `table-layout: fixed` com essas larguras (ou as salvas em `localStorage`,
+ * quando existirem). Sem essa medição, uma coluna sem `min-w-`/`w-` no
+ * cabeçalho ficaria sem largura nenhuma sob `fixed`, e o navegador reparte o
+ * espaço restante em partes iguais — ignorando o conteúdo.
  */
 export function ResizableTable({
   id,
@@ -119,19 +130,40 @@ export function ResizableTable({
   className?: string;
   children: React.ReactNode;
 }) {
-  const storageKey = `dp-colw:${id}`;
+  const storageKey = `dp-colw2:${id}`;
+  const tableRef = useRef<HTMLTableElement>(null);
   const [widths, setWidths] = useState<Record<string, number>>({});
+  const [laidOut, setLaidOut] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Carrega os ajustes salvos só no cliente, depois da hidratação — evita
-  // divergência entre o HTML do servidor e o do cliente.
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!table) return;
+
+    let saved: Record<string, number> = {};
     try {
       const raw = window.localStorage.getItem(storageKey);
-      if (raw) setWidths(JSON.parse(raw));
+      if (raw) saved = JSON.parse(raw);
     } catch {
-      // localStorage indisponível (modo privado, quota) — segue com os padrões.
+      // localStorage indisponível (modo privado, quota) — segue sem salvos.
     }
+
+    // Mede a largura natural (ainda em table-layout: auto) de cada coluna
+    // que não tem largura salva — respeita o conteúdo, como a tabela
+    // sempre fez, e vira o ponto de partida do redimensionamento manual.
+    const next: Record<string, number> = { ...saved };
+    const headerRow = table.tHead?.rows[0];
+    if (headerRow) {
+      for (const cell of Array.from(headerRow.cells)) {
+        const key = (cell as HTMLElement).dataset.colKey;
+        if (!key || next[key] != null) continue;
+        next[key] = Math.ceil(cell.getBoundingClientRect().width);
+      }
+    }
+
+    setWidths(next);
+    setLaidOut(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
   const ctx = useMemo<ColumnWidthsCtx>(
@@ -157,7 +189,11 @@ export function ResizableTable({
 
   return (
     <ColumnWidthsContext.Provider value={ctx}>
-      <table style={{ tableLayout: "fixed" }} className={className}>
+      <table
+        ref={tableRef}
+        style={laidOut ? { tableLayout: "fixed" } : undefined}
+        className={className}
+      >
         {children}
       </table>
     </ColumnWidthsContext.Provider>
@@ -253,6 +289,7 @@ export function ResizableCell({
 
   return (
     <As
+      data-col-key={resizeKey || undefined}
       style={width != null ? { width } : undefined}
       className={clsx("relative overflow-hidden", className)}
     >
