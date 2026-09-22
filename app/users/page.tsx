@@ -4,8 +4,10 @@ import { toggleUserActive } from "@/app/actions/users";
 import { Card, SectionTitle, Empty, Chip } from "@/components/ui";
 import { ResizableTable, Toolbar, Th, Td, StatusToggle, CollapsibleGroup } from "@/components/table-ui";
 import { UserCreateForm } from "@/components/user-create-form";
-import { RoleSelect, CompanySelect, ResetPasswordButton } from "@/components/user-row-actions";
+import { UserEditForm } from "@/components/user-edit-form";
+import { RoleSelect, CompanySelect, ResetPasswordButton, EditUserButton } from "@/components/user-row-actions";
 import { DisciplinesEditor } from "@/components/disciplines-editor";
+import { Modal } from "@/components/modal";
 import { formatDateTime } from "@/lib/format";
 import type { UserTableRow, JobFunctionRow, EmpresaRow } from "@/types/models";
 
@@ -65,7 +67,10 @@ function UserRow({
       <Td align="right">{u._count.signalRequests}</Td>
       <Td className="text-ink-faint">{u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "nunca"}</Td>
       <Td>
-        <ResetPasswordButton userId={u.id} />
+        <div className="flex flex-wrap items-center gap-1">
+          <EditUserButton userId={u.id} />
+          <ResetPasswordButton userId={u.id} />
+        </div>
       </Td>
     </tr>
   );
@@ -74,10 +79,10 @@ function UserRow({
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; user?: string }>;
 }) {
   const me = await requireRole(["ADMIN"], "/users");
-  const { q } = await searchParams;
+  const { q, user: openUserId } = await searchParams;
 
   const [users, functions, companies, roleProfiles, disciplines]: [
     UserTableRow[],
@@ -106,7 +111,7 @@ export default async function UsersPage({
         name: true,
         email: true,
         role: true,
-        function: { select: { name: true } },
+        function: { select: { id: true, name: true } },
         company: { select: { id: true, name: true } },
         disciplines: { select: { disciplineId: true } },
         isActive: true,
@@ -152,6 +157,7 @@ export default async function UsersPage({
 
   const activeUsers = users.filter((u) => u.isActive);
   const inactiveUsers = users.filter((u) => !u.isActive);
+  const editingUser = openUserId ? (users.find((u) => u.id === openUserId) ?? null) : null;
 
   return (
     <div className="space-y-8">
@@ -214,6 +220,20 @@ export default async function UsersPage({
           <UserCreateForm functions={functions} companies={companies} />
         </Card>
       </div>
+
+      {editingUser ? (
+        <Modal title="Editar usuário">
+          <UserEditForm
+            user={{
+              id: editingUser.id,
+              name: editingUser.name,
+              email: editingUser.email,
+              functionId: editingUser.function?.id ?? null,
+            }}
+            functions={functions}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

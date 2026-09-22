@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   updateUserRole,
   updateUserCompany,
@@ -8,6 +9,7 @@ import {
   type UserFormState,
 } from "@/app/actions/users";
 import { Button } from "@/components/ui";
+import { MODAL_PARAMS } from "@/components/modal";
 import type { RoleValue, EmpresaRow } from "@/types/models";
 
 const DEFAULT_ROLE_LABEL: Record<RoleValue, string> = {
@@ -90,6 +92,29 @@ export function CompanySelect({
         ))}
       </select>
     </form>
+  );
+}
+
+/** Abre o pop-up de edição (`?user=<id>`) — nome, e-mail e função. */
+export function EditUserButton({ userId }: { userId: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className="px-2 py-1 text-xs"
+      onClick={() => {
+        const params = new URLSearchParams(searchParams.toString());
+        for (const key of MODAL_PARAMS) params.delete(key);
+        params.set("user", userId);
+        router.push(`${pathname}?${params}`, { scroll: false });
+      }}
+    >
+      Editar
+    </Button>
   );
 }
 

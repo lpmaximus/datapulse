@@ -6,7 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ExternalLink, X } from "lucide-react";
 
 /** Parâmetros de URL que abrem um registro em pop-up. Fechar = removê-los. */
-export const MODAL_PARAMS = ["doc", "task", "request"] as const;
+export const MODAL_PARAMS = ["doc", "task", "request", "user"] as const;
 
 /**
  * Pop-up de um registro. O estado vive na URL (`?doc=`, `?task=`, `?request=`):

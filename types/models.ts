@@ -384,7 +384,7 @@ export interface UserTableRow {
   name: string;
   email: string;
   role: RoleValue;
-  function: { name: string } | null;
+  function: { id: string; name: string } | null;
   company: { id: string; name: string } | null;
   /** Disciplinas que o usuário domina (só os ids; o nome vem do cadastro). */
   disciplines: { disciplineId: string }[];

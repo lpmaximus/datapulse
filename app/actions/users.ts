@@ -89,6 +89,51 @@ export async function createUser(
   return { ok: true, temporaryPassword, userName: name };
 }
 
+export interface UpdateUserFormState {
+  error?: string;
+  ok?: boolean;
+}
+
+/** Edita nome, e-mail e função — os únicos campos do usuário sem controle inline na lista. */
+export async function updateUser(
+  _prev: UpdateUserFormState,
+  formData: FormData,
+): Promise<UpdateUserFormState> {
+  const admin = await requireRole(["ADMIN"]);
+  const userId = str(formData, "userId");
+  if (!userId) return { error: "Usuário não identificado." };
+
+  const name = str(formData, "name");
+  const email = str(formData, "email").toLowerCase();
+  if (!name) return { error: "Informe o nome." };
+  if (!email || !email.includes("@")) return { error: "Informe um e-mail válido." };
+
+  // E-mail é único globalmente (login) — mesma regra de createUser.
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  if (existing && existing.id !== userId) return { error: "Já existe um usuário com este e-mail." };
+
+  const functionId = str(formData, "functionId") || null;
+  if (functionId) {
+    const fn = await prisma.jobFunction.findFirst({
+      where: { id: functionId, organizationId: admin.organizationId },
+      select: { id: true },
+    });
+    if (!fn) return { error: "Função inválida." };
+  }
+
+  const result = await prisma.user.updateMany({
+    where: { id: userId, organizationId: admin.organizationId },
+    data: { name, email, functionId },
+  });
+  if (result.count === 0) return { error: "Usuário não encontrado." };
+
+  revalidatePath("/users");
+  return { ok: true };
+}
+
 export async function updateUserRole(formData: FormData): Promise<void> {
   const admin = await requireRole(["ADMIN"]);
   const userId = str(formData, "userId");
