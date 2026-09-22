@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Th, Td } from "@/components/table-ui";
+import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { daysBetween, type DocumentAction, type DocumentStatus, type Passage } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
 
@@ -77,7 +77,7 @@ export function DocumentPassages({
       {line ? <p className="text-sm text-ink-soft">{line}</p> : null}
 
       <div className="dp-scroll overflow-x-auto rounded-md border border-line">
-        <table className="w-full border-collapse">
+        <ResizableTable id="document-passages" className="w-full border-collapse">
           <thead className="bg-canvas">
             <tr>
               <Th className="w-12">Nº</Th>
@@ -141,7 +141,7 @@ export function DocumentPassages({
               );
             })}
           </tbody>
-        </table>
+        </ResizableTable>
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import clsx from "clsx";
 import { Empty } from "@/components/ui";
 import { ClickableRow } from "@/components/clickable-row";
 import { RequestQuickAdd, type RequestQuickAddConfig } from "@/components/request-quick-add";
-import { Th, Td } from "@/components/table-ui";
+import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { RequestStatusCell } from "@/components/task-ui";
 import { RequestRescheduleForm, ResolveRequestButton, DismissRequestButton } from "@/components/request-forms";
 import { DeleteButton } from "@/components/delete-button";
@@ -43,7 +43,7 @@ export function RequestTable({
   }
   return (
     <div className={clsx("dp-scroll dp-box dp-box-canvas max-h-[26rem] rounded-lg border border-line bg-surface", quickAdd && "dp-box-foot")}>
-      <table className="w-full border-collapse">
+      <ResizableTable id="requests-table" className="w-full border-collapse">
         <thead className="bg-canvas">
           <tr>
             <Th className="min-w-[240px] pl-4">Solicitação</Th>
@@ -132,7 +132,7 @@ export function RequestTable({
           ) : null}
           {quickAdd ? <RequestQuickAdd projectId={projectId} showLink={showLink} {...quickAdd} /> : null}
         </tbody>
-      </table>
+      </ResizableTable>
     </div>
   );
 }

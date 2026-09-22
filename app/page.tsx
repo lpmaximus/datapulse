@@ -13,7 +13,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { requireUser, canManageProjects } from "@/lib/authz";
 import { Button, DRIBadge, Empty } from "@/components/ui";
-import { Th, Td } from "@/components/table-ui";
+import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { GanttChart } from "@/components/gantt";
 import { DashboardFilters } from "@/components/dashboard-filters";
 import {
@@ -409,7 +409,7 @@ export default async function PainelPage({
               <p className="px-4 py-6 text-center text-sm text-ink-faint">Nada crítico com os filtros atuais.</p>
             ) : (
               <div className="dp-scroll overflow-x-auto">
-                <table className="w-full border-collapse">
+                <ResizableTable id="home-critical-tasks" className="w-full border-collapse">
                   <thead>
                     <tr>
                       <Th className="min-w-[240px]">Tarefa</Th>
@@ -464,7 +464,7 @@ export default async function PainelPage({
                       );
                     })}
                   </tbody>
-                </table>
+                </ResizableTable>
                 {critical.length > 10 ? (
                   <p className="border-t border-line px-4 py-2 text-xs text-ink-faint">
                     Mostrando 10 de {critical.length}. Use os filtros para refinar.
@@ -496,7 +496,7 @@ export default async function PainelPage({
                     </summary>
                     <div className="dp-scroll relative overflow-x-auto">
                       <span aria-hidden className={clsx("absolute inset-y-0 left-0 w-1.5 rounded-l-md", tone.bar)} />
-                      <table className="w-full border-collapse border-y border-r border-line">
+                      <ResizableTable id="home-portfolio" className="w-full border-collapse border-y border-r border-line">
                         <thead className="bg-surface">
                           <tr>
                             <Th className="min-w-[240px] pl-5">Projeto</Th>
@@ -555,7 +555,7 @@ export default async function PainelPage({
                             );
                           })}
                         </tbody>
-                      </table>
+                      </ResizableTable>
                     </div>
                   </details>
                 );
@@ -645,7 +645,7 @@ export default async function PainelPage({
               </p>
             ) : (
               <div className="dp-scroll overflow-x-auto">
-                <table className="w-full border-collapse">
+                <ResizableTable id="home-impediments" className="w-full border-collapse">
                   <thead>
                     <tr>
                       <Th className="min-w-[280px]">Impedimento</Th>
@@ -679,7 +679,7 @@ export default async function PainelPage({
                       );
                     })}
                   </tbody>
-                </table>
+                </ResizableTable>
               </div>
             )}
           </Panel>
@@ -695,7 +695,7 @@ export default async function PainelPage({
               </p>
             ) : (
               <div className="dp-scroll overflow-x-auto">
-                <table className="w-full border-collapse">
+                <ResizableTable id="home-requests" className="w-full border-collapse">
                   <thead>
                     <tr>
                       <Th className="min-w-[280px]">Solicitação</Th>
@@ -740,7 +740,7 @@ export default async function PainelPage({
                       );
                     })}
                   </tbody>
-                </table>
+                </ResizableTable>
               </div>
             )}
           </Panel>

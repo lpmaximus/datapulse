@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireRole, ROLE_LABEL, ROLE_DESCRIPTION, type Role } from "@/lib/authz";
 import { Card, SectionTitle, Empty } from "@/components/ui";
-import { Th, CollapsibleGroup } from "@/components/table-ui";
+import { ResizableTable, Th, CollapsibleGroup } from "@/components/table-ui";
 import {
   ClientForm,
   SectorForm,
@@ -179,7 +179,7 @@ export default async function RegistersPage() {
           {codes.length === 0 ? (
             <Empty>Nenhum código cadastrado. Sem eles, não é possível analisar.</Empty>
           ) : (
-            <table className="w-full border-collapse">
+            <ResizableTable id="settings-analysis-codes" className="w-full border-collapse">
               <thead className="border-b border-line">
                 <tr>
                   <Th className="w-10">Ativo</Th>
@@ -199,7 +199,7 @@ export default async function RegistersPage() {
                   ))}
                 </CollapsibleGroup>
               </tbody>
-            </table>
+            </ResizableTable>
           )}
           <div className="border-t border-line pt-5">
             <AnalysisCodeForm />
@@ -216,7 +216,7 @@ export default async function RegistersPage() {
           {disciplines.length === 0 ? (
             <Empty>Nenhuma disciplina cadastrada.</Empty>
           ) : (
-            <table className="w-full border-collapse">
+            <ResizableTable id="settings-disciplines" className="w-full border-collapse">
               <thead className="border-b border-line">
                 <tr>
                   <Th className="w-10">Ativo</Th>
@@ -235,7 +235,7 @@ export default async function RegistersPage() {
                   ))}
                 </CollapsibleGroup>
               </tbody>
-            </table>
+            </ResizableTable>
           )}
           <div className="border-t border-line pt-5">
             <DisciplineForm />
@@ -252,7 +252,7 @@ export default async function RegistersPage() {
           {firms.length === 0 ? (
             <Empty>Nenhuma empresa cadastrada.</Empty>
           ) : (
-            <table className="w-full border-collapse">
+            <ResizableTable id="settings-companies" className="w-full border-collapse">
               <thead className="border-b border-line">
                 <tr>
                   <Th className="w-10">Ativo</Th>
@@ -273,7 +273,7 @@ export default async function RegistersPage() {
                   ))}
                 </CollapsibleGroup>
               </tbody>
-            </table>
+            </ResizableTable>
           )}
           <div className="border-t border-line pt-5">
             <EmpresaForm />
@@ -290,7 +290,7 @@ export default async function RegistersPage() {
           {jobFunctions.length === 0 ? (
             <Empty>Nenhuma função cadastrada.</Empty>
           ) : (
-            <table className="w-full border-collapse">
+            <ResizableTable id="settings-job-titles" className="w-full border-collapse">
               <thead className="border-b border-line">
                 <tr>
                   <Th className="w-10">Ativo</Th>
@@ -308,7 +308,7 @@ export default async function RegistersPage() {
                   ))}
                 </CollapsibleGroup>
               </tbody>
-            </table>
+            </ResizableTable>
           )}
           <div className="border-t border-line pt-5">
             <JobFunctionForm />
@@ -323,7 +323,7 @@ export default async function RegistersPage() {
           {clients.length === 0 ? (
             <Empty>Nenhum cliente cadastrado.</Empty>
           ) : (
-            <table className="w-full border-collapse">
+            <ResizableTable id="settings-clients" className="w-full border-collapse">
               <thead className="border-b border-line">
                 <tr>
                   <Th className="w-10">Ativo</Th>
@@ -343,7 +343,7 @@ export default async function RegistersPage() {
                   ))}
                 </CollapsibleGroup>
               </tbody>
-            </table>
+            </ResizableTable>
           )}
           <div className="border-t border-line pt-5">
             <ClientForm />
@@ -358,7 +358,7 @@ export default async function RegistersPage() {
           {sectors.length === 0 ? (
             <Empty>Nenhum setor cadastrado.</Empty>
           ) : (
-            <table className="w-full border-collapse">
+            <ResizableTable id="settings-sectors" className="w-full border-collapse">
               <thead className="border-b border-line">
                 <tr>
                   <Th className="w-10">Ativo</Th>
@@ -376,7 +376,7 @@ export default async function RegistersPage() {
                   ))}
                 </CollapsibleGroup>
               </tbody>
-            </table>
+            </ResizableTable>
           )}
           <div className="border-t border-line pt-5">
             <SectorForm />

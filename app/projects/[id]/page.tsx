@@ -11,7 +11,7 @@ import {
 } from "@/app/actions/projects";
 import { requireUser, canManageProjects } from "@/lib/authz";
 import { Card, SectionTitle, DRIBadge, Bar, Button, Field, inputClass, Empty } from "@/components/ui";
-import { Th, Td } from "@/components/table-ui";
+import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { DRITrendChart, type TrendPoint } from "@/components/dri-trend-chart";
 import { GanttChart } from "@/components/gantt";
 import {
@@ -590,7 +590,7 @@ function TaskGroup({
           tone === "accent" ? "border-l-accent" : "border-l-st-done",
         )}
       >
-        <table className="w-full border-collapse border-y border-r border-line">
+        <ResizableTable id="project-tasks" className="w-full border-collapse border-y border-r border-line">
           <thead className="bg-surface">
             <tr>
               <Th className="min-w-[260px] pl-5">Tarefa</Th>
@@ -622,7 +622,7 @@ function TaskGroup({
             )}
             {quickAdd}
           </tbody>
-        </table>
+        </ResizableTable>
       </div>
     </details>
   );

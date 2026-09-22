@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole, ROLE_LABEL, type Role } from "@/lib/authz";
 import { toggleUserActive } from "@/app/actions/users";
 import { Card, SectionTitle, Empty, Chip } from "@/components/ui";
-import { Toolbar, Th, Td, StatusToggle, CollapsibleGroup } from "@/components/table-ui";
+import { ResizableTable, Toolbar, Th, Td, StatusToggle, CollapsibleGroup } from "@/components/table-ui";
 import { UserCreateForm } from "@/components/user-create-form";
 import { RoleSelect, CompanySelect, ResetPasswordButton } from "@/components/user-row-actions";
 import { DisciplinesEditor } from "@/components/disciplines-editor";
@@ -173,7 +173,7 @@ export default async function UsersPage({
           </div>
         ) : (
           <div className="dp-scroll overflow-x-auto">
-            <table className="w-full border-collapse">
+            <ResizableTable id="users-list" className="w-full border-collapse">
               <thead className="bg-surface">
                 <tr>
                   <Th className="w-10">Ativo</Th>
@@ -199,7 +199,7 @@ export default async function UsersPage({
                   ))}
                 </CollapsibleGroup>
               </tbody>
-            </table>
+            </ResizableTable>
           </div>
         )}
       </div>

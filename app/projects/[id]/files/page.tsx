@@ -9,7 +9,7 @@ import { orgUsedBytes } from "@/lib/server/files";
 import { deleteProjectFile } from "@/app/actions/project-files";
 import { ReadOnlyBanner } from "@/components/task-ui";
 import { Empty } from "@/components/ui";
-import { Th, Td, Toolbar } from "@/components/table-ui";
+import { ResizableTable, Th, Td, Toolbar } from "@/components/table-ui";
 import { DeleteButton } from "@/components/delete-button";
 import { ProjectFileDialog } from "@/components/project-file-dialog";
 import { formatDate } from "@/lib/format";
@@ -116,7 +116,7 @@ export default async function ProjectFilesPage({
         </div>
       ) : (
         <div className="dp-scroll overflow-x-auto">
-          <table className="w-full border-collapse">
+          <ResizableTable id="project-files" className="w-full border-collapse">
             <thead className="bg-surface">
               <tr>
                 <Th className="min-w-[240px]">Título</Th>
@@ -175,7 +175,7 @@ export default async function ProjectFilesPage({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ResizableTable>
         </div>
       )}
 

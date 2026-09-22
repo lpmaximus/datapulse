@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
 import { toggleProjectStatus } from "@/app/actions/projects";
 import { Button, DRIBadge, Empty } from "@/components/ui";
-import { Toolbar, Th, Td, RowCheckbox, StatusToggle, StatusDot, CollapsibleGroup, RowActions } from "@/components/table-ui";
+import { ResizableTable, Toolbar, Th, Td, RowCheckbox, StatusToggle, StatusDot, CollapsibleGroup, RowActions } from "@/components/table-ui";
 import { formatCurrency, formatDate, toNumber } from "@/lib/format";
 import type { ProjectTableRow } from "@/types/models";
 import { Plus } from "lucide-react";
@@ -97,7 +97,7 @@ export default async function ProjectsPage({
         </div>
       ) : (
         <div className="dp-scroll overflow-x-auto">
-          <table className="w-full border-collapse">
+          <ResizableTable id="projects-list" className="w-full border-collapse">
             <thead className="bg-surface">
               <tr>
                 <Th className="w-8">
@@ -127,7 +127,7 @@ export default async function ProjectsPage({
                 <ProjectRow key={p.id} project={p} />
               ))}
             </tbody>
-          </table>
+          </ResizableTable>
         </div>
       )}
     </div>

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
 import { Card, DRIBadge, Empty, SectionTitle } from "@/components/ui";
-import { Th, Td } from "@/components/table-ui";
+import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { formatDate } from "@/lib/format";
 import type { ProjectDriHistoryRow } from "@/types/models";
 import { ArrowDown, ArrowUp, FileDown, Minus } from "lucide-react";
@@ -139,7 +139,7 @@ export default async function ReportsPage() {
           </Empty>
         ) : (
           <Card className="overflow-hidden p-0">
-            <table className="w-full border-collapse">
+            <ResizableTable id="reports-variations" className="w-full border-collapse">
               <thead className="bg-surface">
                 <tr>
                   <Th className="min-w-[220px]">Projeto</Th>
@@ -187,7 +187,7 @@ export default async function ReportsPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResizableTable>
           </Card>
         )}
       </div>

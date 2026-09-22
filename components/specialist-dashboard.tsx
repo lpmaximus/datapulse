@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/session";
 import { Card, DRIBadge, Empty, SectionTitle } from "@/components/ui";
-import { Td, Th } from "@/components/table-ui";
+import { ResizableTable, Td, Th } from "@/components/table-ui";
 import { PriorityCell, TaskStatusCell } from "@/components/task-ui";
 import { calendarDay } from "@/lib/business-days";
 import { formatDate } from "@/lib/format";
@@ -235,7 +235,7 @@ export async function SpecialistDashboard({ user }: { user: SessionUser }) {
           <Empty>Você não é gerente de nenhum projeto ativo.</Empty>
         ) : (
           <Card className="dp-scroll overflow-x-auto p-0">
-            <table className="w-full border-collapse">
+            <ResizableTable id="specialist-own-projects" className="w-full border-collapse">
               <thead className="bg-surface">
                 <tr>
                   <Th className="min-w-[220px]">Projeto</Th>
@@ -267,7 +267,7 @@ export async function SpecialistDashboard({ user }: { user: SessionUser }) {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResizableTable>
           </Card>
         )}
       </section>
@@ -284,7 +284,7 @@ export async function SpecialistDashboard({ user }: { user: SessionUser }) {
             <Empty>Nenhuma revisão aguardando sua análise.</Empty>
           ) : (
             <Card className="dp-scroll overflow-x-auto p-0">
-              <table className="w-full border-collapse">
+              <ResizableTable id="specialist-third-party-reviews" className="w-full border-collapse">
                 <thead className="bg-surface">
                   <tr>
                     <Th className="min-w-[260px]">Documento</Th>
@@ -313,7 +313,7 @@ export async function SpecialistDashboard({ user }: { user: SessionUser }) {
                     );
                   })}
                 </tbody>
-              </table>
+              </ResizableTable>
             </Card>
           )}
         </div>
@@ -324,7 +324,7 @@ export async function SpecialistDashboard({ user }: { user: SessionUser }) {
             <Empty>Nenhuma tarefa sua em projetos de terceiros.</Empty>
           ) : (
             <Card className="dp-scroll overflow-x-auto p-0">
-              <table className="w-full border-collapse">
+              <ResizableTable id="specialist-third-party-tasks" className="w-full border-collapse">
                 <thead className="bg-surface">
                   <tr>
                     <Th className="min-w-[240px]">Tarefa</Th>
@@ -358,7 +358,7 @@ export async function SpecialistDashboard({ user }: { user: SessionUser }) {
                     );
                   })}
                 </tbody>
-              </table>
+              </ResizableTable>
             </Card>
           )}
         </div>

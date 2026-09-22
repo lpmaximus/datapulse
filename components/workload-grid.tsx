@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, TriangleAlert } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import type { SessionUser } from "@/lib/session";
 import { Empty, SectionTitle } from "@/components/ui";
+import { ResizableCell, ResizableTable } from "@/components/table-ui";
 import { Avatar } from "@/components/task-ui";
 import { calendarDay } from "@/lib/business-days";
 import { currentAnalystId } from "@/lib/delegation";
@@ -208,16 +209,26 @@ export async function WorkloadGrid({
               : `${totalSignals} de ${rows.length} com sinais — use como pauta de conversa com o especialista, não como cobrança.`}
           </p>
           <div className="overflow-x-auto rounded-lg border border-line bg-surface">
-            <table className="w-full min-w-[820px] text-sm">
+            <ResizableTable id="workload-grid" className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-xs uppercase tracking-wider text-ink-faint">
-                  <th className="px-4 py-2.5 font-medium">Especialista</th>
+                  <ResizableCell as="th" resizeKey="especialista" defaultWidth={200} className="px-4 py-2.5 text-left font-medium">
+                    Especialista
+                  </ResizableCell>
                   {days.map((d) => (
-                    <th key={isoDay(d)} className={"px-2 py-2.5 text-center font-medium " + (isoDay(d) === isoDay(today) ? "text-ink" : "")}>
+                    <ResizableCell
+                      as="th"
+                      key={isoDay(d)}
+                      resizeKey={`dia-${isoDay(d)}`}
+                      defaultWidth={90}
+                      className={"px-2 py-2.5 text-center font-medium " + (isoDay(d) === isoDay(today) ? "text-ink" : "")}
+                    >
                       {dayLabel(d)}
-                    </th>
+                    </ResizableCell>
                   ))}
-                  <th className="px-3 py-2.5 text-right font-medium">Semana</th>
+                  <ResizableCell as="th" resizeKey="semana" defaultWidth={90} className="px-3 py-2.5 text-right font-medium">
+                    Semana
+                  </ResizableCell>
                 </tr>
               </thead>
               <tbody>
@@ -274,7 +285,7 @@ export async function WorkloadGrid({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResizableTable>
           </div>
           <p className="text-xs text-ink-faint">
             Capacidade fixa de 8 h/dia (férias e licenças ainda não entram). Célula vermelha = acima de 100%.

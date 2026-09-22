@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
 import { hashRespondent } from "@/lib/auth";
 import { Card, SectionTitle, Empty, DRIBadge, CriticalityChip } from "@/components/ui";
-import { Th, Td } from "@/components/table-ui";
+import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { DocumentStatusChip, StuckBadge } from "@/components/document-status";
 import { daysBetween } from "@/lib/documents";
 import { formatDate, formatDateTime } from "@/lib/format";
@@ -222,7 +222,7 @@ export default async function MyWorkPage() {
           <Empty>Nenhuma tarefa aberta sob sua responsabilidade.</Empty>
         ) : (
           <Card className="dp-scroll overflow-x-auto p-0">
-            <table className="w-full border-collapse">
+            <ResizableTable id="my-work-tasks" className="w-full border-collapse">
               <thead className="bg-surface">
                 <tr>
                   <Th className="min-w-[240px]">Tarefa</Th>
@@ -261,7 +261,7 @@ export default async function MyWorkPage() {
                   );
                 })}
               </tbody>
-            </table>
+            </ResizableTable>
           </Card>
         )}
       </section>
@@ -317,7 +317,7 @@ export default async function MyWorkPage() {
           </Empty>
         ) : (
           <Card className="overflow-hidden p-0">
-            <table className="w-full border-collapse">
+            <ResizableTable id="my-work-pending-evals" className="w-full border-collapse">
               <thead className="bg-surface">
                 <tr>
                   <Th className="min-w-[220px]">Tarefa</Th>
@@ -369,7 +369,7 @@ export default async function MyWorkPage() {
                   );
                 })}
               </tbody>
-            </table>
+            </ResizableTable>
           </Card>
         )}
       </section>
@@ -455,7 +455,7 @@ export default async function MyWorkPage() {
           <Empty>Nenhum documento em aberto nos seus projetos.</Empty>
         ) : (
           <Card className="overflow-hidden p-0">
-            <table className="w-full border-collapse">
+            <ResizableTable id="my-work-documents" className="w-full border-collapse">
               <thead className="bg-surface">
                 <tr>
                   <Th className="min-w-[240px]">Documento</Th>
@@ -506,7 +506,7 @@ export default async function MyWorkPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ResizableTable>
           </Card>
         )}
       </section>

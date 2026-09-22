@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import clsx from "clsx";
 import { AlertCircle, Check, ChevronDown } from "lucide-react";
-import { Th, Td, RowCheckbox } from "@/components/table-ui";
+import { ResizableTable, Th, Td, RowCheckbox } from "@/components/table-ui";
 import { DocumentQuickAdd, type DocumentQuickAddConfig } from "@/components/document-quick-add";
 import { DeleteButton } from "@/components/delete-button";
 import { deleteDocument } from "@/app/actions/documents";
@@ -144,7 +144,7 @@ function BoardGroup({
             aria-hidden
             className={clsx("absolute inset-y-0 left-0 w-1.5 rounded-l-md", group.tone.bar)}
           />
-          <table className="w-full border-collapse border-y border-r border-line">
+          <ResizableTable id="documents-board" className="w-full border-collapse border-y border-r border-line">
             <thead className="bg-surface">
               <tr>
                 <Th className="w-10 pl-4">
@@ -203,7 +203,7 @@ function BoardGroup({
                 <td />
               </tr>
             </tbody>
-          </table>
+          </ResizableTable>
         </div>
       ) : null}
     </section>

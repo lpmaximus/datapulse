@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
 import { Empty } from "@/components/ui";
-import { Toolbar, Th, Td, RowCheckbox } from "@/components/table-ui";
+import { ResizableTable, Toolbar, Th, Td, RowCheckbox } from "@/components/table-ui";
 import { SignalTabs } from "@/components/signal-tabs";
 import { formatCurrency, formatDateTime, toNumber } from "@/lib/format";
 import type { HumanSignalTableRow, SystemicSignalTableRow } from "@/types/models";
@@ -94,7 +94,7 @@ async function HumanSignalsTable({ q, user }: { q?: string; user: SessionUser })
 
   return (
     <div className="dp-scroll overflow-x-auto">
-      <table className="w-full border-collapse">
+      <ResizableTable id="signals-human" className="w-full border-collapse">
         <thead className="bg-surface">
           <tr>
             <Th className="w-8">
@@ -136,7 +136,7 @@ async function HumanSignalsTable({ q, user }: { q?: string; user: SessionUser })
             </tr>
           ))}
         </tbody>
-      </table>
+      </ResizableTable>
     </div>
   );
 }
@@ -177,7 +177,7 @@ async function SystemicSignalsTable({ q, user }: { q?: string; user: SessionUser
 
   return (
     <div className="dp-scroll overflow-x-auto">
-      <table className="w-full border-collapse">
+      <ResizableTable id="signals-systemic" className="w-full border-collapse">
         <thead className="bg-surface">
           <tr>
             <Th className="w-8">
@@ -221,7 +221,7 @@ async function SystemicSignalsTable({ q, user }: { q?: string; user: SessionUser
             </tr>
           ))}
         </tbody>
-      </table>
+      </ResizableTable>
     </div>
   );
 }
