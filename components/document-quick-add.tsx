@@ -15,7 +15,37 @@ import {
   onEntryKeyDown,
 } from "@/components/grid-entry";
 import { PackageSelect } from "@/components/package-select";
+import { ColumnResizeHandle, MIN_COL_WIDTH } from "@/components/table-ui";
 import type { DisciplineRow, PackageOption, ProjectOption } from "@/types/models";
+
+/** Largura do campo Nº do documento, lembrada por navegador — mesmo padrão
+ * de persistência das colunas de tabela (dp-colw2:), só que para essa
+ * divisão interna (nº | nome) dentro da coluna "Documento". */
+const NUMBER_WIDTH_KEY = "dp-colw2:document-quick-add-number";
+const DEFAULT_NUMBER_WIDTH = 128; // era w-32 (8rem) fixo, agora é só o ponto de partida
+
+function useNumberFieldWidth(): [number, (px: number) => void] {
+  const [width, setWidth] = useState(DEFAULT_NUMBER_WIDTH);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(NUMBER_WIDTH_KEY);
+      const parsed = raw ? Number(raw) : NaN;
+      if (Number.isFinite(parsed) && parsed > 0) setWidth(parsed);
+    } catch {
+      // localStorage indisponível — segue com o padrão.
+    }
+  }, []);
+  function commit(px: number) {
+    const next = Math.max(MIN_COL_WIDTH, Math.round(px));
+    setWidth(next);
+    try {
+      window.localStorage.setItem(NUMBER_WIDTH_KEY, String(next));
+    } catch {
+      // idem — não é crítico persistir.
+    }
+  }
+  return [width, commit];
+}
 
 export interface DocumentQuickAddConfig {
   /** Dentro de um projeto ele já é conhecido. */
@@ -51,6 +81,7 @@ function DocumentEntryRow({
   const formId = useId();
   const [state, action, pending] = useActionState<DocumentFormState, FormData>(createDocument, {});
   const rowRef = useRef<HTMLTableRowElement>(null);
+  const [numberWidth, setNumberWidth] = useNumberFieldWidth();
 
   // Gravou: a linha vira registro da lista e a de entrada se fecha.
   useEffect(() => {
@@ -74,13 +105,19 @@ function DocumentEntryRow({
 
         <EntryCell>
           <div className="flex">
-            <input
-              form={formId}
-              name="number"
-              aria-label="Nº do documento"
-              placeholder="Nº"
-              className={cellInput + " w-32! shrink-0 border-r border-line"}
-            />
+            <div className="relative shrink-0" style={{ width: numberWidth }}>
+              <input
+                form={formId}
+                name="number"
+                aria-label="Nº do documento"
+                placeholder="Nº"
+                className={cellInput + " border-r border-line"}
+              />
+              <ColumnResizeHandle
+                getStartWidth={(cell) => cell.getBoundingClientRect().width}
+                onCommit={setNumberWidth}
+              />
+            </div>
             <input
               form={formId}
               name="name"

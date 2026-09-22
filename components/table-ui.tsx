@@ -93,7 +93,7 @@ export function Toolbar({
 /* Colunas redimensionáveis (arrastar a borda do cabeçalho, como no Excel) */
 /* ------------------------------------------------------------------ */
 
-const MIN_COL_WIDTH = 44;
+export const MIN_COL_WIDTH = 44;
 
 interface ColumnWidthsCtx {
   get: (key: string) => number | undefined;
@@ -218,8 +218,15 @@ function slugify(s: string): string {
     .replace(/(^-+|-+$)/g, "");
 }
 
-/** A alça arrastável na borda direita do cabeçalho. Só existe dentro de um `ResizableTable`. */
-function ColumnResizeHandle({
+/**
+ * A alça arrastável na borda direita de uma célula — arrasta e redimensiona
+ * o elemento pai dela (via `style.width`) e avisa o valor final em
+ * `onCommit`. Usada pelo `ResizableCell`/`Th` (dentro de um
+ * `ResizableTable`) e, exportada, por qualquer outro par de campos lado a
+ * lado que precise da mesma divisória arrastável (ex.: nº/nome do
+ * documento no cadastro rápido).
+ */
+export function ColumnResizeHandle({
   onCommit,
   getStartWidth,
 }: {
