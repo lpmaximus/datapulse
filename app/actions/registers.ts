@@ -48,6 +48,7 @@ export async function createClient(
       contactName: str(formData, "contactName") || null,
       email: str(formData, "email") || null,
       phone: str(formData, "phone") || null,
+      meetingFormCode: str(formData, "meetingFormCode") || null,
     },
   });
 
@@ -82,6 +83,7 @@ export async function updateClient(
       contactName: str(formData, "contactName") || null,
       email: str(formData, "email") || null,
       phone: str(formData, "phone") || null,
+      meetingFormCode: str(formData, "meetingFormCode") || null,
     },
   });
   if (result.count === 0) return { error: "Cliente não encontrado." };

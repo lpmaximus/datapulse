@@ -116,6 +116,7 @@ model Project {
   members    ProjectMember[]
   documents  Document[]
   requests   Request[]
+  meetings   Meeting[]
 
   @@index([status])
   @@index([accConnectionId])
@@ -196,6 +197,7 @@ model Milestone {
   /// projeção destas revisões (ver lib/documents.ts, projectPackageStatus).
   documentRevisions DocumentRevision[]
   timeEntries       TimeEntry[]
+  meetings          Meeting[]
 
   @@index([projectId])
   @@index([projectId, criticality])
@@ -249,6 +251,10 @@ model Request {
   milestoneId String?
   milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
 
+  /// Reuniao que originou esta pendencia, quando aplicavel.
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
   /// Tipologia livre no MVP: "Documento de referência", "Informação complementar"...
   type        String?
   description String
@@ -274,6 +280,7 @@ model Request {
 
   @@index([projectId, status])
   @@index([milestoneId])
+  @@index([meetingId])
   @@index([ownerId, status])
   @@index([status, dueAt])
 }
@@ -292,6 +299,104 @@ model RequestDocument {
 
   @@unique([requestId, documentId])
   @@index([documentId])
+}
+
+/**
+ * Reuniao de acompanhamento com a projetista/cliente. Registro do que foi
+ * discutido; pendencias que precisam de responsavel e prazo viram
+ * Solicitacao (Request.meetingId), aparecendo no Painel e em "Minhas
+ * demandas" como qualquer outra.
+ */
+model Meeting {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// Marco relacionado, quando a reuniao e sobre uma frente especifica.
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+
+  date DateTime
+  /// Assunto especifico da reuniao (ex.: "Reuniao de projetos - Viaduto Tereza
+  /// Cristina"). Sem preenchimento, a tela usa o nome do projeto.
+  title String?
+  location  String?
+  /// Horario - texto livre ("10h", "14h30"), sem fuso a controlar.
+  startTime String?
+  /// Quem redigiu a ata - nome livre (nem sempre e um usuario do sistema).
+  preparedBy String?
+  /// Numero da ata no padrao do cliente, quando aplicavel. Preenchido a mao.
+  number Int?
+
+  subject         String?
+  diverseSubjects String?
+  /// Resumo livre - usado no modelo DataPulse; opcional quando os topicos
+  /// (abaixo) ja cobrem o conteudo da reuniao.
+  summary String?
+  /// Link do arquivo real da ata, quando houver registro externo tambem
+  /// (Drive/SharePoint) - mesmo padrao do DocumentRevision.externalUrl.
+  externalUrl String?
+  /// Link de entrada da reuniao (Teams). Colado a mao por enquanto; campo
+  /// pronto para quando a integracao com o Microsoft Graph existir e passar
+  /// a preenche-lo sozinha, sem migrar dado (ver decisao registrada).
+  teamsJoinUrl String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  participants MeetingParticipant[]
+  topics       MeetingTopic[]
+  requests     Request[]
+
+  @@index([projectId])
+  @@index([milestoneId])
+}
+
+/// Uma linha do bloco de participantes do padrao de ata do cliente (nome,
+/// empresa e como participou). Nao e User: cobre qualquer presente, de
+/// qualquer empresa, nao so quem tem login no DataPulse.
+model MeetingParticipant {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  name    String
+  company String?
+  /// Como participou - "Via Teams", "Presencial"... vira a coluna
+  /// "Assinatura" no modelo do cliente.
+  mode  String?
+  order Int     @default(0)
+
+  @@index([meetingId])
+}
+
+/**
+ * Uma linha da tabela "Desenvolvimento" do padrao de ata do cliente: o que
+ * foi discutido, por quem, prazo e status. Tipologia livre no MVP (mesmo
+ * padrao de Document.type/Request.type) - category sugere as 5 disciplinas
+ * do formulario padrao (Seguranca, Meio Ambiente, Qualidade, Planejamento,
+ * Engenharia) sem travar em enum.
+ */
+model MeetingTopic {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  order    Int     @default(0)
+  category String?
+  date     DateTime?
+  /// "O que?" - o registro da discussao.
+  description String
+  /// "Quem?" - texto livre (qualquer empresa presente, nao so usuario do
+  /// sistema).
+  responsible String?
+  /// "Quando?" - prazo do item.
+  dueDate DateTime?
+  /// "Status" - livre no MVP: INFORMATIVO, PENDENTE, CONCLUIDO...
+  status String @default("INFORMATIVO")
+
+  @@index([meetingId])
 }
 
 /**
@@ -879,6 +984,12 @@ model Client {
   contactName String?
   email       String?
   phone       String?
+
+  /// Texto fixo do rodape da ata no padrao do cliente (codigo do formulario,
+  /// validade, classificacao) - ex.: "FOR-DPO-0040/00.00 - 30/08/2024 -
+  /// Valido ate 30/08/2027 - Restrito". Vazio = so o modelo DataPulse fica
+  /// disponivel para impressao.
+  meetingFormCode String?
 
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())

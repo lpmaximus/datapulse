@@ -70,6 +70,11 @@ export function ClientForm() {
       <Field label="Telefone">
         <input name="phone" className={inputClass} />
       </Field>
+      <div className="sm:col-span-2">
+        <Field label="Modelo de ata (rodapé)" hint='Opcional — código/validade do formulário controlado do cliente, ex.: "FOR-DPO-0040/00.00 — 30/08/2024 — Válido até 30/08/2027 — Restrito". Em branco, reuniões deste cliente só imprimem no modelo DataPulse.'>
+          <input name="meetingFormCode" className={inputClass} />
+        </Field>
+      </div>
       <div className="flex items-end gap-3">
         <Submit label="Adicionar cliente" />
         <Feedback state={state} />
@@ -323,6 +328,11 @@ export function ClientRow({ client: c }: { client: ClientRowData }) {
             <Field label="Telefone">
               <input name="phone" defaultValue={c.phone ?? ""} className={inputClass} />
             </Field>
+            <div className="sm:col-span-5">
+              <Field label="Modelo de ata (rodapé)" hint="Código/validade do formulário controlado do cliente — em branco, só o modelo DataPulse">
+                <input name="meetingFormCode" defaultValue={c.meetingFormCode ?? ""} className={inputClass} />
+              </Field>
+            </div>
             <div className="sm:col-span-5 flex items-center gap-3">
               <SaveCancel onCancel={() => setEditing(false)} />
               <Feedback state={state} />

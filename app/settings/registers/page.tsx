@@ -53,6 +53,7 @@ export default async function RegistersPage() {
         contactName: true,
         email: true,
         phone: true,
+        meetingFormCode: true,
         isActive: true,
         _count: { select: { projects: true } },
       },

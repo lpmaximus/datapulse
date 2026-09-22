@@ -127,6 +127,7 @@ export interface ProjectDetailRow {
   currency: string;
   milestones: ProjectTaskRow[];
   requests: RequestRow[];
+  meetings: MeetingRow[];
   driScores: DRIScoreRow[];
   manager: { id: string; name: string; function: { name: string } | null } | null;
   members: ProjectMemberRow[];
@@ -198,6 +199,55 @@ export interface DashboardRequestRow {
   owner: { name: string } | null;
   project: { id: string; name: string };
   milestone: { id: string; name: string } | null;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Reuniões (ata)                                                          */
+/* ---------------------------------------------------------------------- */
+
+export interface MeetingParticipantRow {
+  id: string;
+  name: string;
+  company: string | null;
+  mode: string | null;
+}
+
+export interface MeetingTopicRow {
+  id: string;
+  category: string | null;
+  date: Date | null;
+  description: string;
+  responsible: string | null;
+  dueDate: Date | null;
+  status: string;
+}
+
+/** Reunião como aparece na lista do projeto. */
+export interface MeetingRow {
+  id: string;
+  date: Date;
+  title: string | null;
+  location: string | null;
+  startTime: string | null;
+  preparedBy: string | null;
+  number: number | null;
+  subject: string | null;
+  createdAt: Date;
+  milestone: { id: string; name: string } | null;
+  _count: { participants: number; topics: number; requests: number };
+}
+
+/** Reunião aberta em tela própria: ata completa e pendências vinculadas. */
+export interface MeetingDetailRow extends MeetingRow {
+  project: { id: string; name: string; status: ProjectStatusValue };
+  createdById: string | null;
+  diverseSubjects: string | null;
+  summary: string | null;
+  externalUrl: string | null;
+  teamsJoinUrl: string | null;
+  participants: MeetingParticipantRow[];
+  topics: MeetingTopicRow[];
+  requests: RequestRow[];
 }
 
 /** Usado pelo serviço de recálculo. */
@@ -431,6 +481,10 @@ export interface ClientRow extends ReferenceRow {
   contactName: string | null;
   email: string | null;
   phone: string | null;
+  /** Rodapé fixo da ata no padrão do cliente (código do formulário,
+   * validade, classificação) — em branco, só o modelo DataPulse é oferecido
+   * para impressão da reunião. */
+  meetingFormCode: string | null;
   _count: { projects: number };
 }
 

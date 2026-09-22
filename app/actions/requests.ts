@@ -61,6 +61,17 @@ export async function createRequest(
     }
   }
 
+  const meetingId = str(formData, "meetingId") || null;
+  if (meetingId) {
+    const meeting = await prisma.meeting.findUnique({
+      where: { id: meetingId },
+      select: { projectId: true },
+    });
+    if (!meeting || meeting.projectId !== projectId) {
+      return { error: "Reunião selecionada não pertence a este projeto." };
+    }
+  }
+
   const documentIds = formData.getAll("documentIds").map(String).filter(Boolean);
   if (documentIds.length) {
     const count = await prisma.document.count({ where: { id: { in: documentIds }, projectId } });
@@ -80,6 +91,7 @@ export async function createRequest(
     data: {
       projectId,
       milestoneId,
+      meetingId,
       type: str(formData, "type") || null,
       description,
       ownerId,

@@ -27,6 +27,7 @@ import {
 import { isRequestOverdue } from "./requests";
 import { driBand, type DRIBand } from "./dri";
 import { daysBetween } from "./documents";
+import { groupTopicsByCategory } from "./meetings";
 
 const DAY = 86_400_000;
 
@@ -693,3 +694,70 @@ export function buildPackageReport(p: ReportPackageInput, now: Date): PackageRep
     ),
   };
 }
+
+
+/* ------------------------------------------------------------------------ */
+/* Relatório de reunião (ata)                                                */
+/* ------------------------------------------------------------------------ */
+
+export interface ReportMeetingParticipant {
+  name: string;
+  company: string | null;
+  mode: string | null;
+}
+
+export interface ReportMeetingTopic {
+  category: string | null;
+  date: Date | null;
+  description: string;
+  responsible: string | null;
+  dueDate: Date | null;
+  status: string;
+}
+
+export interface ReportMeetingInput {
+  id: string;
+  projectName: string;
+  projectOsNumber: string | null;
+  clientName: string | null;
+  /** Rótulo fixo do rodapé no padrão do cliente (código do formulário,
+   * validade, classificação). Null = só o modelo DataPulse é oferecido. */
+  meetingFormCode: string | null;
+  designFirmName: string | null;
+  parentName: string | null;
+  date: Date;
+  title: string | null;
+  location: string | null;
+  startTime: string | null;
+  preparedBy: string | null;
+  number: number | null;
+  subject: string | null;
+  diverseSubjects: string | null;
+  summary: string | null;
+  participants: ReportMeetingParticipant[];
+  topics: ReportMeetingTopic[];
+  requests: ReportRequest[];
+}
+
+export interface MeetingReport {
+  generatedAt: Date;
+  header: Omit<ReportMeetingInput, "participants" | "topics" | "requests">;
+  participants: ReportMeetingParticipant[];
+  /** Tópicos agrupados pela ordem fixa do formulário do cliente — só os
+   * grupos com conteúdo aparecem no relatório DataPulse; o modelo do
+   * cliente lista os 5 fixos mesmo vazios (ver meeting-report-client). */
+  topicGroups: { category: string; items: ReportMeetingTopic[] }[];
+  requests: (ReportRequest & { overdue: boolean })[];
+}
+
+export function buildMeetingReport(m: ReportMeetingInput, now: Date): MeetingReport {
+  const { participants, topics, requests, ...header } = m;
+  return {
+    generatedAt: now,
+    header,
+    participants,
+    topicGroups: groupTopicsByCategory(topics).filter((g) => g.items.length > 0),
+    requests: requests.map((r) => ({ ...r, overdue: isRequestOverdue(r, now) })),
+  };
+}
+

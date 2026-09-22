@@ -34,6 +34,7 @@ import { deleteTask } from "@/app/actions/tasks";
 import { ClickableRow } from "@/components/clickable-row";
 import { RequestCreateForm } from "@/components/request-forms";
 import { RequestTable } from "@/components/request-table";
+import { meetingState } from "@/lib/meetings";
 import { formatCurrency, formatDate, formatDateTime, toNumber } from "@/lib/format";
 import { BAND_LABEL, driBand } from "@/lib/dri";
 import {
@@ -89,6 +90,22 @@ export default async function ProjectPage({
           owner: { select: { id: true, name: true } },
           milestone: { select: { id: true, name: true } },
           documents: { include: { document: { select: { id: true, number: true, name: true } } } },
+        },
+      },
+      meetings: {
+        orderBy: { date: "desc" },
+        select: {
+          id: true,
+          date: true,
+          title: true,
+          location: true,
+          startTime: true,
+          preparedBy: true,
+          number: true,
+          subject: true,
+          createdAt: true,
+          milestone: { select: { id: true, name: true } },
+          _count: { select: { participants: true, topics: true, requests: true } },
         },
       },
       driScores: { where: { milestoneId: null }, orderBy: { calculatedAt: "asc" }, take: 60 },
@@ -209,6 +226,9 @@ export default async function ProjectPage({
           <Link href={`/projects/${project.id}/files`}>
             <Button variant="outline">Arquivos ({project._count.files})</Button>
           </Link>
+          <Link href={`/projects/${project.id}/meetings`}>
+            <Button variant="outline">Reuniões ({project.meetings.length})</Button>
+          </Link>
           <a href={`/api/reports/project/${project.id}`} target="_blank" rel="noreferrer">
             <Button variant="outline">Relatório PDF</Button>
           </a>
@@ -316,20 +336,40 @@ export default async function ProjectPage({
             now={now}
             anchor={ganttAnchor}
             emptyText="Nenhuma tarefa com datas. Informe início e término planejado."
-            rows={ganttOrder(tree, now).map(({ task: t, depth }) => ({
-              id: t.id,
-              label: t.name,
-              sublabel: t.kind === "MILESTONE" ? "Marco" : `${t.progress}%`,
-              href: `/projects/${project.id}/tasks/${t.id}`,
-              start: t.kind === "MILESTONE" ? null : t.startDate,
-              end: t.actualDate ?? taskDueDate(t),
-              milestone: t.kind === "MILESTONE",
-              baselineEnd: t.plannedDate,
-              progress: t.kind === "MILESTONE" ? null : t.progress,
-              tone: isTaskOverdue(t, now) ? "bg-st-stuck" : TASK_STATUS_COLOR[t.status],
-              owner: t.assignee?.name ?? null,
-              depth,
-            }))}
+            rows={[
+              ...ganttOrder(tree, now).map(({ task: t, depth }) => ({
+                id: t.id,
+                label: t.name,
+                sublabel: t.kind === "MILESTONE" ? "Marco" : `${t.progress}%`,
+                href: `/projects/${project.id}/tasks/${t.id}`,
+                start: t.kind === "MILESTONE" ? null : t.startDate,
+                end: t.actualDate ?? taskDueDate(t),
+                milestone: t.kind === "MILESTONE",
+                baselineEnd: t.plannedDate,
+                progress: t.kind === "MILESTONE" ? null : t.progress,
+                tone: isTaskOverdue(t, now) ? "bg-st-stuck" : TASK_STATUS_COLOR[t.status],
+                owner: t.assignee?.name ?? null,
+                depth: depth as number,
+                sortAt: (t.kind === "MILESTONE" ? t.actualDate ?? taskDueDate(t) : t.startDate) ?? t.actualDate ?? taskDueDate(t) ?? now,
+              })),
+              // Reuniões entram na mesma linha do tempo, como losango — sem
+              // duração, sem entrar no rollup nem no DRI (não são Tarefa).
+              ...project.meetings.map((m) => ({
+                id: `meeting-${m.id}`,
+                label: m.title || m.subject || "Reunião",
+                sublabel: meetingState(m.date, m._count.topics, now) === "held" ? "Reunião" : "Reunião agendada",
+                href: `/projects/${project.id}/meetings/${m.id}`,
+                start: null,
+                end: m.date,
+                milestone: true,
+                baselineEnd: null,
+                progress: null,
+                tone: "bg-accent",
+                owner: null,
+                depth: 0,
+                sortAt: m.date,
+              })),
+            ].sort((a, b) => a.sortAt.getTime() - b.sortAt.getTime())}
           />
         </div>
       </section>

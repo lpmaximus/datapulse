@@ -43,12 +43,15 @@ export interface DocumentOption {
 export function RequestCreateForm({
   projectId,
   milestoneId,
+  meetingId,
   users,
   documents,
 }: {
   projectId: string;
   /** Pré-vincula a uma tarefa/marco quando o formulário aparece na tela dela. */
   milestoneId?: string;
+  /** Pré-vincula à reunião que originou a pendência. */
+  meetingId?: string;
   users: UserOption[];
   documents: DocumentOption[];
 }) {
@@ -63,6 +66,7 @@ export function RequestCreateForm({
     <form ref={formRef} action={action} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <input type="hidden" name="projectId" value={projectId} />
       {milestoneId ? <input type="hidden" name="milestoneId" value={milestoneId} /> : null}
+      {meetingId ? <input type="hidden" name="meetingId" value={meetingId} /> : null}
       <div className="sm:col-span-2">
         <Field label="Solicitação">
           <input

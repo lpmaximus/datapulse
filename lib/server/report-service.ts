@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { projectVisibility } from "@/lib/visibility";
 import { isPackageType } from "@/lib/tasks";
 import type {
+  ReportMeetingInput,
   ReportPackageInput,
   ReportProjectInput,
   ReportRevision,
@@ -338,5 +339,97 @@ export async function loadReportPackage(
       createdAt: r.createdAt,
     })),
     deadlineChanges: m.deadlineChanges,
+  };
+}
+
+/** Leitura do relatório de uma reunião — ata + pendências vinculadas. */
+export async function loadReportMeeting(
+  user: Viewer,
+  meetingId: string,
+): Promise<ReportMeetingInput | null> {
+  const m = await prisma.meeting.findFirst({
+    where: { id: meetingId, project: projectVisibility(user) },
+    select: {
+      id: true,
+      date: true,
+      title: true,
+      location: true,
+      startTime: true,
+      preparedBy: true,
+      number: true,
+      subject: true,
+      diverseSubjects: true,
+      summary: true,
+      project: {
+        select: {
+          name: true,
+          osNumber: true,
+          clientRef: { select: { name: true, meetingFormCode: true } },
+          designFirm: { select: { name: true } },
+        },
+      },
+      milestone: { select: { name: true } },
+      participants: {
+        orderBy: { order: "asc" },
+        select: { name: true, company: true, mode: true },
+      },
+      topics: {
+        orderBy: { order: "asc" },
+        select: {
+          category: true,
+          date: true,
+          description: true,
+          responsible: true,
+          dueDate: true,
+          status: true,
+        },
+      },
+      requests: {
+        select: {
+          id: true,
+          type: true,
+          description: true,
+          waitingOn: true,
+          status: true,
+          dueAt: true,
+          createdAt: true,
+          owner: { select: { name: true } },
+          milestone: { select: { name: true } },
+        },
+      },
+    },
+  });
+  if (!m) return null;
+
+  return {
+    id: m.id,
+    projectName: m.project.name,
+    projectOsNumber: m.project.osNumber,
+    clientName: m.project.clientRef?.name ?? null,
+    meetingFormCode: m.project.clientRef?.meetingFormCode ?? null,
+    designFirmName: m.project.designFirm?.name ?? null,
+    parentName: m.milestone?.name ?? null,
+    date: m.date,
+    title: m.title,
+    location: m.location,
+    startTime: m.startTime,
+    preparedBy: m.preparedBy,
+    number: m.number,
+    subject: m.subject,
+    diverseSubjects: m.diverseSubjects,
+    summary: m.summary,
+    participants: m.participants,
+    topics: m.topics,
+    requests: m.requests.map((r) => ({
+      id: r.id,
+      taskName: r.milestone?.name ?? null,
+      type: r.type,
+      description: r.description,
+      ownerName: r.owner?.name ?? null,
+      waitingOn: r.waitingOn,
+      status: r.status,
+      dueAt: r.dueAt,
+      createdAt: r.createdAt,
+    })),
   };
 }
