@@ -235,6 +235,8 @@ export interface MeetingRow {
   createdAt: Date;
   milestone: { id: string; name: string } | null;
   _count: { participants: number; topics: number; requests: number };
+  /** Só presente na lista geral (todos os projetos), onde a coluna Projeto aparece. */
+  project?: { id: string; name: string };
 }
 
 /** Reunião aberta em tela própria: ata completa e pendências vinculadas. */

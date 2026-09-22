@@ -8,6 +8,7 @@ import {
   Activity,
   BarChart3,
   Bell,
+  CalendarClock,
   ChevronsLeft,
   ChevronsRight,
   Clock,
@@ -82,6 +83,7 @@ const SECTIONS: NavSection[] = [
     items: [
       { href: "/projects", label: "Projetos", icon: FolderKanban },
       { href: "/documents", label: "Documentos", icon: FileText },
+      { href: "/meetings", label: "Reuniões", icon: CalendarClock },
       {
         href: "/signals",
         label: "Sinais",
