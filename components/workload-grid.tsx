@@ -55,7 +55,7 @@ export async function WorkloadGrid({
   const end = days[days.length - 1];
   const orgId = user.organizationId;
 
-  const [disciplines, people] = await Promise.all([
+  const [disciplines, specialists, revisions] = await Promise.all([
     prisma.discipline.findMany({
       where: { organizationId: orgId },
       orderBy: { tag: "asc" },
@@ -71,39 +71,72 @@ export async function WorkloadGrid({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-  ]);
-  const ids = people.map((p) => p.id);
-
-  const [entriesRaw, revisions] = await Promise.all([
-    prisma.timeEntry.findMany({
-      where: { userId: { in: ids }, date: { gte: start, lte: end } },
-      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
-      select: {
-        userId: true,
-        date: true,
-        category: true,
-        plannedHours: true,
-        actualHours: true,
-        project: { select: { name: true } },
-        document: { select: { number: true, name: true } },
-        milestone: { select: { name: true } },
-      },
-    }),
+    // Não filtra por quem já está no quadro de especialistas: um documento
+    // pode ter administrador/gerente como especialista ou responsável
+    // (permitido na tela do documento), e essa pessoa precisa aparecer aqui
+    // mesmo fora do papel Especialista. Disciplina filtra direto no
+    // documento, não pelo especialista — senão um vencimento assim ficaria
+    // invisível mesmo sem filtro de disciplina nenhum selecionado.
     prisma.documentRevision.findMany({
       where: {
         status: "IN_REVIEW",
         dueAt: { not: null, lte: end },
-        document: { project: { organizationId: orgId, status: "ACTIVE" } },
-        OR: [{ specialistId: { in: ids } }, { specialistId: null, document: { responsibleId: { in: ids } } }],
+        document: {
+          project: { organizationId: orgId, status: "ACTIVE" },
+          ...(disciplineId ? { disciplineId } : {}),
+        },
       },
       select: {
         specialistId: true,
         dueAt: true,
         name: true,
-        document: { select: { number: true, name: true, responsibleId: true, project: { select: { name: true } } } },
+        specialist: { select: { id: true, name: true } },
+        document: {
+          select: {
+            number: true,
+            name: true,
+            responsibleId: true,
+            responsible: { select: { id: true, name: true } },
+            project: { select: { name: true } },
+          },
+        },
       },
     }),
   ]);
+  const specialistIds = specialists.map((p) => p.id);
+
+  const dueDocs = revisions.flatMap((r) => {
+    const uid = currentAnalystId({ specialistId: r.specialistId, responsibleId: r.document.responsibleId });
+    return uid && r.dueAt ? [{ userId: uid, dueAt: r.dueAt, rev: r }] : [];
+  });
+
+  // Quem tem documento vencendo mas não está no quadro de especialistas.
+  const extra = new Map<string, { id: string; name: string }>();
+  for (const r of revisions) {
+    const uid = currentAnalystId({ specialistId: r.specialistId, responsibleId: r.document.responsibleId });
+    if (!uid || specialistIds.includes(uid)) continue;
+    const person = r.specialistId === uid ? r.specialist : r.document.responsible;
+    if (person) extra.set(uid, person);
+  }
+  const people = extra.size
+    ? [...specialists, ...[...extra.values()].sort((a, b) => a.name.localeCompare(b.name))]
+    : specialists;
+  const ids = people.map((p) => p.id);
+
+  const entriesRaw = await prisma.timeEntry.findMany({
+    where: { userId: { in: ids }, date: { gte: start, lte: end } },
+    orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+    select: {
+      userId: true,
+      date: true,
+      category: true,
+      plannedHours: true,
+      actualHours: true,
+      project: { select: { name: true } },
+      document: { select: { number: true, name: true } },
+      milestone: { select: { name: true } },
+    },
+  });
 
   const entries = entriesRaw.map((e) => ({
     userId: e.userId,
@@ -111,10 +144,6 @@ export async function WorkloadGrid({
     plannedHours: Number(e.plannedHours),
     actualHours: e.actualHours == null ? null : Number(e.actualHours),
   }));
-  const dueDocs = revisions.flatMap((r) => {
-    const uid = currentAnalystId({ specialistId: r.specialistId, responsibleId: r.document.responsibleId });
-    return uid && r.dueAt ? [{ userId: uid, dueAt: r.dueAt, rev: r }] : [];
-  });
 
   const rows = buildWorkloadGrid({
     users: people,
