@@ -122,11 +122,15 @@ export function Field({
   hint?: string;
   children: React.ReactNode;
 }) {
+  // flex-col + mt-auto no controle: em grids/flex de altura esticada
+  // (o padrão sem items-end), um campo vizinho com hint fica mais alto —
+  // isso gruda o campo (select/input) sempre no rodapé do rótulo, então
+  // todos os controles da linha ficam alinhados entre si, com ou sem hint.
   return (
-    <label className="block space-y-1.5">
+    <label className="flex h-full flex-col gap-1.5">
       <span className="block text-sm font-medium text-ink">{label}</span>
       {hint ? <span className="block text-xs text-ink-faint">{hint}</span> : null}
-      {children}
+      <div className="mt-auto">{children}</div>
     </label>
   );
 }
