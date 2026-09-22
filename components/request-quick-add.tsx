@@ -81,7 +81,7 @@ function RequestEntryRow({
         <EntryCell>
           <select form={formId} name="ownerId" defaultValue="" aria-label="Quem cobra" className={cellInput}>
             <option value="">—</option>
-            {users.map((u) => (
+            {users.filter((u) => u.role !== "EXTERNAL").map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name}
               </option>

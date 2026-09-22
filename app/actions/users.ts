@@ -4,18 +4,21 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, generateTemporaryPassword } from "@/lib/password";
 import { destroyAllSessionsForUser } from "@/lib/session";
-import { requireRole } from "@/lib/authz";
-import type { Role } from "@/lib/authz";
+import { requireRole, ACCOUNT_ROLES, type AccountRole } from "@/lib/authz";
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
 }
 
-const VALID_ROLES: Role[] = ["ADMIN", "MANAGER", "SPECIALIST", "EXECUTIVE"];
-
-function parseRole(value: string): Role {
-  return VALID_ROLES.includes(value as Role) ? (value as Role) : "SPECIALIST";
+function parseRole(value: string): AccountRole {
+  return ACCOUNT_ROLES.includes(value as AccountRole) ? (value as AccountRole) : "SPECIALIST";
 }
+
+/**
+ * Hash de quem não faz login (Terceirizado). Não segue o formato scrypt, então
+ * `verifyPassword` sempre devolve false — não existe senha que abra a conta.
+ */
+const NO_LOGIN_HASH = "external$no-login";
 
 export interface UserFormState {
   error?: string;
@@ -23,6 +26,8 @@ export interface UserFormState {
   /** Senha provisória, exibida uma única vez para ser repassada ao usuário. */
   temporaryPassword?: string;
   userName?: string;
+  /** Criado como Terceirizado — sem senha, sem acesso. */
+  external?: boolean;
 }
 
 /**
@@ -70,6 +75,26 @@ export async function createUser(
     if (!company) return { error: "Empresa inválida." };
   }
 
+  const role = parseRole(str(formData, "role"));
+
+  // Terceirizado não acessa o sistema: nada de senha provisória.
+  if (role === "EXTERNAL") {
+    await prisma.user.create({
+      data: {
+        organizationId: admin.organizationId,
+        name,
+        email,
+        passwordHash: NO_LOGIN_HASH,
+        mustChangePassword: false,
+        role,
+        functionId,
+        companyId,
+      },
+    });
+    revalidatePath("/users");
+    return { ok: true, external: true, userName: name };
+  }
+
   const temporaryPassword = generateTemporaryPassword();
 
   await prisma.user.create({
@@ -79,7 +104,7 @@ export async function createUser(
       email,
       passwordHash: await hashPassword(temporaryPassword),
       mustChangePassword: true,
-      role: parseRole(str(formData, "role")),
+      role,
       functionId,
       companyId,
     },
@@ -145,10 +170,13 @@ export async function updateUserRole(formData: FormData): Promise<void> {
 
   // `updateMany` (em vez de `update`) combina o `id` com `organizationId` no
   // `where` — impede alterar o papel de um usuário de outra organização.
-  await prisma.user.updateMany({
+  const result = await prisma.user.updateMany({
     where: { id: userId, organizationId: admin.organizationId },
     data: { role },
   });
+  // Virou Terceirizado: perde o acesso na hora, como numa desativação.
+  // (O caminho inverso não dá senha — o administrador usa "Resetar senha".)
+  if (result.count > 0 && role === "EXTERNAL") await destroyAllSessionsForUser(userId);
   revalidatePath("/users");
 }
 
@@ -237,9 +265,12 @@ export async function resetUserPassword(
 
   const user = await prisma.user.findFirst({
     where: { id: userId, organizationId: admin.organizationId },
-    select: { name: true },
+    select: { name: true, role: true },
   });
   if (!user) return { error: "Usuário não encontrado." };
+  if (user.role === "EXTERNAL") {
+    return { error: "Terceirizado não acessa o sistema. Mude o papel antes de gerar senha." };
+  }
 
   const temporaryPassword = generateTemporaryPassword();
   await prisma.user.update({

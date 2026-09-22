@@ -81,7 +81,8 @@ export async function createRequest(
   const ownerId = str(formData, "ownerId") || null;
   if (ownerId) {
     const owner = await prisma.user.findFirst({
-      where: { id: ownerId, organizationId: user.organizationId },
+      // "Quem cobra" é interno — terceirizado é quem é cobrado.
+      where: { id: ownerId, organizationId: user.organizationId, role: { not: "EXTERNAL" } },
       select: { id: true },
     });
     if (!owner) return { error: "Responsável inválido." };
@@ -235,7 +236,8 @@ export async function updateRequest(
   const ownerId = str(formData, "ownerId") || null;
   if (ownerId) {
     const owner = await prisma.user.findFirst({
-      where: { id: ownerId, organizationId: user.organizationId },
+      // "Quem cobra" é interno — terceirizado é quem é cobrado.
+      where: { id: ownerId, organizationId: user.organizationId, role: { not: "EXTERNAL" } },
       select: { id: true },
     });
     if (!owner) return { error: "Responsável inválido." };

@@ -89,7 +89,7 @@ export function RequestCreateForm({
       <Field label="Quem cobra (interno)">
         <select name="ownerId" defaultValue="" className={inputClass}>
           <option value="">—</option>
-          {users.map((u) => (
+          {users.filter((u) => u.role !== "EXTERNAL").map((u) => (
             <option key={u.id} value={u.id}>
               {u.name}
             </option>
@@ -228,7 +228,7 @@ export function RequestEditForm({
       <Field label="Quem cobra (interno)">
         <select name="ownerId" defaultValue={request.ownerId ?? ""} className={inputClass}>
           <option value="">—</option>
-          {users.map((u) => (
+          {users.filter((u) => u.role !== "EXTERNAL").map((u) => (
             <option key={u.id} value={u.id}>
               {u.name}
             </option>

@@ -406,7 +406,7 @@ export interface UnlinkedProjectRow {
 /* Pessoas, documentos e demandas                                          */
 /* ---------------------------------------------------------------------- */
 
-export type RoleValue = "ADMIN" | "MANAGER" | "SPECIALIST" | "EXECUTIVE";
+export type RoleValue = "ADMIN" | "MANAGER" | "SPECIALIST" | "EXECUTIVE" | "EXTERNAL";
 export type DocumentStatusValue =
   | "DRAFT"
   | "IN_REVIEW"

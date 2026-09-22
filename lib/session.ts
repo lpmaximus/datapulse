@@ -84,10 +84,15 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   if (session.expiresAt.getTime() <= Date.now()) return null;
   // Usuário desativado perde acesso imediatamente, sem esperar a sessão expirar.
   if (!session.user.isActive) return null;
+  // Terceirizado não tem acesso ao sistema — mesmo que uma sessão exista
+  // (criada antes de o papel mudar), ela não vale.
+  const role = session.user.role;
+  if (role === "EXTERNAL") return null;
 
   const { isActive: _ignored, function: fn, organization, ...rest } = session.user;
   return {
     ...rest,
+    role,
     functionName: fn?.name ?? null,
     organizationName: organization.name,
   } satisfies SessionUser;

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireRole, ROLE_LABEL, ROLE_DESCRIPTION, type Role } from "@/lib/authz";
+import { requireRole, ROLE_LABEL, ROLE_DESCRIPTION, ACCOUNT_ROLES, type AccountRole } from "@/lib/authz";
 import { Card, SectionTitle, Empty } from "@/components/ui";
 import { ResizableTable, Th, CollapsibleGroup } from "@/components/table-ui";
 import {
@@ -27,7 +27,7 @@ import type {
   RoleProfileRow,
 } from "@/types/models";
 
-const ROLE_ORDER: Role[] = ["ADMIN", "MANAGER", "SPECIALIST", "EXECUTIVE"];
+const ROLE_ORDER: AccountRole[] = ACCOUNT_ROLES;
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +41,7 @@ export default async function RegistersPage() {
     EmpresaRowData[],
     JobFunctionRowData[],
     AnalysisCodeRowData[],
-    { role: Role; label: string; description: string | null }[],
+    { role: AccountRole; label: string; description: string | null }[],
   ] = await Promise.all([
     prisma.client.findMany({
       where: { organizationId: me.organizationId },
@@ -121,7 +121,7 @@ export default async function RegistersPage() {
     }),
   ]);
 
-  // Papéis são fixos (4 valores de UserRole) — preenche com o padrão de
+  // Papéis são fixos (valores de UserRole) — preenche com o padrão de
   // código quando ainda não há registro gravado (antes do primeiro salvar).
   const roleProfileByRole = new Map(roleProfileRows.map((r) => [r.role, r]));
   const roleProfiles: RoleProfileRow[] = ROLE_ORDER.map((role) => {

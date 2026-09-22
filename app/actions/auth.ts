@@ -39,7 +39,7 @@ export async function login(
 
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, passwordHash: true, isActive: true },
+    select: { id: true, passwordHash: true, isActive: true, role: true },
   });
 
   const GENERIC = "E-mail ou senha inválidos.";
@@ -52,6 +52,7 @@ export async function login(
 
   if (!(await verifyPassword(password, user.passwordHash))) return { error: GENERIC };
   if (!user.isActive) return { error: "Este usuário está desativado." };
+  if (user.role === "EXTERNAL") return { error: "Este usuário não tem acesso ao sistema." };
 
   const ua = (await headers()).get("user-agent");
   await createSession(user.id, ua);

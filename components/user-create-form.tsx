@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createUser, type UserFormState } from "@/app/actions/users";
 import { Button, Field, inputClass } from "@/components/ui";
@@ -23,6 +23,8 @@ export function UserCreateForm({
   companies: EmpresaRow[];
 }) {
   const [state, formAction] = useActionState<UserFormState, FormData>(createUser, {});
+  const [role, setRole] = useState("SPECIALIST");
+  const external = role === "EXTERNAL";
 
   return (
     <div className="space-y-4">
@@ -39,12 +41,25 @@ export function UserCreateForm({
             placeholder="maria@empresa.com"
           />
         </Field>
-        <Field label="Papel">
-          <select name="role" defaultValue="SPECIALIST" className={inputClass}>
+        <Field
+          label="Papel"
+          hint={
+            external
+              ? "Sem acesso ao sistema: não recebe senha. Pode ser responsável por tarefas e é cobrado por e-mail."
+              : undefined
+          }
+        >
+          <select
+            name="role"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className={inputClass}
+          >
             <option value="SPECIALIST">Especialista — responde avaliações</option>
             <option value="MANAGER">Gerente — cria projetos e convoca</option>
             <option value="EXECUTIVE">Executivo — só visualiza</option>
             <option value="ADMIN">Administrador — acesso total</option>
+            <option value="EXTERNAL">Terceirizado / Projetista — sem acesso, só é cobrado</option>
           </select>
         </Field>
         <Field label="Função" hint="Cargo do usuário — cadastrado em Cadastros.">
@@ -57,7 +72,14 @@ export function UserCreateForm({
             ))}
           </select>
         </Field>
-        <Field label="Empresa" hint="Empresa a que o usuário pertence — cadastrada em Cadastros.">
+        <Field
+          label="Empresa"
+          hint={
+            external
+              ? "Empresa projetista que ele representa — cadastrada em Cadastros."
+              : "Empresa a que o usuário pertence — cadastrada em Cadastros."
+          }
+        >
           <select name="companyId" defaultValue="" className={inputClass}>
             <option value="">Sem empresa</option>
             {companies.map((c) => (
@@ -76,6 +98,16 @@ export function UserCreateForm({
         <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           {state.error}
         </p>
+      ) : null}
+
+      {state.ok && state.external ? (
+        <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <p className="font-medium">Terceirizado {state.userName} cadastrado.</p>
+          <p className="mt-1 text-xs">
+            Sem senha e sem acesso ao sistema. Já pode ser escolhido como responsável
+            de tarefas; a cobrança sai por e-mail a partir da tarefa.
+          </p>
+        </div>
       ) : null}
 
       {state.ok && state.temporaryPassword ? (

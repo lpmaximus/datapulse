@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { requireRole, ROLE_LABEL, type Role } from "@/lib/authz";
+import { requireRole, ROLE_LABEL, type AccountRole as Role } from "@/lib/authz";
 import { toggleUserActive } from "@/app/actions/users";
 import { Card, SectionTitle, Empty, Chip } from "@/components/ui";
 import { ResizableTable, Toolbar, Th, Td, StatusToggle, CollapsibleGroup } from "@/components/table-ui";
@@ -42,7 +42,11 @@ function UserRow({
       <Td>
         <span className="font-medium">{u.name}</span>
         {u.id === meId ? <span className="ml-2 text-xs text-ink-faint">(você)</span> : null}
-        {u.mustChangePassword ? (
+        {u.role === "EXTERNAL" ? (
+          <p className="mt-0.5">
+            <Chip>sem acesso</Chip>
+          </p>
+        ) : u.mustChangePassword ? (
           <p className="mt-0.5">
             <Chip>senha provisória</Chip>
           </p>
@@ -65,11 +69,13 @@ function UserRow({
       </Td>
       <Td align="right">{u._count.memberships + u._count.managedProjects}</Td>
       <Td align="right">{u._count.signalRequests}</Td>
-      <Td className="text-ink-faint">{u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "nunca"}</Td>
+      <Td className="text-ink-faint">
+        {u.role === "EXTERNAL" ? "—" : u.lastLoginAt ? formatDateTime(u.lastLoginAt) : "nunca"}
+      </Td>
       <Td>
         <div className="flex flex-wrap items-center gap-1">
           <EditUserButton userId={u.id} />
-          <ResetPasswordButton userId={u.id} />
+          {u.role === "EXTERNAL" ? null : <ResetPasswordButton userId={u.id} />}
         </div>
       </Td>
     </tr>
@@ -165,7 +171,8 @@ export default async function UsersPage({
         <div className="px-4 pt-4">
           <h1 className="text-xl font-semibold tracking-tight">Usuários</h1>
           <p className="text-sm text-ink-soft">
-            Quem acessa a plataforma e o que cada um pode fazer.
+            Quem acessa a plataforma e o que cada um pode fazer. Terceirizados
+            (projetistas) não acessam — só respondem por tarefas e são cobrados.
           </p>
         </div>
 

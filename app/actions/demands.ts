@@ -38,7 +38,8 @@ export async function assignSignalRequest(formData: FormData): Promise<void> {
       select: { projectId: true, project: { select: { status: true } } },
     }),
     prisma.user.findFirst({
-      where: { id: assigneeId, organizationId: manager.organizationId },
+      // Terceirizado não loga, logo não responde avaliação.
+      where: { id: assigneeId, organizationId: manager.organizationId, role: { not: "EXTERNAL" } },
       select: { id: true },
     }),
   ]);

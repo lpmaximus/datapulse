@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireRole } from "@/lib/authz";
+import { requireRole, ACCOUNT_ROLES, type AccountRole } from "@/lib/authz";
 import type { AnalysisEffect } from "@/lib/documents";
 
 function str(fd: FormData, key: string): string {
@@ -448,8 +448,7 @@ export async function updateRoleProfile(formData: FormData): Promise<void> {
   const me = await requireRole(["ADMIN"]);
 
   const role = str(formData, "role");
-  const VALID_ROLES = ["ADMIN", "MANAGER", "SPECIALIST", "EXECUTIVE"];
-  if (!VALID_ROLES.includes(role)) return;
+  if (!ACCOUNT_ROLES.includes(role as AccountRole)) return;
 
   const label = str(formData, "label");
   if (!label) return;
@@ -458,12 +457,12 @@ export async function updateRoleProfile(formData: FormData): Promise<void> {
     where: {
       organizationId_role: {
         organizationId: me.organizationId,
-        role: role as "ADMIN" | "MANAGER" | "SPECIALIST" | "EXECUTIVE",
+        role: role as AccountRole,
       },
     },
     create: {
       organizationId: me.organizationId,
-      role: role as "ADMIN" | "MANAGER" | "SPECIALIST" | "EXECUTIVE",
+      role: role as AccountRole,
       label,
       description: str(formData, "description") || null,
     },

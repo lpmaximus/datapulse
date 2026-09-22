@@ -1,14 +1,30 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser, type SessionUser } from "@/lib/session";
 
+/** Papéis que entram no sistema (os únicos que uma sessão pode ter). */
 export type Role = SessionUser["role"];
 
+/**
+ * Todos os papéis cadastráveis, incluindo `EXTERNAL` (Terceirizado /
+ * Projetista), que existe como pessoa responsável por tarefas mas nunca faz
+ * login. Usado nas telas de administração; permissão continua em `Role`.
+ */
+export type AccountRole = Role | "EXTERNAL";
+
+export const ACCOUNT_ROLES: AccountRole[] = ["ADMIN", "MANAGER", "SPECIALIST", "EXECUTIVE", "EXTERNAL"];
+
+/** Papel sem acesso ao sistema — só é cobrado. */
+export function isExternalRole(role: string | null | undefined): boolean {
+  return role === "EXTERNAL";
+}
+
 /** Hierarquia de capacidades. ADMIN faz tudo que MANAGER faz, e assim por diante. */
-export const ROLE_LABEL: Record<Role, string> = {
+export const ROLE_LABEL: Record<AccountRole, string> = {
   ADMIN: "Administrador",
   MANAGER: "Gerente",
   SPECIALIST: "Especialista",
   EXECUTIVE: "Executivo",
+  EXTERNAL: "Terceirizado / Projetista",
 };
 
 /**
@@ -16,11 +32,12 @@ export const ROLE_LABEL: Record<Role, string> = {
  * `RoleProfile` (Settings > Cadastros > Papéis de acesso) e como texto de
  * apoio onde não houver override gravado no banco.
  */
-export const ROLE_DESCRIPTION: Record<Role, string> = {
+export const ROLE_DESCRIPTION: Record<AccountRole, string> = {
   ADMIN: "Administra usuários e configurações da plataforma.",
   MANAGER: "Gerencia projetos, cria marcos e convoca avaliações.",
   SPECIALIST: "Responde a Camada 2 nos marcos em que foi convocado.",
   EXECUTIVE: "Visualiza painéis e relatórios; não opera nem responde.",
+  EXTERNAL: "Representante de empresa projetista. Não acessa o sistema; é responsável por tarefas e cobrado pela equipe.",
 };
 
 export function canManageUsers(user: SessionUser | null): boolean {

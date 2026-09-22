@@ -31,8 +31,10 @@ import {
   slipDays,
   taskDueDate,
   TASK_KIND_LABEL,
+  TASK_STATUS_LABEL,
   isPackageType,
 } from "@/lib/tasks";
+import { buildChargeMailto } from "@/lib/charge";
 import { DocumentStatusChip } from "@/components/document-status";
 import { isRequestOpen } from "@/lib/requests";
 import type { MilestoneDetailRow, MilestoneRequestRow, UserOption } from "@/types/models";
@@ -155,7 +157,9 @@ export async function TaskDetail({
   const writable = isProjectWritable(task.project.status);
   const isAssignee = task.assignee?.id === user.id;
   const canEdit = writable && (manage || isAssignee);
-  const evaluators = candidates.filter((u) => u.role !== "EXECUTIVE");
+  // Executivo não opera; Terceirizado não acessa o sistema — nenhum dos dois
+  // pode responder a Camada 2.
+  const evaluators = candidates.filter((u) => u.role !== "EXECUTIVE" && u.role !== "EXTERNAL");
 
   const latest = task.driScores[task.driScores.length - 1];
   const breakdown = (latest?.breakdown ?? {}) as Record<string, unknown>;
@@ -171,6 +175,26 @@ export async function TaskDetail({
   const openImpediments = task.impediments.filter((i) => !i.resolvedAt);
   const isGroup = task.children.length > 0;
   const openTaskRequests = task.requests.filter(isRequestOpen).length;
+
+  // Responsável Terceirizado não acessa o sistema: a cobrança sai por e-mail.
+  const assigneeInfo = task.assignee ? candidates.find((u) => u.id === task.assignee!.id) : undefined;
+  const externalAssignee = assigneeInfo?.role === "EXTERNAL" ? assigneeInfo : null;
+  const chargeHref =
+    externalAssignee && writable && user.role !== "EXECUTIVE" && task.status !== "DONE" && task.status !== "CANCELLED"
+      ? buildChargeMailto({
+          to: externalAssignee.email,
+          assigneeName: externalAssignee.name,
+          senderName: user.name,
+          task: {
+            taskName: task.name,
+            projectName: task.project.name,
+            due,
+            statusLabel: TASK_STATUS_LABEL[task.status],
+            progress: task.kind === "MILESTONE" ? null : task.progress,
+            late,
+          },
+        })
+      : null;
 
   return (
     <div className="space-y-8">
@@ -236,6 +260,16 @@ export async function TaskDetail({
             <Avatar name={task.assignee?.name} size={32} />
             <span className="text-sm font-medium">{task.assignee?.name ?? "Sem responsável"}</span>
           </div>
+          {externalAssignee ? (
+            <p className="mt-2 text-xs text-ink-soft">Terceirizado · sem acesso ao sistema</p>
+          ) : null}
+          {chargeHref ? (
+            <a href={chargeHref} className="mt-2 inline-block">
+              <Button variant="outline" className="px-2 py-1 text-xs">
+                {late ? "Cobrar atraso por e-mail" : "Cobrar por e-mail"}
+              </Button>
+            </a>
+          ) : null}
         </Card>
         <Card>
           <p className="text-xs uppercase tracking-wider text-ink-soft">Prazo</p>

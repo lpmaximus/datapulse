@@ -17,6 +17,7 @@ const DEFAULT_ROLE_LABEL: Record<RoleValue, string> = {
   MANAGER: "Gerente",
   SPECIALIST: "Especialista",
   EXECUTIVE: "Executivo",
+  EXTERNAL: "Terceirizado / Projetista",
 };
 
 export function RoleSelect({
@@ -52,6 +53,7 @@ export function RoleSelect({
         <option value="MANAGER">{roleLabel.MANAGER}</option>
         <option value="SPECIALIST">{roleLabel.SPECIALIST}</option>
         <option value="EXECUTIVE">{roleLabel.EXECUTIVE}</option>
+        <option value="EXTERNAL">{roleLabel.EXTERNAL}</option>
       </select>
     </form>
   );
