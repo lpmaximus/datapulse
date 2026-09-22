@@ -15,6 +15,7 @@ import { requireUser, canManageProjects } from "@/lib/authz";
 import { Button, DRIBadge, Empty } from "@/components/ui";
 import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { GanttChart } from "@/components/gantt";
+import { GanttDateNav } from "@/components/gantt-date-nav";
 import { DashboardFilters } from "@/components/dashboard-filters";
 import {
   Avatar,
@@ -83,14 +84,15 @@ const GROUP_TONES = [
 export default async function PainelPage({
   searchParams,
 }: {
-  searchParams: Promise<{ setor?: string; resp?: string; prio?: string; q?: string }>;
+  searchParams: Promise<{ setor?: string; resp?: string; prio?: string; q?: string; ganttFrom?: string }>;
 }) {
   const user = await requireUser("/");
   // Especialista tem painel próprio: seus projetos e o que faz nos dos outros.
   // Administrador e gerente seguem com o painel da carteira.
   if (user.role === "SPECIALIST") return <SpecialistDashboard user={user} />;
-  const { setor, resp, prio, q } = await searchParams;
+  const { setor, resp, prio, q, ganttFrom } = await searchParams;
   const now = new Date();
+  const ganttAnchor = ganttFrom ? new Date(`${ganttFrom}T00:00:00.000Z`) : undefined;
   const manage = canManageProjects(user);
 
   // organizationId aqui é o que separa uma organização da outra no Painel —
@@ -568,9 +570,13 @@ export default async function PainelPage({
             title="Linha do tempo da carteira"
             hint="Início → término previsto pelas tarefas · cor = faixa do DRI · parte escura = avanço"
           >
+            <div className="flex justify-end border-b border-line px-3 py-2">
+              <GanttDateNav />
+            </div>
             <GanttChart
               rows={ganttRows}
               now={now}
+              anchor={ganttAnchor}
               emptyText="Nenhum projeto com datas. Informe início/término no projeto ou nas tarefas."
             />
           </Panel>

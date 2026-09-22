@@ -42,18 +42,21 @@ const DAYMONTH = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", timeZone: "U
 export function GanttChart({
   rows,
   now,
+  anchor,
   weeks = 13,
   emptyText = "Nada com datas para mostrar.",
   maxHeightClass = "max-h-[26rem]",
 }: {
   rows: GanttRow[];
   now: Date;
+  /** Data em torno da qual a janela é centralizada. Padrão: `now` (hoje) — ver `GanttDateNav`. */
+  anchor?: Date;
   weeks?: number;
   emptyText?: string;
   /** Altura máxima da área rolável (classe Tailwind). Passa disso, rola. */
   maxHeightClass?: string;
 }) {
-  const from = new Date(startOfWeekUTC(now).getTime() - 7 * DAY);
+  const from = new Date(startOfWeekUTC(anchor ?? now).getTime() - 7 * DAY);
   const to = new Date(from.getTime() + weeks * 7 * DAY);
   const span = to.getTime() - from.getTime();
   const pct = (d: Date) => ((d.getTime() - from.getTime()) / span) * 100;

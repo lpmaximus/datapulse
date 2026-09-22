@@ -14,6 +14,7 @@ import { Card, SectionTitle, DRIBadge, Bar, Button, Field, inputClass, Empty } f
 import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { DRITrendChart, type TrendPoint } from "@/components/dri-trend-chart";
 import { GanttChart } from "@/components/gantt";
+import { GanttDateNav } from "@/components/gantt-date-nav";
 import {
   Avatar,
   KindMark,
@@ -57,10 +58,11 @@ export default async function ProjectPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ task?: string; request?: string }>;
+  searchParams: Promise<{ task?: string; request?: string; ganttFrom?: string }>;
 }) {
   const { id } = await params;
-  const { task: openTask, request: openRequest } = await searchParams;
+  const { task: openTask, request: openRequest, ganttFrom } = await searchParams;
+  const ganttAnchor = ganttFrom ? new Date(`${ganttFrom}T00:00:00.000Z`) : undefined;
   const user = await requireUser(`/projects/${id}`);
 
   const project: ProjectDetailRow | null = await prisma.project.findFirst({
@@ -306,9 +308,13 @@ export default async function ProjectPage({
 
       <section>
         <SectionTitle hint="Semanas · barra = início → prazo vigente">Linha do tempo</SectionTitle>
+        <div className="mb-2 flex justify-end">
+          <GanttDateNav />
+        </div>
         <div className="overflow-hidden rounded-lg border border-line bg-surface">
           <GanttChart
             now={now}
+            anchor={ganttAnchor}
             emptyText="Nenhuma tarefa com datas. Informe início e término planejado."
             rows={ganttOrder(tree, now).map(({ task: t, depth }) => ({
               id: t.id,
