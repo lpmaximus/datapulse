@@ -16,6 +16,14 @@ export const MEETING_TOPIC_CATEGORIES = [
   "ENGENHARIA",
 ] as const;
 
+/**
+ * Opções do seletor de categoria no formulário: as 5 disciplinas fixas +
+ * "OUTROS". "OUTROS" fica fora de MEETING_TOPIC_CATEGORIES de propósito —
+ * no agrupamento/PDF ela só aparece quando há tópico nela (junto com os sem
+ * categoria), em vez de sempre listada vazia como as 5 do formulário padrão.
+ */
+export const MEETING_TOPIC_CATEGORY_OPTIONS = [...MEETING_TOPIC_CATEGORIES, "OUTROS"] as const;
+
 export const MEETING_TOPIC_STATUSES = ["INFORMATIVO", "PENDENTE", "CONCLUÍDO", "CANCELADO"] as const;
 
 export const MEETING_TOPIC_STATUS_COLOR: Record<string, string> = {

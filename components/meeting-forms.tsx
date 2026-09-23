@@ -9,7 +9,7 @@ import {
   type MeetingFormState,
 } from "@/app/actions/meetings";
 import { Button, Field, inputClass } from "@/components/ui";
-import { MEETING_TOPIC_CATEGORIES, MEETING_TOPIC_STATUSES } from "@/lib/meetings";
+import { MEETING_TOPIC_CATEGORY_OPTIONS, MEETING_TOPIC_STATUSES } from "@/lib/meetings";
 
 function Submit({ label, busy }: { label: string; busy: string }) {
   const { pending } = useFormStatus();
@@ -125,7 +125,7 @@ function TopicsField({ initial }: { initial: TopicDraft[] }) {
   return (
     <div className="space-y-3">
       <datalist id="meeting-topic-categories">
-        {MEETING_TOPIC_CATEGORIES.map((c) => (
+        {MEETING_TOPIC_CATEGORY_OPTIONS.map((c) => (
           <option key={c} value={c} />
         ))}
       </datalist>
