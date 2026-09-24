@@ -57,6 +57,7 @@ export function MeetingReportPdf({ report }: { report: MeetingReport }) {
         columns={[
           { header: "Nome", w: 3, render: (p) => p.name },
           { header: "Empresa", w: 2, render: (p) => p.company ?? "-" },
+          { header: "E-mail", w: 3, render: (p) => p.email ?? "-" },
           { header: "Como participou", w: 2, render: (p) => p.mode ?? "-" },
         ]}
         rows={report.participants}

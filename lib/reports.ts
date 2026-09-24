@@ -703,6 +703,7 @@ export function buildPackageReport(p: ReportPackageInput, now: Date): PackageRep
 export interface ReportMeetingParticipant {
   name: string;
   company: string | null;
+  email: string | null;
   mode: string | null;
 }
 

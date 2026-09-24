@@ -371,7 +371,7 @@ export async function loadReportMeeting(
       milestone: { select: { name: true } },
       participants: {
         orderBy: { order: "asc" },
-        select: { name: true, company: true, mode: true },
+        select: { name: true, company: true, email: true, mode: true },
       },
       topics: {
         orderBy: { order: "asc" },

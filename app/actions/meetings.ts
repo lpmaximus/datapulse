@@ -47,14 +47,16 @@ function revalidateMeeting(projectId: string, milestoneId?: string | null, meeti
 function zipParticipants(fd: FormData) {
   const names = fd.getAll("participantName").map(String);
   const companies = fd.getAll("participantCompany").map(String);
+  const emails = fd.getAll("participantEmail").map(String);
   const modes = fd.getAll("participantMode").map(String);
-  const rows: { name: string; company: string | null; mode: string | null; order: number }[] = [];
+  const rows: { name: string; company: string | null; email: string | null; mode: string | null; order: number }[] = [];
   names.forEach((name, i) => {
     const trimmed = name.trim();
     if (!trimmed) return;
     rows.push({
       name: trimmed,
       company: companies[i]?.trim() || null,
+      email: emails[i]?.trim().toLowerCase() || null,
       mode: modes[i]?.trim() || null,
       order: rows.length,
     });

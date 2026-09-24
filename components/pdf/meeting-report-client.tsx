@@ -14,9 +14,9 @@ import { fmtDate, fmtDateTime, COLORS } from "./pdf-kit";
  * a mesma divisão em duas páginas (Lista de Presença / Ata).
  *
  * Ajuste só de estilo, por decisão do usuário: os CAMPOS continuam os que
- * o DataPulse já coleta hoje (participante: nome/empresa/modo; tópico nas
+ * o DataPulse já coleta hoje (participante: nome/empresa/e-mail/modo; tópico nas
  * 5 categorias fixas). O PDF real da MRS tem campos que o DataPulse não
- * tem ainda (e-mail/contato/presença do participante, "Tipo de Reunião",
+ * tem ainda (contato/presença do participante, "Tipo de Reunião",
  * seções de título livre, "Cópias para", "Anexos da Reunião") — essas
  * seções sem dado correspondente foram deixadas de fora em vez de
  * aparecerem sempre vazias. "Tipo de Reunião" reaproveita `title`.
@@ -250,8 +250,9 @@ export function MeetingReportClientPdf({ report }: { report: MeetingReport }) {
         </View>
         <GridTable
           columns={[
-            { header: "Nome", w: 3, align: "left", render: (p) => p.name },
-            { header: "Empresa", w: 1.4, render: (p) => p.company ?? "-" },
+            { header: "Nome", w: 2.4, align: "left", render: (p) => p.name },
+            { header: "Empresa", w: 1.2, render: (p) => p.company ?? "-" },
+            { header: "E-mail", w: 2.4, render: (p) => p.email ?? "-" },
             { header: "Modo", w: 1.4, render: (p) => p.mode ?? "-" },
           ]}
           rows={report.participants}

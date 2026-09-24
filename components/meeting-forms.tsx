@@ -31,6 +31,7 @@ const smallInput = inputClass + " py-1.5 text-sm";
 export interface ParticipantDraft {
   name: string;
   company: string;
+  email: string;
   mode: string;
 }
 
@@ -43,7 +44,7 @@ export interface TopicDraft {
   status: string;
 }
 
-const BLANK_PARTICIPANT: ParticipantDraft = { name: "", company: "", mode: "" };
+const BLANK_PARTICIPANT: ParticipantDraft = { name: "", company: "", email: "", mode: "" };
 const BLANK_TOPIC: TopicDraft = { category: "", date: "", description: "", responsible: "", dueDate: "", status: "INFORMATIVO" };
 
 /**
@@ -60,14 +61,15 @@ function ParticipantsField({ initial }: { initial: ParticipantDraft[] }) {
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 text-xs font-medium text-ink-soft">
+      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 text-xs font-medium text-ink-soft">
         <span>Nome</span>
         <span>Empresa</span>
+        <span>E-mail</span>
         <span>Como participou</span>
         <span />
       </div>
       {rows.map((row, i) => (
-        <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2">
+        <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2">
           <input
             name="participantName"
             value={row.name}
@@ -80,6 +82,14 @@ function ParticipantsField({ initial }: { initial: ParticipantDraft[] }) {
             value={row.company}
             onChange={(e) => set(i, { company: e.target.value })}
             placeholder="Empresa"
+            className={smallInput}
+          />
+          <input
+            type="email"
+            name="participantEmail"
+            value={row.email}
+            onChange={(e) => set(i, { email: e.target.value })}
+            placeholder="nome@empresa.com"
             className={smallInput}
           />
           <input

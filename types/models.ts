@@ -209,6 +209,7 @@ export interface MeetingParticipantRow {
   id: string;
   name: string;
   company: string | null;
+  email: string | null;
   mode: string | null;
 }
 

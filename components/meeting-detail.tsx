@@ -48,7 +48,7 @@ export async function MeetingDetail({
         project: {
           select: { id: true, name: true, status: true, clientRef: { select: { meetingFormCode: true } } },
         },
-        participants: { orderBy: { order: "asc" }, select: { id: true, name: true, company: true, mode: true } },
+        participants: { orderBy: { order: "asc" }, select: { id: true, name: true, company: true, email: true, mode: true } },
         topics: {
           orderBy: { order: "asc" },
           select: {
@@ -183,7 +183,7 @@ export async function MeetingDetail({
                   <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
                     <span className="text-ink">{p.name}</span>
                     <span className="text-right text-xs text-ink-faint">
-                      {[p.company, p.mode].filter(Boolean).join(" · ") || "—"}
+                      {[p.company, p.email, p.mode].filter(Boolean).join(" · ") || "—"}
                     </span>
                   </li>
                 ))}
@@ -287,6 +287,7 @@ export async function MeetingDetail({
                 participants: meeting.participants.map((p) => ({
                   name: p.name,
                   company: p.company ?? "",
+                  email: p.email ?? "",
                   mode: p.mode ?? "",
                 })),
                 topics: meeting.topics.map((t) => ({

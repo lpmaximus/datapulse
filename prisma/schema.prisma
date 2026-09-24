@@ -363,6 +363,7 @@ model MeetingParticipant {
 
   name    String
   company String?
+  email   String?
   /// Como participou - "Via Teams", "Presencial"... vira a coluna
   /// "Assinatura" no modelo do cliente.
   mode  String?
