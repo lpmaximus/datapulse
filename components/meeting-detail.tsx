@@ -13,7 +13,7 @@ import { ReadOnlyBanner } from "@/components/task-ui";
 import { RequestTable } from "@/components/request-table";
 import { RequestCreateForm } from "@/components/request-forms";
 import { MeetingEditForm } from "@/components/meeting-forms";
-import { meetingState, MEETING_STATE_LABEL, MEETING_STATE_COLOR, groupTopicsByCategory } from "@/lib/meetings";
+import { meetingState, MEETING_STATE_LABEL, MEETING_STATE_COLOR, groupTopicsByCategory, meetingCategoryLabel } from "@/lib/meetings";
 import type { MeetingDetailRow, UserOption } from "@/types/models";
 import { projectVisibility } from "@/lib/visibility";
 
@@ -54,6 +54,7 @@ export async function MeetingDetail({
           select: {
             id: true,
             category: true,
+            title: true,
             date: true,
             description: true,
             responsible: true,
@@ -137,6 +138,9 @@ export async function MeetingDetail({
                 <Button variant="outline">PDF — modelo do cliente</Button>
               </a>
             ) : null}
+            <a href={`/api/reports/meeting/${meeting.id}/xlsx`}>
+              <Button variant="outline">Excel</Button>
+            </a>
             {canEdit ? (
               <DeleteButton
                 action={deleteMeeting}
@@ -209,7 +213,7 @@ export async function MeetingDetail({
               .filter((g) => g.items.length > 0)
               .map((g) => (
                 <div key={g.category}>
-                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-soft">{g.category}</p>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-soft">{meetingCategoryLabel(g.category)}</p>
                   <Card className="space-y-3 p-4">
                     {g.items.map((t) => (
                       <div key={t.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
@@ -221,6 +225,7 @@ export async function MeetingDetail({
                           </span>
                           <span className="font-medium text-ink-soft">{t.status}</span>
                         </div>
+                        {t.title ? <p className="mt-1 text-sm font-semibold text-teal-700">{t.title}</p> : null}
                         <p className="mt-1 whitespace-pre-wrap text-sm text-ink">{t.description}</p>
                       </div>
                     ))}
@@ -292,6 +297,7 @@ export async function MeetingDetail({
                 })),
                 topics: meeting.topics.map((t) => ({
                   category: t.category ?? "",
+                  title: t.title ?? "",
                   date: t.date ? t.date.toISOString().slice(0, 10) : "",
                   description: t.description,
                   responsible: t.responsible ?? "",

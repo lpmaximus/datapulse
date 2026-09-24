@@ -66,6 +66,7 @@ function zipParticipants(fd: FormData) {
 
 function zipTopics(fd: FormData) {
   const categories = fd.getAll("topicCategory").map(String);
+  const titles = fd.getAll("topicTitle").map(String);
   const dates = fd.getAll("topicDate").map(String);
   const descriptions = fd.getAll("topicDescription").map(String);
   const responsibles = fd.getAll("topicResponsible").map(String);
@@ -73,6 +74,7 @@ function zipTopics(fd: FormData) {
   const statuses = fd.getAll("topicStatus").map(String);
   const rows: {
     category: string | null;
+    title: string | null;
     date: Date | null;
     description: string;
     responsible: string | null;
@@ -87,6 +89,7 @@ function zipTopics(fd: FormData) {
     const due = dueDates[i]?.trim();
     rows.push({
       category: categories[i]?.trim() || null,
+      title: titles[i]?.trim() || null,
       date: d ? new Date(d + "T00:00:00.000Z") : null,
       description: trimmed,
       responsible: responsibles[i]?.trim() || null,

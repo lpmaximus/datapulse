@@ -1,7 +1,7 @@
 import React from "react";
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import type { MeetingReport } from "@/lib/reports";
-import { MEETING_TOPIC_CATEGORIES } from "@/lib/meetings";
+import { MEETING_TOPIC_CATEGORIES, meetingCategoryLabel, topicResponsibleLabel } from "@/lib/meetings";
 import { fmtDate, fmtDateTime, COLORS } from "./pdf-kit";
 
 /**
@@ -15,7 +15,8 @@ import { fmtDate, fmtDateTime, COLORS } from "./pdf-kit";
  *
  * Ajuste só de estilo, por decisão do usuário: os CAMPOS continuam os que
  * o DataPulse já coleta hoje (participante: nome/empresa/e-mail/modo; tópico nas
- * 5 categorias fixas). O PDF real da MRS tem campos que o DataPulse não
+ * 4 seções da ata MRS — Assuntos Gerais, Planejamento, Engenharia, Outros —
+ * com subtítulo opcional em teal, Responsável/Data/Sts como no original). O PDF real da MRS tem campos que o DataPulse não
  * tem ainda (contato/presença do participante, "Tipo de Reunião",
  * seções de título livre, "Cópias para", "Anexos da Reunião") — essas
  * seções sem dado correspondente foram deixadas de fora em vez de
@@ -223,6 +224,39 @@ function GridTable<T>({
   );
 }
 
+/** Colunas da tabela da ata no padrão MRS: Item | Descrição | Responsável | Data | Sts. */
+const TOPIC_COLS = [
+  { header: "Item", w: 0.6 },
+  { header: "Descrição", w: 6.4 },
+  { header: "Responsável", w: 1.6 },
+  { header: "Data", w: 1 },
+  { header: "Sts", w: 0.6 },
+] as const;
+
+const SECTION_GRAY = "#767171";
+
+function topicCell(i: number) {
+  return {
+    flexGrow: TOPIC_COLS[i].w,
+    flexBasis: 0,
+    borderRightWidth: i < TOPIC_COLS.length - 1 ? 1 : 0,
+    borderRightColor: GRID,
+    padding: 3,
+    justifyContent: "center" as const,
+  };
+}
+
+/** Status como círculo: vazio = em aberto, cheio = concluído, cinza = cancelado. */
+function StatusCircle({ status }: { status: string }) {
+  const s = status.toUpperCase();
+  const fill = s.startsWith("CONCLU") ? BLACK : s === "CANCELADO" ? GRID : "#FFFFFF";
+  return (
+    <View style={{ alignItems: "center" }}>
+      <View style={{ width: 7, height: 7, borderRadius: 3.5, borderWidth: 0.8, borderColor: BLACK, backgroundColor: fill }} />
+    </View>
+  );
+}
+
 function Footer({ docTitle, generatedAt }: { docTitle: string; generatedAt: Date }) {
   return (
     <View style={cs.footer} fixed>
@@ -279,69 +313,77 @@ export function MeetingReportClientPdf({ report }: { report: MeetingReport }) {
         <TitleBox>ATA DE REUNIÃO</TitleBox>
         <IdentificationBlock h={h} />
 
-        <View style={{ flexDirection: "row", borderWidth: 1, borderTopWidth: 0, borderColor: GRID }}>
-          {[
-            { header: "Item", w: 0.6 },
-            { header: "Descrição", w: 6 },
-            { header: "Responsável", w: 1.6 },
-            { header: "Data", w: 1 },
-            { header: "Status", w: 1.2 },
-          ].map((c, i, arr) => (
+        <View style={{ flexDirection: "row", borderWidth: 1, borderTopWidth: 0, borderColor: GRID }} fixed>
+          {TOPIC_COLS.map((c, i) => (
             <View
               key={c.header}
               style={{
                 flexGrow: c.w,
                 flexBasis: 0,
-                backgroundColor: BLACK,
-                borderRightWidth: i < arr.length - 1 ? 1 : 0,
+                backgroundColor: TEAL,
+                borderRightWidth: i < TOPIC_COLS.length - 1 ? 1 : 0,
                 borderRightColor: GRID,
                 padding: 3,
               }}
             >
-              <Text style={{ fontSize: 7.5, fontFamily: "Helvetica-Bold", color: "#FFFFFF", textAlign: "center" }}>
+              <Text
+                style={{
+                  fontSize: 7.5,
+                  fontFamily: "Helvetica-Bold",
+                  color: "#FFFFFF",
+                  textAlign: c.header === "Descrição" ? "left" : "center",
+                }}
+              >
                 {c.header}
               </Text>
             </View>
           ))}
         </View>
 
-        {[...MEETING_TOPIC_CATEGORIES, "OUTROS"].map((cat, catIndex) => {
+        {MEETING_TOPIC_CATEGORIES.map((cat, catIndex) => {
           const group = report.topicGroups.find((g) => g.category === cat);
-          if (cat === "OUTROS" && !group) return null;
           const n = catIndex + 1;
           return (
             <View key={cat}>
-              <View style={cs.blackBar} wrap={false}>
-                <Text style={cs.blackBarText}>
-                  {n}  {cat}
-                </Text>
-              </View>
-              {group && group.items.length > 0 ? (
-                <View style={{ borderWidth: 1, borderTopWidth: 0, borderColor: GRID }}>
-                  {group.items.map((t, i) => (
-                    <View key={`${cat}-${i}`} style={{ flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: GRID }} wrap={false}>
-                      <View style={{ flexGrow: 0.6, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
-                        <Text style={{ fontSize: 8 }}>{`${n}.${i + 1}`}</Text>
-                      </View>
-                      <View style={{ flexGrow: 6, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
-                        <Text style={{ fontSize: 8 }}>
-                          {t.date ? `${fmtDate(t.date)}: ` : ""}
-                          {t.description}
-                        </Text>
-                      </View>
-                      <View style={{ flexGrow: 1.6, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
-                        <Text style={{ fontSize: 8 }}>{t.responsible ?? "-"}</Text>
-                      </View>
-                      <View style={{ flexGrow: 1, flexBasis: 0, borderRightWidth: 1, borderRightColor: GRID, padding: 3 }}>
-                        <Text style={{ fontSize: 8 }}>{fmtDate(t.dueDate)}</Text>
-                      </View>
-                      <View style={{ flexGrow: 1.2, flexBasis: 0, padding: 3 }}>
-                        <Text style={{ fontSize: 7.5 }}>{t.status}</Text>
-                      </View>
-                    </View>
-                  ))}
+              <View style={{ flexDirection: "row", backgroundColor: SECTION_GRAY, borderWidth: 1, borderTopWidth: 0, borderColor: GRID }} wrap={false}>
+                <View style={{ flexGrow: TOPIC_COLS[0].w, flexBasis: 0, padding: 3 }}>
+                  <Text style={{ ...cs.blackBarText, textAlign: "center" }}>{n}</Text>
                 </View>
-              ) : null}
+                <View style={{ flexGrow: TOPIC_COLS.slice(1).reduce((a, c) => a + c.w, 0), flexBasis: 0, padding: 3 }}>
+                  <Text style={cs.blackBarText}>{meetingCategoryLabel(cat)}</Text>
+                </View>
+              </View>
+              {(group?.items ?? []).map((t, i) => (
+                <View
+                  key={`${cat}-${i}`}
+                  style={{ flexDirection: "row", borderWidth: 1, borderTopWidth: 0, borderColor: GRID }}
+                  wrap={false}
+                >
+                  <View style={topicCell(0)}>
+                    <Text style={{ fontSize: 8, textAlign: "center" }}>{`${n}.${i + 1}`}</Text>
+                  </View>
+                  <View style={topicCell(1)}>
+                    {t.title ? (
+                      <Text style={{ fontSize: 8, fontFamily: "Helvetica-Bold", color: TEAL, marginBottom: 1 }}>{t.title}</Text>
+                    ) : null}
+                    <Text style={{ fontSize: 8, textAlign: "justify" }}>
+                      {t.date ? <Text style={{ fontFamily: "Helvetica-Bold" }}>{`${fmtDate(t.date)}: `}</Text> : null}
+                      {t.description}
+                    </Text>
+                  </View>
+                  <View style={topicCell(2)}>
+                    <Text style={{ fontSize: 7.5, fontFamily: "Helvetica-Bold", textAlign: "center" }}>
+                      {topicResponsibleLabel(t)}
+                    </Text>
+                  </View>
+                  <View style={topicCell(3)}>
+                    <Text style={{ fontSize: 8, textAlign: "center" }}>{t.dueDate ? fmtDate(t.dueDate) : ""}</Text>
+                  </View>
+                  <View style={topicCell(4)}>
+                    <StatusCircle status={t.status} />
+                  </View>
+                </View>
+              ))}
             </View>
           );
         })}

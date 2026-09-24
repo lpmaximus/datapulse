@@ -1,28 +1,37 @@
 /**
  * Regras de Reunião (ata) — puro, sem Prisma nem Next.
  *
- * Tópicos seguem o padrão de ata por disciplina do formulário do cliente:
- * Segurança, Meio Ambiente, Qualidade, Planejamento, Engenharia, nessa
- * ordem, com qualquer outra categoria (ou em branco) ao final. `category` é
- * texto livre no MVP (mesmo padrão de Document.type/Request.type) — esta
- * ordem é só de exibição, não trava o cadastro.
+ * Tópicos seguem as seções da ata da MRS: Assuntos Gerais, Planejamento,
+ * Engenharia e Outros, nessa ordem. `category` continua texto no banco;
+ * qualquer valor fora da lista (ou em branco) cai em "OUTROS".
  */
 
 export const MEETING_TOPIC_CATEGORIES = [
-  "SEGURANÇA",
-  "MEIO AMBIENTE",
-  "QUALIDADE",
+  "ASSUNTOS GERAIS",
   "PLANEJAMENTO",
   "ENGENHARIA",
+  "OUTROS",
 ] as const;
 
+/** Opções do seletor de categoria no formulário. */
+export const MEETING_TOPIC_CATEGORY_OPTIONS = MEETING_TOPIC_CATEGORIES;
+
 /**
- * Opções do seletor de categoria no formulário: as 5 disciplinas fixas +
- * "OUTROS". "OUTROS" fica fora de MEETING_TOPIC_CATEGORIES de propósito —
- * no agrupamento/PDF ela só aparece quando há tópico nela (junto com os sem
- * categoria), em vez de sempre listada vazia como as 5 do formulário padrão.
+ * Coluna "Responsável" da ata MRS: o nome quando o item tem dono; sem dono,
+ * o próprio status (ex.: "INFORMATIVO"), como no formulário do cliente.
  */
-export const MEETING_TOPIC_CATEGORY_OPTIONS = [...MEETING_TOPIC_CATEGORIES, "OUTROS"] as const;
+export function topicResponsibleLabel(t: { responsible: string | null; status: string }): string {
+  return t.responsible?.trim() || t.status;
+}
+
+/** "ASSUNTOS GERAIS" -> "Assuntos Gerais" — rótulo das barras de seção da ata. */
+export function meetingCategoryLabel(category: string): string {
+  return category
+    .toLowerCase()
+    .split(" ")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
 
 export const MEETING_TOPIC_STATUSES = ["INFORMATIVO", "PENDENTE", "CONCLUÍDO", "CANCELADO"] as const;
 
@@ -76,9 +85,9 @@ export interface TopicLike {
 }
 
 /**
- * Agrupa tópicos pela ordem fixa das categorias do formulário do cliente —
- * cada categoria aparece mesmo vazia (o modelo impresso sempre lista as 5),
- * com "Outros" ao final só quando alguém usou uma categoria fora da lista.
+ * Agrupa tópicos pela ordem fixa das seções da ata — cada seção aparece
+ * mesmo vazia (o modelo impresso sempre lista as 4); categoria em branco ou
+ * fora da lista entra em "OUTROS".
  */
 export function groupTopicsByCategory<T extends TopicLike>(
   topics: T[],
@@ -96,10 +105,10 @@ export function groupTopicsByCategory<T extends TopicLike>(
     items: byCategory.get(c) ?? [],
   }));
   for (const c of MEETING_TOPIC_CATEGORIES) byCategory.delete(c);
-  // Sobra: sem categoria (branco) ou categoria fora da lista padrão — tudo
-  // junto em "Outros", só aparece quando existe algo para mostrar.
-  const rest: T[] = [];
-  for (const arr of byCategory.values()) rest.push(...arr);
-  if (rest.length > 0) groups.push({ category: "OUTROS", items: rest });
+  // Sobra: sem categoria (branco) ou fora da lista — vai para "OUTROS",
+  // depois dos que já estavam lá, mantendo a ordem de cadastro.
+  const outros = groups.find((g) => g.category === "OUTROS")!;
+  for (const arr of byCategory.values()) outros.items.push(...arr);
+  outros.items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   return groups;
 }

@@ -216,6 +216,7 @@ export interface MeetingParticipantRow {
 export interface MeetingTopicRow {
   id: string;
   category: string | null;
+  title: string | null;
   date: Date | null;
   description: string;
   responsible: string | null;

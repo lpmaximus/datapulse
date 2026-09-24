@@ -709,6 +709,7 @@ export interface ReportMeetingParticipant {
 
 export interface ReportMeetingTopic {
   category: string | null;
+  title: string | null;
   date: Date | null;
   description: string;
   responsible: string | null;
@@ -746,7 +747,7 @@ export interface MeetingReport {
   participants: ReportMeetingParticipant[];
   /** Tópicos agrupados pela ordem fixa do formulário do cliente — só os
    * grupos com conteúdo aparecem no relatório DataPulse; o modelo do
-   * cliente lista os 5 fixos mesmo vazios (ver meeting-report-client). */
+   * cliente lista as 4 seções mesmo vazias (ver meeting-report-client). */
   topicGroups: { category: string; items: ReportMeetingTopic[] }[];
   requests: (ReportRequest & { overdue: boolean })[];
 }

@@ -374,10 +374,8 @@ model MeetingParticipant {
 
 /**
  * Uma linha da tabela "Desenvolvimento" do padrao de ata do cliente: o que
- * foi discutido, por quem, prazo e status. Tipologia livre no MVP (mesmo
- * padrao de Document.type/Request.type) - category sugere as 5 disciplinas
- * do formulario padrao (Seguranca, Meio Ambiente, Qualidade, Planejamento,
- * Engenharia) sem travar em enum.
+ * foi discutido, por quem, prazo e status. category = secao da ata da MRS
+ * (Assuntos Gerais, Planejamento, Engenharia, Outros) - texto, sem enum.
  */
 model MeetingTopic {
   id        String  @id @default(cuid())
@@ -386,6 +384,9 @@ model MeetingTopic {
 
   order    Int     @default(0)
   category String?
+  /// Subtitulo opcional do item (ex.: "Visao Geral") - linha em destaque
+  /// acima da descricao na ata.
+  title    String?
   date     DateTime?
   /// "O que?" - o registro da discussao.
   description String

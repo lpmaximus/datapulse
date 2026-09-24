@@ -377,6 +377,7 @@ export async function loadReportMeeting(
         orderBy: { order: "asc" },
         select: {
           category: true,
+          title: true,
           date: true,
           description: true,
           responsible: true,

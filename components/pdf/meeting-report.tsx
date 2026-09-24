@@ -1,4 +1,5 @@
 import React from "react";
+import { meetingCategoryLabel } from "@/lib/meetings";
 import { Text, View } from "@react-pdf/renderer";
 import type { MeetingReport } from "@/lib/reports";
 import {
@@ -79,12 +80,12 @@ export function MeetingReportPdf({ report }: { report: MeetingReport }) {
         report.topicGroups.map((g) => (
           <View key={g.category} style={{ marginBottom: 8 }}>
             <Text style={{ fontSize: 8, fontFamily: "Helvetica-Bold", color: COLORS.soft, marginTop: 4, marginBottom: 2 }}>
-              {g.category}
+              {meetingCategoryLabel(g.category)}
             </Text>
             <Table
               columns={[
                 { header: "Data", w: 1, render: (t) => fmtDate(t.date) },
-                { header: "O que", w: 4, render: (t) => t.description },
+                { header: "O que", w: 4, render: (t) => (t.title ? `${t.title} — ${t.description}` : t.description) },
                 { header: "Quem", w: 1.6, render: (t) => t.responsible ?? "-" },
                 { header: "Quando", w: 1, render: (t) => fmtDate(t.dueDate) },
                 { header: "Status", w: 1.2, render: (t) => t.status },

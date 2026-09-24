@@ -9,7 +9,7 @@ import {
   type MeetingFormState,
 } from "@/app/actions/meetings";
 import { Button, Field, inputClass } from "@/components/ui";
-import { MEETING_TOPIC_CATEGORY_OPTIONS, MEETING_TOPIC_STATUSES } from "@/lib/meetings";
+import { MEETING_TOPIC_CATEGORY_OPTIONS, MEETING_TOPIC_STATUSES, meetingCategoryLabel } from "@/lib/meetings";
 
 function Submit({ label, busy }: { label: string; busy: string }) {
   const { pending } = useFormStatus();
@@ -37,6 +37,7 @@ export interface ParticipantDraft {
 
 export interface TopicDraft {
   category: string;
+  title: string;
   date: string;
   description: string;
   responsible: string;
@@ -45,7 +46,7 @@ export interface TopicDraft {
 }
 
 const BLANK_PARTICIPANT: ParticipantDraft = { name: "", company: "", email: "", mode: "" };
-const BLANK_TOPIC: TopicDraft = { category: "", date: "", description: "", responsible: "", dueDate: "", status: "INFORMATIVO" };
+const BLANK_TOPIC: TopicDraft = { category: "ASSUNTOS GERAIS", title: "", date: "", description: "", responsible: "", dueDate: "", status: "INFORMATIVO" };
 
 /**
  * Lista de participantes da reunião: nome, empresa e como participou (vira
@@ -122,8 +123,8 @@ function ParticipantsField({ initial }: { initial: ParticipantDraft[] }) {
 
 /**
  * Tabela "Desenvolvimento" da ata: o que foi discutido, por quem, prazo e
- * status — categoria sugere as 5 disciplinas do formulário do cliente
- * (datalist, não trava em enum).
+ * status — categoria = seção da ata da MRS; título é o subtítulo opcional
+ * do item (ex.: "Visão Geral").
  */
 function TopicsField({ initial }: { initial: TopicDraft[] }) {
   const [rows, setRows] = useState<TopicDraft[]>(initial.length ? initial : [BLANK_TOPIC]);
@@ -134,21 +135,32 @@ function TopicsField({ initial }: { initial: TopicDraft[] }) {
 
   return (
     <div className="space-y-3">
-      <datalist id="meeting-topic-categories">
-        {MEETING_TOPIC_CATEGORY_OPTIONS.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
       {rows.map((row, i) => (
         <div key={i} className="rounded-lg border border-line p-3">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-            <input
+            <select
               name="topicCategory"
-              list="meeting-topic-categories"
               value={row.category}
               onChange={(e) => set(i, { category: e.target.value })}
-              placeholder="Categoria (opcional)"
-              className={smallInput + " lg:col-span-2"}
+              className={smallInput}
+              aria-label="Categoria"
+            >
+              {/* Categoria antiga (fora da lista MRS) continua visível até ser trocada. */}
+              {row.category && !(MEETING_TOPIC_CATEGORY_OPTIONS as readonly string[]).includes(row.category) ? (
+                <option value={row.category}>{row.category}</option>
+              ) : null}
+              {MEETING_TOPIC_CATEGORY_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {meetingCategoryLabel(c)}
+                </option>
+              ))}
+            </select>
+            <input
+              name="topicTitle"
+              value={row.title}
+              onChange={(e) => set(i, { title: e.target.value })}
+              placeholder="Título (opcional)"
+              className={smallInput}
             />
             <input
               type="date"
