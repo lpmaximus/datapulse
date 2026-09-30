@@ -47,6 +47,8 @@ import { startOfDayUTC } from "./tasks";
 /**
  * Reunião "realizada" = a ata tem conteúdo (pelo menos um tópico
  * registrado); sem isso, é só um horário reservado na agenda — "agendada".
+ * Quem chama conta só tópicos próprios (sourceTopicId nulo): itens de
+ * acompanhamento trazidos da reunião anterior não tornam a ata preenchida.
  * Sem campo de status à parte: deriva do que já está gravado, no mesmo
  * espírito de `isRequestOpen`/`isTaskOpen`.
  */
@@ -111,4 +113,55 @@ export function groupTopicsByCategory<T extends TopicLike>(
   for (const arr of byCategory.values()) outros.items.push(...arr);
   outros.items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   return groups;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Reunião de acompanhamento (criada a partir de uma anterior)             */
+/* ---------------------------------------------------------------------- */
+
+/** Status que encerram o item: não precisam voltar na próxima ata. */
+export const MEETING_TOPIC_CLOSED_STATUSES = ["CONCLUÍDO", "CANCELADO"] as const;
+
+export function isTopicClosed(status: string): boolean {
+  const s = status.trim().toUpperCase();
+  return s === "CONCLUÍDO" || s === "CONCLUIDO" || s === "CANCELADO";
+}
+
+export interface CarryTopicSource {
+  id: string;
+  category: string | null;
+  title: string | null;
+  date: Date | null;
+  description: string;
+  responsible: string | null;
+  dueDate: Date | null;
+  status: string;
+  order?: number;
+  /** Quando o item já veio de uma ata anterior, a origem continua a mesma. */
+  sourceTopicId?: string | null;
+}
+
+/**
+ * Tópicos que entram na nova reunião para acompanhamento: tudo o que não foi
+ * concluído nem cancelado na anterior, na mesma ordem. Mantém data original
+ * (quando o assunto surgiu), responsável, prazo e status — quem conduz a nova
+ * reunião atualiza o status ali. `sourceTopicId` aponta para a primeira vez
+ * que o item apareceu, para a trilha não se perder a cada reunião.
+ */
+export function topicsToCarryOver<T extends CarryTopicSource>(
+  topics: T[],
+): (Omit<CarryTopicSource, "id" | "order"> & { sourceTopicId: string })[] {
+  return [...topics]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .filter((t) => !isTopicClosed(t.status))
+    .map((t) => ({
+      category: t.category,
+      title: t.title,
+      date: t.date,
+      description: t.description,
+      responsible: t.responsible,
+      dueDate: t.dueDate,
+      status: t.status,
+      sourceTopicId: t.sourceTopicId || t.id,
+    }));
 }

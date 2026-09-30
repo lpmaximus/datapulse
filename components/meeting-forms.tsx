@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
+import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
 import {
   createMeeting,
@@ -43,6 +44,8 @@ export interface TopicDraft {
   responsible: string;
   dueDate: string;
   status: string;
+  /** Tópico de origem, quando o item veio da reunião anterior (acompanhamento). */
+  sourceTopicId?: string;
 }
 
 const BLANK_PARTICIPANT: ParticipantDraft = { name: "", company: "", email: "", mode: "" };
@@ -126,8 +129,10 @@ function ParticipantsField({ initial }: { initial: ParticipantDraft[] }) {
  * status — categoria = seção da ata da MRS; título é o subtítulo opcional
  * do item (ex.: "Visão Geral").
  */
-function TopicsField({ initial }: { initial: TopicDraft[] }) {
-  const [rows, setRows] = useState<TopicDraft[]>(initial.length ? initial : [BLANK_TOPIC]);
+function TopicsField({ initial, carried = false }: { initial: TopicDraft[]; carried?: boolean }) {
+  // Bloco de acompanhamento: só os itens que vieram da anterior — pode ficar
+  // vazio (sem linha em branco) e não recebe item novo.
+  const [rows, setRows] = useState<TopicDraft[]>(initial.length || carried ? initial : [BLANK_TOPIC]);
 
   function set(i: number, patch: Partial<TopicDraft>) {
     setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
@@ -136,7 +141,8 @@ function TopicsField({ initial }: { initial: TopicDraft[] }) {
   return (
     <div className="space-y-3">
       {rows.map((row, i) => (
-        <div key={i} className="rounded-lg border border-line p-3">
+        <div key={i} className={carried ? "rounded-lg border border-accent/40 bg-accent/5 p-3" : "rounded-lg border border-line p-3"}>
+          <input type="hidden" name="topicSourceId" value={row.sourceTopicId ?? ""} />
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
             <select
               name="topicCategory"
@@ -209,7 +215,9 @@ function TopicsField({ initial }: { initial: TopicDraft[] }) {
             />
             <button
               type="button"
-              onClick={() => setRows((r) => (r.length > 1 ? r.filter((_, idx) => idx !== i) : [BLANK_TOPIC]))}
+              onClick={() =>
+                setRows((r) => (r.length > 1 || carried ? r.filter((_, idx) => idx !== i) : [BLANK_TOPIC]))
+              }
               aria-label="Remover tópico"
               className="mt-1.5 shrink-0 rounded-md p-1.5 text-ink-faint hover:text-red-700"
             >
@@ -218,13 +226,50 @@ function TopicsField({ initial }: { initial: TopicDraft[] }) {
           </div>
         </div>
       ))}
-      <button
-        type="button"
-        onClick={() => setRows((r) => [...r, BLANK_TOPIC])}
-        className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
-      >
-        <Plus size={12} /> Adicionar tópico
-      </button>
+      {carried ? (
+        rows.length === 0 ? (
+          <p className="text-xs text-ink-faint">Nenhum item da reunião anterior para acompanhar.</p>
+        ) : null
+      ) : (
+        <button
+          type="button"
+          onClick={() => setRows((r) => [...r, BLANK_TOPIC])}
+          className="inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+        >
+          <Plus size={12} /> Adicionar tópico
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Seção de tópicos da ata: itens de acompanhamento (vindos da reunião
+ * anterior) num bloco próprio, acima dos assuntos novos. Os dois blocos
+ * enviam as mesmas colunas — a origem vai no hidden `topicSourceId`.
+ */
+function TopicsSection({ topics, previousLabel }: { topics: TopicDraft[]; previousLabel?: string }) {
+  const carried = topics.filter((t) => t.sourceTopicId);
+  const fresh = topics.filter((t) => !t.sourceTopicId);
+  const hasCarried = carried.length > 0 || !!previousLabel;
+  return (
+    <div className="space-y-6">
+      {hasCarried ? (
+        <div>
+          <p className="text-sm font-medium text-ink">Acompanhamento da reunião anterior</p>
+          <p className="mb-2 text-xs text-ink-soft">
+            {previousLabel ? `${previousLabel} — ` : ""}itens em aberto que voltam para esta ata. Atualize o status
+            (ex.: CONCLUÍDO) e a descrição do andamento; remova o que não precisa mais ser acompanhado.
+          </p>
+          <TopicsField initial={carried} carried />
+        </div>
+      ) : null}
+      <div>
+        <p className="mb-2 text-sm font-medium text-ink">
+          {hasCarried ? "Assuntos novos desta reunião" : "Desenvolvimento (o que foi discutido)"}
+        </p>
+        <TopicsField initial={fresh} />
+      </div>
     </div>
   );
 }
@@ -320,36 +365,64 @@ function HeaderFields({
   );
 }
 
+/** Dados de partida quando a nova reunião é criada a partir de uma anterior. */
+export interface MeetingFollowUpPrefill {
+  previousMeetingId: string;
+  /** Ex.: "Ata nº 12 — 23/09/2026" — só para exibição. */
+  previousLabel: string;
+  date: string;
+  title: string;
+  location: string;
+  startTime: string;
+  preparedBy: string;
+  number: string;
+  milestoneId: string;
+  subject: string;
+  teamsJoinUrl: string;
+  participants: ParticipantDraft[];
+  topics: TopicDraft[];
+}
+
 export function MeetingCreateForm({
   projectId,
   milestoneId,
   tasks,
+  prefill,
 }: {
   projectId: string;
   milestoneId?: string;
   tasks: { id: string; name: string }[];
+  prefill?: MeetingFollowUpPrefill;
 }) {
   const [state, action] = useActionState<MeetingFormState, FormData>(createMeeting, {});
   const formRef = useRef<HTMLFormElement>(null);
+  const router = useRouter();
+
+  // Reunião de acompanhamento: ao salvar, abre a ata recém-criada.
+  useEffect(() => {
+    if (prefill && state.ok && state.meetingId) router.push(`/projects/${projectId}/meetings/${state.meetingId}`);
+  }, [prefill, state.ok, state.meetingId, state.at, projectId, router]);
 
   return (
     <form ref={formRef} action={action} className="space-y-6">
       <input type="hidden" name="projectId" value={projectId} />
+      {prefill ? <input type="hidden" name="previousMeetingId" value={prefill.previousMeetingId} /> : null}
       <HeaderFields
-        date=""
-        title=""
-        location=""
-        startTime=""
-        preparedBy=""
-        number=""
-        milestoneId={milestoneId ?? ""}
-        subject=""
+        date={prefill?.date ?? ""}
+        title={prefill?.title ?? ""}
+        location={prefill?.location ?? ""}
+        startTime={prefill?.startTime ?? ""}
+        preparedBy={prefill?.preparedBy ?? ""}
+        number={prefill?.number ?? ""}
+        milestoneId={prefill?.milestoneId ?? milestoneId ?? ""}
+        subject={prefill?.subject ?? ""}
         diverseSubjects=""
         summary=""
         externalUrl=""
-        teamsJoinUrl=""
+        teamsJoinUrl={prefill?.teamsJoinUrl ?? ""}
         tasks={tasks}
       />
+      {prefill ? null : (
       <div className="rounded-lg border border-dashed border-line-strong p-3">
         <Field label="Repetir semanalmente" hint="Programa já as próximas datas — a ata de cada uma se preenche depois, na hora dela">
           <div className="flex items-center gap-2">
@@ -366,14 +439,12 @@ export function MeetingCreateForm({
           </div>
         </Field>
       </div>
+      )}
       <div>
         <p className="mb-2 text-sm font-medium text-ink">Participantes</p>
-        <ParticipantsField initial={[]} />
+        <ParticipantsField initial={prefill?.participants ?? []} />
       </div>
-      <div>
-        <p className="mb-2 text-sm font-medium text-ink">Desenvolvimento (o que foi discutido)</p>
-        <TopicsField initial={[]} />
-      </div>
+      <TopicsSection topics={prefill?.topics ?? []} previousLabel={prefill?.previousLabel} />
       <div className="flex flex-wrap items-center gap-3">
         <Submit label="Registrar reunião" busy="Salvando…" />
         <Feedback state={state} okText="Reunião registrada." />
@@ -429,10 +500,7 @@ export function MeetingEditForm({
         <p className="mb-2 text-sm font-medium text-ink">Participantes</p>
         <ParticipantsField initial={meeting.participants} />
       </div>
-      <div>
-        <p className="mb-2 text-sm font-medium text-ink">Desenvolvimento (o que foi discutido)</p>
-        <TopicsField initial={meeting.topics} />
-      </div>
+      <TopicsSection topics={meeting.topics} />
       <div className="flex flex-wrap items-center gap-3">
         <Submit label="Salvar reunião" busy="Salvando…" />
         <Feedback state={state} okText="Reunião atualizada." />

@@ -72,6 +72,8 @@ function zipTopics(fd: FormData) {
   const responsibles = fd.getAll("topicResponsible").map(String);
   const dueDates = fd.getAll("topicDueDate").map(String);
   const statuses = fd.getAll("topicStatus").map(String);
+  // Um hidden por linha (vazio = assunto novo), alinhado com as demais colunas.
+  const sources = fd.getAll("topicSourceId").map(String);
   const rows: {
     category: string | null;
     title: string | null;
@@ -80,6 +82,7 @@ function zipTopics(fd: FormData) {
     responsible: string | null;
     dueDate: Date | null;
     status: string;
+    sourceTopicId: string | null;
     order: number;
   }[] = [];
   descriptions.forEach((description, i) => {
@@ -95,6 +98,7 @@ function zipTopics(fd: FormData) {
       responsible: responsibles[i]?.trim() || null,
       dueDate: due ? new Date(due + "T00:00:00.000Z") : null,
       status: statuses[i]?.trim() || "INFORMATIVO",
+      sourceTopicId: sources[i]?.trim() || null,
       order: rows.length,
     });
   });
@@ -130,10 +134,18 @@ export async function createMeeting(
     return { error: "Tarefa selecionada não pertence a este projeto." };
   }
 
+  // Reunião de acompanhamento: a anterior tem de ser do mesmo projeto.
+  const previousMeetingId = str(formData, "previousMeetingId") || null;
+  if (previousMeetingId) {
+    const prev = await prisma.meeting.findUnique({ where: { id: previousMeetingId }, select: { projectId: true } });
+    if (!prev || prev.projectId !== projectId) return { error: "Reunião anterior não pertence a este projeto." };
+  }
+
   const meeting = await prisma.meeting.create({
     data: {
       projectId,
       milestoneId,
+      previousMeetingId,
       date,
       title: str(formData, "title") || null,
       location: str(formData, "location") || null,
@@ -154,7 +166,7 @@ export async function createMeeting(
   // Agenda semanal: cria as próximas ocorrências já com data reservada,
   // repetindo o cabeçalho (local, horário, marco). Cada uma é um registro
   // independente — a ata de cada uma se preenche depois, na hora.
-  const repeatWeeks = optInt(formData, "repeatWeeks") ?? 1;
+  const repeatWeeks = previousMeetingId ? 1 : (optInt(formData, "repeatWeeks") ?? 1);
   if (repeatWeeks > 1) {
     const baseNumber = optInt(formData, "number");
     const extra = Array.from({ length: Math.min(repeatWeeks, 52) - 1 }, (_, i) => {
@@ -177,6 +189,7 @@ export async function createMeeting(
   }
 
   revalidateMeeting(projectId, milestoneId, meeting.id);
+  if (previousMeetingId) revalidatePath(`/projects/${projectId}/meetings/${previousMeetingId}`);
   return { ok: true, at: Date.now(), meetingId: meeting.id };
 }
 

@@ -14,8 +14,14 @@ import { RequestTable } from "@/components/request-table";
 import { RequestCreateForm } from "@/components/request-forms";
 import { MeetingEditForm } from "@/components/meeting-forms";
 import { meetingState, MEETING_STATE_LABEL, MEETING_STATE_COLOR, groupTopicsByCategory, meetingCategoryLabel } from "@/lib/meetings";
-import type { MeetingDetailRow, UserOption } from "@/types/models";
+import type { MeetingDetailRow, MeetingTopicRow, UserOption } from "@/types/models";
 import { projectVisibility } from "@/lib/visibility";
+
+type MeetingLinkRow = { id: string; date: Date; number: number | null; title: string | null };
+
+function meetingLinkLabel(m: MeetingLinkRow): string {
+  return `${m.number != null ? `Ata nº ${m.number} — ` : ""}${formatDate(m.date)}`;
+}
 
 export async function MeetingDetail({
   id,
@@ -26,7 +32,13 @@ export async function MeetingDetail({
   meetingId: string;
   user: SessionUser;
 }) {
-  const meeting: (MeetingDetailRow & { project: { clientRef: { meetingFormCode: string | null } | null } }) | null =
+  const meeting:
+    | (MeetingDetailRow & {
+        project: { clientRef: { meetingFormCode: string | null } | null };
+        previousMeeting: MeetingLinkRow | null;
+        followUps: MeetingLinkRow[];
+      })
+    | null =
     await prisma.meeting.findFirst({
       where: { id: meetingId, projectId: id, project: projectVisibility(user) },
       select: {
@@ -45,6 +57,8 @@ export async function MeetingDetail({
         createdAt: true,
         createdById: true,
         milestone: { select: { id: true, name: true } },
+        previousMeeting: { select: { id: true, date: true, number: true, title: true } },
+        followUps: { orderBy: { date: "asc" }, select: { id: true, date: true, number: true, title: true } },
         project: {
           select: { id: true, name: true, status: true, clientRef: { select: { meetingFormCode: true } } },
         },
@@ -60,6 +74,7 @@ export async function MeetingDetail({
             responsible: true,
             dueDate: true,
             status: true,
+            sourceTopicId: true,
           },
         },
         requests: {
@@ -78,7 +93,9 @@ export async function MeetingDetail({
             documents: { select: { id: true, document: { select: { id: true, number: true, name: true } } } },
           },
         },
-        _count: { select: { participants: true, topics: true, requests: true } },
+        // "Realizada" conta só assunto próprio — itens de acompanhamento
+        // trazidos da anterior não fazem a ata estar preenchida.
+        _count: { select: { participants: true, topics: { where: { sourceTopicId: null } }, requests: true } },
       },
     });
   if (!meeting) notFound();
@@ -103,7 +120,9 @@ export async function MeetingDetail({
       })
     : [];
 
-  const grouped = groupTopicsByCategory(meeting.topics);
+  const carriedTopics = meeting.topics.filter((t) => t.sourceTopicId);
+  const grouped = groupTopicsByCategory(meeting.topics.filter((t) => !t.sourceTopicId));
+  const groupedCarried = groupTopicsByCategory(carriedTopics);
 
   return (
     <div className="space-y-8">
@@ -130,6 +149,11 @@ export async function MeetingDetail({
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {writable && user.role !== "EXECUTIVE" ? (
+              <Link href={`/projects/${id}/meetings/new?from=${meeting.id}`}>
+                <Button>Nova reunião a partir desta</Button>
+              </Link>
+            ) : null}
             <a href={`/api/reports/meeting/${meeting.id}`} target="_blank" rel="noreferrer">
               <Button variant="outline">PDF — DataPulse</Button>
             </a>
@@ -159,6 +183,31 @@ export async function MeetingDetail({
           {meeting.preparedBy ? ` · elaborado por ${meeting.preparedBy}` : ""}
           {meeting.number != null ? ` · ata nº ${meeting.number}` : ""}
         </p>
+        {meeting.previousMeeting || meeting.followUps.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft">
+            {meeting.previousMeeting ? (
+              <span>
+                Acompanhamento de{" "}
+                <Link href={`/projects/${id}/meetings/${meeting.previousMeeting.id}`} className="text-accent hover:underline">
+                  {meetingLinkLabel(meeting.previousMeeting)}
+                </Link>
+              </span>
+            ) : null}
+            {meeting.followUps.length > 0 ? (
+              <span>
+                Acompanhada em{" "}
+                {meeting.followUps.map((f, i) => (
+                  <span key={f.id}>
+                    {i > 0 ? ", " : ""}
+                    <Link href={`/projects/${id}/meetings/${f.id}`} className="text-accent hover:underline">
+                      {meetingLinkLabel(f)}
+                    </Link>
+                  </span>
+                ))}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {meeting.teamsJoinUrl ? (
           <a href={meeting.teamsJoinUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm text-accent hover:underline">
             Entrar na reunião (Teams)
@@ -203,36 +252,23 @@ export async function MeetingDetail({
         ) : null}
       </section>
 
+      {carriedTopics.length > 0 ? (
+        <section>
+          <SectionTitle hint={`${carriedTopics.length} item(ns) vindos da reunião anterior`}>
+            Acompanhamento da reunião anterior
+          </SectionTitle>
+          <TopicGroups groups={groupedCarried} />
+        </section>
+      ) : null}
+
       <section>
-        <SectionTitle hint={`${meeting.topics.length} tópico(s)`}>Desenvolvimento</SectionTitle>
-        {meeting.topics.length === 0 ? (
+        <SectionTitle hint={`${meeting.topics.length - carriedTopics.length} tópico(s)`}>
+          {carriedTopics.length > 0 ? "Assuntos novos" : "Desenvolvimento"}
+        </SectionTitle>
+        {meeting.topics.length - carriedTopics.length === 0 ? (
           <Empty>Nenhum tópico registrado ainda — a ata desta reunião está em aberto.</Empty>
         ) : (
-          <div className="space-y-5">
-            {grouped
-              .filter((g) => g.items.length > 0)
-              .map((g) => (
-                <div key={g.category}>
-                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-soft">{meetingCategoryLabel(g.category)}</p>
-                  <Card className="space-y-3 p-4">
-                    {g.items.map((t) => (
-                      <div key={t.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-faint">
-                          <span>
-                            {formatDate(t.date)}
-                            {t.responsible ? ` · ${t.responsible}` : ""}
-                            {t.dueDate ? ` · prazo ${formatDate(t.dueDate)}` : ""}
-                          </span>
-                          <span className="font-medium text-ink-soft">{t.status}</span>
-                        </div>
-                        {t.title ? <p className="mt-1 text-sm font-semibold text-teal-700">{t.title}</p> : null}
-                        <p className="mt-1 whitespace-pre-wrap text-sm text-ink">{t.description}</p>
-                      </div>
-                    ))}
-                  </Card>
-                </div>
-              ))}
-          </div>
+          <TopicGroups groups={grouped} />
         )}
       </section>
 
@@ -303,6 +339,7 @@ export async function MeetingDetail({
                   responsible: t.responsible ?? "",
                   dueDate: t.dueDate ? t.dueDate.toISOString().slice(0, 10) : "",
                   status: t.status,
+                  sourceTopicId: t.sourceTopicId ?? undefined,
                 })),
               }}
               tasks={tasks}
@@ -310,6 +347,37 @@ export async function MeetingDetail({
           </Card>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+/** Tópicos da ata agrupados pelas seções MRS — só as seções com item. */
+function TopicGroups({ groups }: { groups: { category: string; items: MeetingTopicRow[] }[] }) {
+  return (
+    <div className="space-y-5">
+      {groups
+        .filter((g) => g.items.length > 0)
+        .map((g) => (
+          <div key={g.category}>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-soft">{meetingCategoryLabel(g.category)}</p>
+            <Card className="space-y-3 p-4">
+              {g.items.map((t) => (
+                <div key={t.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-faint">
+                    <span>
+                      {formatDate(t.date)}
+                      {t.responsible ? ` · ${t.responsible}` : ""}
+                      {t.dueDate ? ` · prazo ${formatDate(t.dueDate)}` : ""}
+                    </span>
+                    <span className="font-medium text-ink-soft">{t.status}</span>
+                  </div>
+                  {t.title ? <p className="mt-1 text-sm font-semibold text-teal-700">{t.title}</p> : null}
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-ink">{t.description}</p>
+                </div>
+              ))}
+            </Card>
+          </div>
+        ))}
     </div>
   );
 }

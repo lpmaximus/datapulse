@@ -222,6 +222,8 @@ export interface MeetingTopicRow {
   responsible: string | null;
   dueDate: Date | null;
   status: string;
+  /** Preenchido quando o item é acompanhamento de um tópico de reunião anterior. */
+  sourceTopicId?: string | null;
 }
 
 /** Reunião como aparece na lista do projeto. */

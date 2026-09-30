@@ -21,7 +21,7 @@ const MEETING_SELECT = {
   createdAt: true,
   milestone: { select: { id: true, name: true } },
   project: { select: { id: true, name: true } },
-  _count: { select: { participants: true, topics: true, requests: true } },
+  _count: { select: { participants: true, topics: { where: { sourceTopicId: null } }, requests: true } },
 } as const;
 
 export default async function MeetingsPage({

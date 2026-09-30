@@ -39,7 +39,7 @@ export default async function ProjectMeetingsPage({
       subject: true,
       createdAt: true,
       milestone: { select: { id: true, name: true } },
-      _count: { select: { participants: true, topics: true, requests: true } },
+      _count: { select: { participants: true, topics: { where: { sourceTopicId: null } }, requests: true } },
     },
   });
 

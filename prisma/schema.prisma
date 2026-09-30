@@ -345,12 +345,19 @@ model Meeting {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  /// Reuniao de origem quando esta foi criada "a partir de" outra - os
+  /// topicos em aberto da anterior entram aqui para acompanhamento.
+  previousMeetingId String?
+  previousMeeting   Meeting?  @relation("MeetingFollowUp", fields: [previousMeetingId], references: [id], onDelete: SetNull)
+  followUps         Meeting[] @relation("MeetingFollowUp")
+
   participants MeetingParticipant[]
   topics       MeetingTopic[]
   requests     Request[]
 
   @@index([projectId])
   @@index([milestoneId])
+  @@index([previousMeetingId])
 }
 
 /// Uma linha do bloco de participantes do padrao de ata do cliente (nome,
@@ -397,6 +404,11 @@ model MeetingTopic {
   dueDate DateTime?
   /// "Status" - livre no MVP: INFORMATIVO, PENDENTE, CONCLUIDO...
   status String @default("INFORMATIVO")
+
+  /// Topico da reuniao anterior do qual este e o acompanhamento. Nulo =
+  /// assunto novo desta reuniao. Sem FK: a origem pode ser editada (os
+  /// topicos sao recriados a cada edicao) ou excluida sem afetar o registro.
+  sourceTopicId String?
 
   @@index([meetingId])
 }
