@@ -10,6 +10,7 @@ import {
   Bell,
   CalendarClock,
   ChevronsLeft,
+  ChevronsUpDown,
   ChevronsRight,
   Clock,
   Database,
@@ -33,6 +34,8 @@ export interface NavUser {
   name: string;
   email: string;
   role: "ADMIN" | "MANAGER" | "SPECIALIST" | "EXECUTIVE";
+  organizationName?: string;
+  canSwitchWorkspace?: boolean;
 }
 
 type Role = NavUser["role"];
@@ -169,14 +172,33 @@ function Sidebar({
 
       {collapsed ? null : (
         <div className="px-3 pb-3">
-          <div className="flex items-center gap-2 rounded-md border border-line px-2.5 py-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent text-[11px] font-bold text-white">
-              DP
-            </span>
-            <span className="truncate text-sm font-medium text-ink">
-              Carteira principal
-            </span>
-          </div>
+          {(() => {
+            const orgName = user.organizationName ?? "Carteira principal";
+            const body = (
+              <>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent text-[11px] font-bold text-white">
+                  {initials(orgName)}
+                </span>
+                <span className="truncate text-sm font-medium text-ink">{orgName}</span>
+                {user.canSwitchWorkspace ? (
+                  <ChevronsUpDown size={14} className="ml-auto shrink-0 text-ink-soft" />
+                ) : null}
+              </>
+            );
+            const box = "flex items-center gap-2 rounded-md border border-line px-2.5 py-2";
+            return user.canSwitchWorkspace ? (
+              <Link
+                href="/workspaces"
+                title="Trocar de workspace"
+                onClick={onNavigate}
+                className={clsx(box, "hover:bg-canvas")}
+              >
+                {body}
+              </Link>
+            ) : (
+              <div className={box}>{body}</div>
+            );
+          })()}
         </div>
       )}
 

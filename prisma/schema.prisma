@@ -40,6 +40,8 @@ model Organization {
   projects      Project[]
   accConnections AccConnection[]
   projectFiles   ProjectFile[]
+  members        OrganizationMember[]
+  sessions       Session[]
 }
 
 /// Criticidade técnica do marco. Vira peso no DRI.
@@ -624,6 +626,14 @@ model User {
   companyId String?
   company   Empresa? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
+  /// Superadmin da plataforma: enxerga todos os workspaces (organizações), entra
+  /// em qualquer um como ADMIN e pode cadastrar novos. Concedido só por script
+  /// (scripts/grant-superadmin.ts) — nunca pela interface.
+  isSuperAdmin Boolean @default(false)
+
+  /// Acessos a workspaces além da organização de origem (`organizationId`).
+  workspaceMemberships OrganizationMember[]
+
   isActive  Boolean  @default(true)
   lastLoginAt DateTime?
   createdAt DateTime @default(now())
@@ -662,10 +672,15 @@ model Session {
   tokenHash String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+  /// Workspace ativo da sessão. Nulo = login feito, workspace ainda não escolhido
+  /// (usuário com mais de um acesso, ou superadmin).
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   userAgent String?
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([organizationId])
 }
 
 /// Alocação de uma pessoa a um projeto. Define o que ela enxerga em /my-work.
@@ -1275,4 +1290,20 @@ model UserDiscipline {
 
   @@id([userId, disciplineId])
   @@index([disciplineId])
+}
+
+/// Acesso de um usuário a um workspace que não é a sua organização de origem.
+/// O papel vale só dentro desse workspace. A organização de origem
+/// (`User.organizationId`) continua valendo com `User.role`.
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           UserRole     @default(SPECIALIST)
+  createdAt      DateTime     @default(now())
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
 }

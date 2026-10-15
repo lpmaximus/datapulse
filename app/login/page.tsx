@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, getSessionIdentity } from "@/lib/session";
 import { LoginForm } from "@/components/login-form";
 import { Logo } from "@/components/logo";
 import { Card } from "@/components/ui";
@@ -13,6 +13,8 @@ export default async function LoginPage({
 }) {
   const { next } = await searchParams;
   if (await getCurrentUser()) redirect("/");
+  // Já autenticado, falta escolher o workspace.
+  if (await getSessionIdentity()) redirect("/workspaces");
 
   return (
     <div className="mx-auto max-w-sm py-12">

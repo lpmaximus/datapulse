@@ -10,6 +10,8 @@ import {
   destroyAllSessionsForUser,
   getCurrentUser,
 } from "@/lib/session";
+import { listAccessibleWorkspaces } from "@/lib/server/workspace-service";
+import { needsWorkspaceChoice, safeNext } from "@/lib/workspaces";
 
 export interface AuthFormState {
   error?: string;
@@ -39,7 +41,7 @@ export async function login(
 
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, passwordHash: true, isActive: true, role: true },
+    select: { id: true, passwordHash: true, isActive: true, isSuperAdmin: true },
   });
 
   const GENERIC = "E-mail ou senha inválidos.";
@@ -52,16 +54,23 @@ export async function login(
 
   if (!(await verifyPassword(password, user.passwordHash))) return { error: GENERIC };
   if (!user.isActive) return { error: "Este usuário está desativado." };
-  if (user.role === "EXTERNAL") return { error: "Este usuário não tem acesso ao sistema." };
+
+  const workspaces = await listAccessibleWorkspaces(user.id);
+  if (workspaces.length === 0) return { error: "Este usuário não tem acesso ao sistema." };
+
+  // Mais de um workspace (ou superadmin): a sessão nasce sem workspace e o
+  // usuário escolhe em /workspaces. Com um só, entra direto nele.
+  const choose = needsWorkspaceChoice(user.isSuperAdmin, workspaces.length);
 
   const ua = (await headers()).get("user-agent");
-  await createSession(user.id, ua);
+  await createSession(user.id, ua, choose ? null : workspaces[0].id);
   await prisma.user.update({
     where: { id: user.id },
     data: { lastLoginAt: new Date() },
   });
 
-  redirect(next && next.startsWith("/") ? next : "/");
+  const dest = safeNext(next);
+  redirect(choose ? (dest === "/" ? "/workspaces" : `/workspaces?next=${encodeURIComponent(dest)}`) : dest);
 }
 
 export async function logout(): Promise<void> {
@@ -103,7 +112,7 @@ export async function changeOwnPassword(
   // Invalida tudo e recria a sessão atual: se a senha vazou, sessões abertas
   // em outros dispositivos morrem junto.
   await destroyAllSessionsForUser(user.id);
-  await createSession(user.id, (await headers()).get("user-agent"));
+  await createSession(user.id, (await headers()).get("user-agent"), user.organizationId);
 
   return { ok: true };
 }
