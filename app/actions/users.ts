@@ -28,6 +28,8 @@ export interface UserFormState {
   userName?: string;
   /** Criado como Terceirizado — sem senha, sem acesso. */
   external?: boolean;
+  /** E-mail que já existia em outro workspace: ganhou acesso a este, sem novo usuário. */
+  linked?: boolean;
 }
 
 /**
@@ -51,9 +53,29 @@ export async function createUser(
   // E-mail é único globalmente (login), não por organização.
   const existing = await prisma.user.findUnique({
     where: { email },
-    select: { id: true },
+    select: { id: true, organizationId: true },
   });
-  if (existing) return { error: "Já existe um usuário com este e-mail." };
+  if (existing) {
+    // Só o superadmin pode trazer para este workspace alguém que já tem cadastro
+    // em outro (revelar que o e-mail existe noutra organização é vazamento para
+    // um admin comum).
+    if (existing.organizationId === admin.organizationId || !admin.isSuperAdmin) {
+      return { error: "Já existe um usuário com este e-mail." };
+    }
+    const memberRole = parseRole(str(formData, "role"));
+    if (memberRole === "EXTERNAL") {
+      return { error: "Terceirizado não acessa o sistema; escolha outro papel." };
+    }
+    await prisma.organizationMember.upsert({
+      where: {
+        userId_organizationId: { userId: existing.id, organizationId: admin.organizationId },
+      },
+      create: { userId: existing.id, organizationId: admin.organizationId, role: memberRole },
+      update: { role: memberRole },
+    });
+    revalidatePath("/users");
+    return { ok: true, linked: true, userName: name };
+  }
 
   const functionId = str(formData, "functionId") || null;
   const companyId = str(formData, "companyId") || null;
@@ -284,4 +306,25 @@ export async function resetUserPassword(
 
   revalidatePath("/users");
   return { ok: true, temporaryPassword, userName: user.name };
+}
+
+/** Remove o acesso de alguém vindo de outro workspace. Não apaga o usuário. */
+export async function removeWorkspaceMember(formData: FormData): Promise<void> {
+  const admin = await requireRole(["ADMIN"]);
+  const memberId = str(formData, "memberId");
+  if (!memberId) return;
+
+  const member = await prisma.organizationMember.findFirst({
+    where: { id: memberId, organizationId: admin.organizationId },
+    select: { id: true, userId: true },
+  });
+  if (!member) return;
+
+  await prisma.organizationMember.delete({ where: { id: member.id } });
+  // Quem estava com a sessão aberta neste workspace perde o acesso na hora.
+  await prisma.session.updateMany({
+    where: { userId: member.userId, organizationId: admin.organizationId },
+    data: { organizationId: null },
+  });
+  revalidatePath("/users");
 }

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireRole, ROLE_LABEL, type AccountRole as Role } from "@/lib/authz";
-import { toggleUserActive } from "@/app/actions/users";
-import { Card, SectionTitle, Empty, Chip } from "@/components/ui";
+import { toggleUserActive, removeWorkspaceMember } from "@/app/actions/users";
+import { Card, SectionTitle, Empty, Chip, Button } from "@/components/ui";
 import { ResizableTable, Toolbar, Th, Td, StatusToggle, CollapsibleGroup } from "@/components/table-ui";
 import { UserCreateForm } from "@/components/user-create-form";
 import { UserEditForm } from "@/components/user-edit-form";
@@ -158,6 +158,12 @@ export default async function UsersPage({
     }),
   ]);
 
+  const guests = await prisma.organizationMember.findMany({
+    where: { organizationId: me.organizationId },
+    orderBy: { user: { name: "asc" } },
+    select: { id: true, role: true, user: { select: { name: true, email: true } } },
+  });
+
   const roleLabel: Partial<Record<Role, string>> = {};
   for (const r of roleProfiles) roleLabel[r.role] = r.label;
 
@@ -216,6 +222,31 @@ export default async function UsersPage({
           </div>
         )}
       </div>
+
+      {guests.length > 0 ? (
+        <div>
+          <SectionTitle hint="Têm cadastro em outro workspace e entram neste com a mesma senha.">
+            Acessos de outros workspaces
+          </SectionTitle>
+          <Card>
+            <ul className="divide-y divide-line">
+              {guests.map((g) => (
+                <li key={g.id} className="flex items-center gap-3 py-2 text-sm">
+                  <span className="font-medium">{g.user.name}</span>
+                  <span className="text-ink-soft">{g.user.email}</span>
+                  <Chip>{roleLabel[g.role] ?? ROLE_LABEL[g.role]}</Chip>
+                  <form action={removeWorkspaceMember} className="ml-auto">
+                    <input type="hidden" name="memberId" value={g.id} />
+                    <Button type="submit" variant="ghost">
+                      Remover acesso
+                    </Button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </div>
+      ) : null}
 
       <div>
         <SectionTitle

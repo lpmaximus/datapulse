@@ -100,6 +100,16 @@ export function UserCreateForm({
         </p>
       ) : null}
 
+      {state.ok && state.linked ? (
+        <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          <p className="font-medium">Acesso concedido.</p>
+          <p className="mt-1 text-xs">
+            Este e-mail já tinha cadastro em outro workspace e agora também acessa este,
+            com a mesma senha que já usa. Aparece em &ldquo;Acessos de outros workspaces&rdquo;.
+          </p>
+        </div>
+      ) : null}
+
       {state.ok && state.external ? (
         <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
           <p className="font-medium">Terceirizado {state.userName} cadastrado.</p>
