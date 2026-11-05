@@ -15,7 +15,7 @@ import {
   StatusDistribution,
   StuckBadge,
 } from "@/components/document-status";
-import { daysBetween } from "@/lib/documents";
+import { daysBetween, isInProduction } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
 import type { DocumentTableRow, RevisionRow } from "@/types/models";
 
@@ -183,7 +183,9 @@ function BoardGroup({
               <tr className="bg-surface">
                 <td colSpan={colsBeforeStatus} className="border-r border-line" />
                 <td className="border-r border-line px-2 py-2">
-                  <StatusDistribution statuses={revisions.map((r) => r.status)} />
+                  <StatusDistribution
+                    statuses={revisions.map((r) => (isInProduction(r) ? "PRODUCTION" : r.status))}
+                  />
                 </td>
                 <td colSpan={3} className="border-r border-line" />
                 <td className="px-2 py-2 text-center">
@@ -228,6 +230,11 @@ function DocumentRow({
   const stuck = rev?.status === "IN_REVIEW" ? daysBetween(now, rev.inReviewSince) : null;
   const closed = rev ? CLOSED_STATUSES.has(rev.status) : false;
   const overdue = !closed && rev?.dueAt != null && new Date(rev.dueAt).getTime() < now.getTime();
+  // Responsável = quem está com a bola: o analista enquanto está em análise; o
+  // projetista enquanto está em produção ou devolvido para correção.
+  const withIssuer = !rev || rev.status === "DRAFT" || rev.status === "COMMENTED" || rev.status === "REJECTED";
+  const owner = withIssuer ? d.responsible : rev?.specialist ?? d.responsible;
+  const ownerRole = withIssuer || !rev?.specialist ? "projetista" : "analista";
 
   return (
     <tr
@@ -269,7 +276,7 @@ function DocumentRow({
       <Td className="text-center font-mono text-xs">{rev?.name ?? "—"}</Td>
       <td className="h-px border-r border-line p-0">
         {rev ? (
-          <DocumentStatusChip status={rev.status} fill />
+          <DocumentStatusChip status={rev.status} inProduction={isInProduction(rev)} fill />
         ) : (
           <span className="flex h-full items-center justify-center text-ink-faint">—</span>
         )}
@@ -287,10 +294,10 @@ function DocumentRow({
         )}
       </Td>
       <Td className="text-center text-ink-soft">
-        {rev?.specialist ? (
-          <span className="inline-flex items-center gap-2" title={rev.specialist.name}>
-            <Avatar name={rev.specialist.name} />
-            <span className="max-w-[110px] truncate">{rev.specialist.name}</span>
+        {owner ? (
+          <span className="inline-flex items-center gap-2" title={`${owner.name} — ${ownerRole}`}>
+            <Avatar name={owner.name} />
+            <span className="max-w-[110px] truncate">{owner.name}</span>
           </span>
         ) : (
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-line-strong text-ink-faint">

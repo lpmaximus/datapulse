@@ -1,5 +1,5 @@
 import { DocumentStatusChip, StuckBadge } from "@/components/document-status";
-import { daysBetween } from "@/lib/documents";
+import { daysBetween, isInProduction } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
 import type { RevisionRow } from "@/types/models";
 import { ExternalLink } from "lucide-react";
@@ -21,7 +21,7 @@ export function RevisionList({ revisions }: { revisions: RevisionRow[] }) {
               <span className="rounded border border-line bg-canvas px-2 py-0.5 font-mono text-xs font-semibold">
                 {r.name}
               </span>
-              <DocumentStatusChip status={r.status} />
+              <DocumentStatusChip status={r.status} inProduction={isInProduction(r)} />
               {r.analysisCode ? (
                 <span
                   title={r.analysisCode.name}

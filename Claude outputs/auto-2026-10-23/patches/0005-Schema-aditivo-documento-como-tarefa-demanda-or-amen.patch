@@ -1,0 +1,417 @@
+From 1ab5eb3d6c9fc2ff79a7eb5c31e48fe9ddc32574 Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <claude@anthropic.com>
+Date: Fri, 23 Oct 2026 07:11:23 -0300
+Subject: [PATCH 5/9] =?UTF-8?q?Schema=20aditivo:=20documento=20como=20tare?=
+ =?UTF-8?q?fa,=20demanda,=20or=C3=A7amento,=20coment=C3=A1rio=20da=20revis?=
+ =?UTF-8?q?=C3=A3o=20(migra=C3=A7=C3=A3o=20escrita,=20n=C3=A3o=20aplicada)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../migration.sql                             | 153 ++++++++++++++++
+ prisma/schema.prisma                          | 166 ++++++++++++++++++
+ 2 files changed, 319 insertions(+)
+ create mode 100644 prisma/migrations/20261023120000_documento_tarefa_demanda_orcamento/migration.sql
+
+diff --git a/prisma/migrations/20261023120000_documento_tarefa_demanda_orcamento/migration.sql b/prisma/migrations/20261023120000_documento_tarefa_demanda_orcamento/migration.sql
+new file mode 100644
+index 0000000..d633c61
+--- /dev/null
++++ b/prisma/migrations/20261023120000_documento_tarefa_demanda_orcamento/migration.sql
+@@ -0,0 +1,153 @@
++-- Migração ADITIVA (só colunas novas anuláveis/com padrão e tabelas novas).
++-- Escrita à mão por falta de acesso ao schema engine; confira com
++-- `npx prisma migrate dev` num branch do Neon (não aplique direto em produção).
++
++-- CreateEnum
++CREATE TYPE "DemandStatus" AS ENUM ('QUOTING', 'IN_PROGRESS', 'DONE', 'CANCELLED');
++
++-- CreateEnum
++CREATE TYPE "BudgetStatus" AS ENUM ('DRAFT', 'SENT', 'COMMENTED', 'APPROVED', 'CANCELLED');
++
++-- CreateEnum
++CREATE TYPE "BudgetKind" AS ENUM ('BASE', 'COMPLEMENTARY');
++
++-- AlterTable
++ALTER TABLE "Organization" ADD COLUMN "a1Factors" JSONB,
++ADD COLUMN "hourlyCost" DECIMAL(12,2);
++
++-- AlterTable
++ALTER TABLE "Client" ADD COLUMN "a1Value" DECIMAL(14,2);
++
++-- AlterTable
++ALTER TABLE "Milestone" ADD COLUMN "actualStartDate" TIMESTAMP(3);
++
++-- AlterTable
++ALTER TABLE "Document" ADD COLUMN "designerNumber" TEXT,
++ADD COLUMN "format" TEXT,
++ADD COLUMN "sheets" INTEGER,
++ADD COLUMN "a1Equivalent" DECIMAL(10,3),
++ADD COLUMN "declaredProgress" INTEGER NOT NULL DEFAULT 0,
++ADD COLUMN "cancelReason" TEXT,
++ADD COLUMN "taskId" TEXT,
++ADD COLUMN "demandId" TEXT;
++
++-- AlterTable
++ALTER TABLE "DocumentRevision" ADD COLUMN "revisionNote" TEXT;
++
++-- CreateTable
++CREATE TABLE "RevisionComment" (
++    "id" TEXT NOT NULL,
++    "revisionId" TEXT NOT NULL,
++    "authorId" TEXT,
++    "text" TEXT,
++    "filePathname" TEXT,
++    "fileName" TEXT,
++    "fileSizeBytes" INTEGER,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "RevisionComment_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "Demand" (
++    "id" TEXT NOT NULL,
++    "projectId" TEXT NOT NULL,
++    "title" TEXT NOT NULL,
++    "status" "DemandStatus" NOT NULL DEFAULT 'QUOTING',
++    "requestedAt" TIMESTAMP(3),
++    "dueAt" TIMESTAMP(3),
++    "notes" TEXT,
++    "createdById" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "Demand_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "Budget" (
++    "id" TEXT NOT NULL,
++    "demandId" TEXT NOT NULL,
++    "number" INTEGER NOT NULL,
++    "kind" "BudgetKind" NOT NULL DEFAULT 'BASE',
++    "status" "BudgetStatus" NOT NULL DEFAULT 'DRAFT',
++    "a1UnitValue" DECIMAL(14,2),
++    "factors" JSONB,
++    "frozenAt" TIMESTAMP(3),
++    "totalA1" DECIMAL(12,3) NOT NULL DEFAULT 0,
++    "total" DECIMAL(16,2) NOT NULL DEFAULT 0,
++    "note" TEXT,
++    "createdById" TEXT,
++    "sentAt" TIMESTAMP(3),
++    "decidedAt" TIMESTAMP(3),
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "Budget_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateTable
++CREATE TABLE "BudgetItem" (
++    "id" TEXT NOT NULL,
++    "budgetId" TEXT NOT NULL,
++    "documentId" TEXT,
++    "clientNumber" TEXT,
++    "name" TEXT NOT NULL,
++    "format" TEXT,
++    "sheets" INTEGER,
++    "a1Equivalent" DECIMAL(10,3),
++    "value" DECIMAL(16,2),
++
++    CONSTRAINT "BudgetItem_pkey" PRIMARY KEY ("id")
++);
++
++-- CreateIndex
++CREATE UNIQUE INDEX "Document_taskId_key" ON "Document"("taskId");
++
++-- CreateIndex
++CREATE INDEX "Document_demandId_idx" ON "Document"("demandId");
++
++-- CreateIndex
++CREATE INDEX "RevisionComment_revisionId_idx" ON "RevisionComment"("revisionId");
++
++-- CreateIndex
++CREATE INDEX "RevisionComment_authorId_idx" ON "RevisionComment"("authorId");
++
++-- CreateIndex
++CREATE INDEX "Demand_projectId_status_idx" ON "Demand"("projectId", "status");
++
++-- CreateIndex
++CREATE UNIQUE INDEX "Budget_demandId_number_key" ON "Budget"("demandId", "number");
++
++-- CreateIndex
++CREATE INDEX "Budget_demandId_status_idx" ON "Budget"("demandId", "status");
++
++-- CreateIndex
++CREATE INDEX "BudgetItem_budgetId_idx" ON "BudgetItem"("budgetId");
++
++-- AddForeignKey
++ALTER TABLE "Document" ADD CONSTRAINT "Document_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Milestone"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "Document" ADD CONSTRAINT "Document_demandId_fkey" FOREIGN KEY ("demandId") REFERENCES "Demand"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "RevisionComment" ADD CONSTRAINT "RevisionComment_revisionId_fkey" FOREIGN KEY ("revisionId") REFERENCES "DocumentRevision"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "RevisionComment" ADD CONSTRAINT "RevisionComment_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "Demand" ADD CONSTRAINT "Demand_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "Demand" ADD CONSTRAINT "Demand_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "Budget" ADD CONSTRAINT "Budget_demandId_fkey" FOREIGN KEY ("demandId") REFERENCES "Demand"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "Budget" ADD CONSTRAINT "Budget_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- AddForeignKey
++ALTER TABLE "BudgetItem" ADD CONSTRAINT "BudgetItem_budgetId_fkey" FOREIGN KEY ("budgetId") REFERENCES "Budget"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index ba57e2b..3d2e1cf 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -42,6 +42,11 @@ model Organization {
+   projectFiles   ProjectFile[]
+   members        OrganizationMember[]
+   sessions       Session[]
++
++  /// Tabela de fatores do A1 equivalente (JSON {"A1":1,"A2":0.5,...}). Nulo = padrão.
++  a1Factors Json?
++  /// Custo-hora único usado para estimar o valor de atividades (padrão adotado).
++  hourlyCost Decimal? @db.Decimal(12, 2)
+ }
+ 
+ /// Criticidade técnica do marco. Vira peso no DRI.
+@@ -117,6 +122,7 @@ model Project {
+   driScores  DRIScore[]
+   members    ProjectMember[]
+   documents  Document[]
++  demands    Demand[]
+   requests   Request[]
+   meetings   Meeting[]
+ 
+@@ -183,10 +189,15 @@ model Milestone {
+   forecastDate DateTime?
+   /// Término real.
+   actualDate   DateTime?
++  /// Início real: gravado sozinho na primeira vez que o avanço sai de 0%.
++  actualStartDate DateTime?
+ 
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+ 
++  /// Documento cuja tarefa é esta (modelo "documento é uma tarefa").
++  documentTask Document? @relation("DocumentTask")
++
+   systemicSignals SystemicSignal[]
+   humanSignals    HumanSignal[]
+   driScores       DRIScore[]
+@@ -653,6 +664,9 @@ model User {
+   filesUploaded       ProjectFile[]      @relation("FileUploader")
+   timeEntries         TimeEntry[]
+   disciplines         UserDiscipline[]
++  revisionComments    RevisionComment[]  @relation("RevisionCommentAuthor")
++  demandsCreated      Demand[]           @relation("DemandCreator")
++  budgetsCreated      Budget[]           @relation("BudgetCreator")
+ 
+   @@index([role])
+   @@index([isActive])
+@@ -759,6 +773,27 @@ model Document {
+ 
+   notes String?
+ 
++  /// Número do documento no sistema da projetista.
++  designerNumber String?
++  /// Formato da folha (A1..A4, ou o que a tabela de fatores da organização definir).
++  format String?
++  /// Número de folhas.
++  sheets Int?
++  /// A1 equivalente = folhas × fator do formato (3 casas: 0,125 existe).
++  a1Equivalent Decimal? @db.Decimal(10, 3)
++  /// Avanço de elaboração declarado pela projetista (0–99; 100 só com PDF enviado).
++  declaredProgress Int @default(0)
++  /// Motivo do cancelamento (obrigatório ao cancelar).
++  cancelReason String?
++
++  /// Tarefa deste documento.
++  taskId String?    @unique
++  task   Milestone? @relation("DocumentTask", fields: [taskId], references: [id], onDelete: SetNull)
++
++  /// Demanda de origem (LD).
++  demandId String?
++  demand   Demand? @relation(fields: [demandId], references: [id], onDelete: SetNull)
++
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+ 
+@@ -770,6 +805,7 @@ model Document {
+   @@index([disciplineId])
+   @@index([responsibleId])
+   @@index([number])
++  @@index([demandId])
+ }
+ 
+ /**
+@@ -819,11 +855,15 @@ model DocumentRevision {
+   externalUrl String?
+   notes       String?
+ 
++  /// Nota da revisão ("o que mudou"), preenchida pela projetista ao emitir.
++  revisionNote String?
++
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+ 
+   transitions DocumentTransition[]
+   delegations AnalysisDelegation[]
++  comments    RevisionComment[]
+ 
+   @@unique([documentId, name])
+   @@index([milestoneId])
+@@ -1024,6 +1064,9 @@ model Client {
+   /// disponivel para impressao.
+   meetingFormCode String?
+ 
++  /// Valor do A1 equivalente acertado com este contratante (R$ por A1).
++  a1Value Decimal? @db.Decimal(14, 2)
++
+   isActive  Boolean  @default(true)
+   createdAt DateTime @default(now())
+   updatedAt DateTime @updatedAt
+@@ -1307,3 +1350,126 @@ model OrganizationMember {
+   @@unique([userId, organizationId])
+   @@index([organizationId])
+ }
++
++/// Devolução da revisão pelo contratante: texto e/ou PDF comentado. O sistema
++/// não cadastra comentário item por item nem edita o PDF.
++model RevisionComment {
++  id         String           @id @default(cuid())
++  revisionId String
++  revision   DocumentRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
++
++  authorId String?
++  author   User?   @relation("RevisionCommentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
++
++  text String?
++
++  /// PDF comentado, no Vercel Blob privado (mesmo armazenamento dos arquivos do projeto).
++  filePathname  String?
++  fileName      String?
++  fileSizeBytes Int?
++
++  createdAt DateTime @default(now())
++
++  @@index([revisionId])
++  @@index([authorId])
++}
++
++enum DemandStatus {
++  /// Documentos cadastrados a partir da LD; orçamento em elaboração/avaliação.
++  QUOTING
++  /// Orçamento aprovado em comum acordo = início do projeto.
++  IN_PROGRESS
++  DONE
++  CANCELLED
++}
++
++/// Demanda do contratante: chega por e-mail com uma LD; a projetista cadastra,
++/// orça e executa.
++model Demand {
++  id        String  @id @default(cuid())
++  projectId String
++  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
++
++  title  String
++  status DemandStatus @default(QUOTING)
++
++  requestedAt DateTime?
++  dueAt       DateTime?
++  notes       String?
++
++  createdById String?
++  createdBy   User?   @relation("DemandCreator", fields: [createdById], references: [id], onDelete: SetNull)
++
++  createdAt DateTime @default(now())
++  updatedAt DateTime @updatedAt
++
++  documents Document[]
++  budgets   Budget[]
++
++  @@index([projectId, status])
++}
++
++enum BudgetStatus {
++  DRAFT
++  SENT
++  COMMENTED
++  APPROVED
++  CANCELLED
++}
++
++enum BudgetKind {
++  BASE
++  /// Mudança de escopo (LD revisada).
++  COMPLEMENTARY
++}
++
++model Budget {
++  id       String @id @default(cuid())
++  demandId String
++  demand   Demand @relation(fields: [demandId], references: [id], onDelete: Cascade)
++
++  /// Revisão do orçamento (1, 2, 3...), com histórico das versões.
++  number Int
++  kind   BudgetKind   @default(BASE)
++  status BudgetStatus @default(DRAFT)
++
++  /// Valor do A1 e fatores usados. Congelados na aprovação (frozenAt).
++  a1UnitValue Decimal?  @db.Decimal(14, 2)
++  factors     Json?
++  frozenAt    DateTime?
++
++  totalA1 Decimal @default(0) @db.Decimal(12, 3)
++  total   Decimal @default(0) @db.Decimal(16, 2)
++
++  note String?
++
++  createdById String?
++  createdBy   User?   @relation("BudgetCreator", fields: [createdById], references: [id], onDelete: SetNull)
++
++  sentAt    DateTime?
++  decidedAt DateTime?
++  createdAt DateTime  @default(now())
++  updatedAt DateTime  @updatedAt
++
++  items BudgetItem[]
++
++  @@unique([demandId, number])
++  @@index([demandId, status])
++}
++
++model BudgetItem {
++  id       String @id @default(cuid())
++  budgetId String
++  budget   Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
++
++  documentId String?
++
++  clientNumber String?
++  name         String
++  format       String?
++  sheets       Int?
++  a1Equivalent Decimal? @db.Decimal(10, 3)
++  value        Decimal? @db.Decimal(16, 2)
++
++  @@index([budgetId])
++}
+-- 
+2.43.0
+

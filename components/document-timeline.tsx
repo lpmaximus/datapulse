@@ -1,5 +1,10 @@
 import clsx from "clsx";
-import { ACTION_LABEL, STATUS_LABEL, type DocumentAction } from "@/lib/documents";
+import {
+  ACTION_LABEL,
+  revisionStatusLabel,
+  type DocumentAction,
+  type DocumentStatus,
+} from "@/lib/documents";
 import { formatDateTime } from "@/lib/format";
 import type { DocumentTransitionRow } from "@/types/models";
 
@@ -32,6 +37,21 @@ export function DocumentTimeline({
     return <p className="text-sm text-ink-faint">Sem eventos registrados.</p>;
   }
 
+  // Revisões que nasceram em produção (sem pacote). Ainda sem pacote, ou com o
+  // prazo de produção gravado no evento de criação — o envio troca o prazo da
+  // revisão, mas o do evento fica.
+  const bornInProduction = new Set(
+    transitions
+      .filter(
+        (t) =>
+          (t.action === "CREATED" || t.action === "REVISED") &&
+          (!t.revision.milestoneId || t.dueAt != null),
+      )
+      .map((t) => t.revision.id),
+  );
+  const label = (status: DocumentStatus, revisionId: string) =>
+    revisionStatusLabel(status, bornInProduction.has(revisionId));
+
   return (
     <ol className="relative space-y-0 border-l border-line pl-6">
       {transitions.map((t, i) => (
@@ -63,8 +83,8 @@ export function DocumentTimeline({
 
           <p className="mt-1 text-xs text-ink-soft">
             {t.fromStatus && t.fromStatus !== t.toStatus
-              ? `${STATUS_LABEL[t.fromStatus]} → ${STATUS_LABEL[t.toStatus]}`
-              : STATUS_LABEL[t.toStatus]}
+              ? `${label(t.fromStatus, t.revision.id)} → ${label(t.toStatus, t.revision.id)}`
+              : label(t.toStatus, t.revision.id)}
             {t.actorName ? ` · por ${t.actorName}` : ""}
             {t.assignedToName ? ` · para ${t.assignedToName}` : ""}
             {t.daysInPreviousStage != null && i > 0

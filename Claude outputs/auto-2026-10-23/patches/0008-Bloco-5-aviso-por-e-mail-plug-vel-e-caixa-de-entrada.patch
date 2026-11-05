@@ -1,0 +1,303 @@
+From 8cd53c3075f2bcd8268765e93c6c3bf19495bbf5 Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <claude@anthropic.com>
+Date: Fri, 23 Oct 2026 07:18:35 -0300
+Subject: [PATCH 8/9] =?UTF-8?q?Bloco=205:=20aviso=20por=20e-mail=20plug?=
+ =?UTF-8?q?=C3=A1vel=20e=20caixa=20de=20entrada=20com=20vencimento?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ lib/inbox.ts        |  57 ++++++++++++++++++++
+ lib/mail.ts         | 128 ++++++++++++++++++++++++++++++++++++++++++++
+ test/inbox.test.mjs |  29 ++++++++++
+ test/mail.test.mjs  |  42 +++++++++++++++
+ 4 files changed, 256 insertions(+)
+ create mode 100644 lib/inbox.ts
+ create mode 100644 lib/mail.ts
+ create mode 100644 test/inbox.test.mjs
+ create mode 100644 test/mail.test.mjs
+
+diff --git a/lib/inbox.ts b/lib/inbox.ts
+new file mode 100644
+index 0000000..11519c1
+--- /dev/null
++++ b/lib/inbox.ts
+@@ -0,0 +1,57 @@
++/**
++ * Caixa de entrada do avaliador (contratante): documentos e orçamentos
++ * aguardando avaliação, com o vencimento visível (contagem de dias, em destaque
++ * quando vence). É a fonte da verdade; o e-mail é só aviso.
++ *
++ * Módulo puro, testado em `test/inbox.test.mjs`.
++ */
++export interface InboxItem {
++  id: string;
++  kind: "DOCUMENT" | "BUDGET";
++  label: string;
++  dueAt: Date | null;
++  sentAt: Date | null;
++}
++
++export type DueTone = "overdue" | "today" | "soon" | "ok" | "none";
++
++export interface InboxRow extends InboxItem {
++  /** Dias até o vencimento (negativo = vencido); null sem prazo. */
++  daysLeft: number | null;
++  tone: DueTone;
++  dueLabel: string;
++}
++
++const DAY_MS = 86_400_000;
++
++/** Dia de calendário (UTC) — o prazo é uma data, sem hora. */
++function dayNumber(d: Date): number {
++  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / DAY_MS);
++}
++
++export function dueInfo(dueAt: Date | null, today: Date): { daysLeft: number | null; tone: DueTone; label: string } {
++  if (!dueAt) return { daysLeft: null, tone: "none", label: "Sem prazo" };
++  const daysLeft = dayNumber(dueAt) - dayNumber(today);
++  if (daysLeft < 0) {
++    const n = -daysLeft;
++    return { daysLeft, tone: "overdue", label: n === 1 ? "Venceu há 1 dia" : `Venceu há ${n} dias` };
++  }
++  if (daysLeft === 0) return { daysLeft, tone: "today", label: "Vence hoje" };
++  if (daysLeft <= 2) return { daysLeft, tone: "soon", label: daysLeft === 1 ? "Vence amanhã" : "Vence em 2 dias" };
++  return { daysLeft, tone: "ok", label: `Vence em ${daysLeft} dias` };
++}
++
++/** Vencidos primeiro (mais atrasado no topo), depois por vencimento; sem prazo por último. */
++export function buildInbox(items: ReadonlyArray<InboxItem>, today: Date): InboxRow[] {
++  return items
++    .map((it) => {
++      const info = dueInfo(it.dueAt, today);
++      return { ...it, daysLeft: info.daysLeft, tone: info.tone, dueLabel: info.label };
++    })
++    .sort((a, b) => {
++      if (a.daysLeft === null && b.daysLeft === null) return (a.sentAt?.getTime() ?? 0) - (b.sentAt?.getTime() ?? 0);
++      if (a.daysLeft === null) return 1;
++      if (b.daysLeft === null) return -1;
++      return a.daysLeft - b.daysLeft;
++    });
++}
+diff --git a/lib/mail.ts b/lib/mail.ts
+new file mode 100644
+index 0000000..a2711ee
+--- /dev/null
++++ b/lib/mail.ts
+@@ -0,0 +1,128 @@
++/**
++ * E-mail transacional (decisão de 15/10/2026): o e-mail é SÓ um aviso — projeto,
++ * documento ou orçamento, revisão, quem enviou e o botão "Abrir no DataPulse".
++ * Sem PDF e sem comentário: ninguém decide por e-mail. A caixa de entrada do
++ * sistema é a fonte da verdade; se o e-mail falhar, a pendência continua lá.
++ *
++ * O envio fica atrás de uma interface (`MailTransport`) para o provedor ser
++ * escolhido depois sem mexer nas regras. Sem credencial configurada, o
++ * transporte padrão só registra em log (nada é enviado).
++ *
++ * Módulo puro (nenhum acesso a rede aqui), testado em `test/mail.test.mjs`.
++ */
++export interface MailMessage {
++  to: string[];
++  subject: string;
++  text: string;
++  html: string;
++}
++
++export interface MailTransport {
++  readonly name: string;
++  send(message: MailMessage): Promise<{ ok: boolean; error?: string }>;
++}
++
++/** Transporte padrão: não envia, só registra. Usado até haver credencial. */
++export class LogOnlyTransport implements MailTransport {
++  readonly name = "log-only";
++  constructor(private readonly log: (line: string) => void = (l) => console.log(l)) {}
++  async send(message: MailMessage) {
++    this.log(`[mail:${this.name}] para=${message.to.join(",")} assunto="${message.subject}"`);
++    return { ok: true };
++  }
++}
++
++export type NoticeKind = "DOCUMENT_SENT" | "BUDGET_SENT" | "DOCUMENT_RETURNED" | "BUDGET_RETURNED" | "REMINDER";
++
++export interface NoticeInput {
++  kind: NoticeKind;
++  projectName: string;
++  /** "PE-ELE-001 — Diagrama unifilar" ou "Orçamento 2". */
++  itemLabel: string;
++  /** Revisão ("Rev. B") quando se aplica. */
++  revision?: string | null;
++  senderName: string;
++  /** Link absoluto para abrir o item no sistema. */
++  url: string;
++  /** Vencimento da avaliação, se houver. */
++  dueDate?: Date | null;
++}
++
++const KIND_LABEL: Record<NoticeKind, string> = {
++  DOCUMENT_SENT: "Documento enviado para avaliação",
++  BUDGET_SENT: "Orçamento enviado para avaliação",
++  DOCUMENT_RETURNED: "Documento devolvido",
++  BUDGET_RETURNED: "Orçamento devolvido",
++  REMINDER: "Lembrete: avaliação pendente",
++};
++
++function esc(s: string): string {
++  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
++}
++
++function fmtDate(d: Date): string {
++  const dd = String(d.getUTCDate()).padStart(2, "0");
++  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
++  return `${dd}/${mm}/${d.getUTCFullYear()}`;
++}
++
++/** URL só pode ser http(s) — nunca montar link a partir de texto arbitrário. */
++export function isSafeUrl(url: string): boolean {
++  try {
++    const u = new URL(url);
++    return u.protocol === "https:" || u.protocol === "http:";
++  } catch {
++    return false;
++  }
++}
++
++export function buildNotice(to: string[], input: NoticeInput): MailMessage | null {
++  const recipients = [...new Set(to.map((t) => t.trim().toLowerCase()).filter((t) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)))];
++  if (recipients.length === 0 || !isSafeUrl(input.url)) return null;
++
++  const rev = input.revision ? ` (${input.revision})` : "";
++  const subject = `${KIND_LABEL[input.kind]} — ${input.itemLabel}${rev}`;
++  const due = input.dueDate ? `Vencimento: ${fmtDate(input.dueDate)}.` : "";
++
++  const text = [
++    KIND_LABEL[input.kind],
++    `Projeto: ${input.projectName}`,
++    `Item: ${input.itemLabel}${rev}`,
++    `Enviado por: ${input.senderName}`,
++    due,
++    "",
++    `Abrir no DataPulse: ${input.url}`,
++    "",
++    "Este e-mail é apenas um aviso. A decisão é feita dentro do DataPulse.",
++  ]
++    .filter((l, i, a) => l !== "" || (a[i - 1] ?? "") !== "")
++    .join("\n");
++
++  const html =
++    `<p><strong>${esc(KIND_LABEL[input.kind])}</strong></p>` +
++    `<p>Projeto: ${esc(input.projectName)}<br>Item: ${esc(input.itemLabel + rev)}<br>Enviado por: ${esc(input.senderName)}` +
++    (due ? `<br>${esc(due)}` : "") +
++    `</p><p><a href="${esc(input.url)}">Abrir no DataPulse</a></p>` +
++    `<p style="color:#666">Este e-mail é apenas um aviso. A decisão é feita dentro do DataPulse.</p>`;
++
++  return { to: recipients, subject, text, html };
++}
++
++/**
++ * Envia sem nunca quebrar o fluxo: falha de e-mail vira resultado, não exceção
++ * (a pendência continua na caixa de entrada).
++ */
++export async function sendNotice(
++  transport: MailTransport,
++  to: string[],
++  input: NoticeInput,
++): Promise<{ sent: boolean; reason?: string }> {
++  const message = buildNotice(to, input);
++  if (!message) return { sent: false, reason: "Sem destinatário válido ou link inválido." };
++  try {
++    const r = await transport.send(message);
++    return r.ok ? { sent: true } : { sent: false, reason: r.error ?? "Falha no envio." };
++  } catch (e) {
++    return { sent: false, reason: e instanceof Error ? e.message : "Falha no envio." };
++  }
++}
+diff --git a/test/inbox.test.mjs b/test/inbox.test.mjs
+new file mode 100644
+index 0000000..eea7550
+--- /dev/null
++++ b/test/inbox.test.mjs
+@@ -0,0 +1,29 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { dueInfo, buildInbox } from "../lib/inbox.ts";
++
++const d = (s) => new Date(s + "T00:00:00.000Z");
++const today = new Date("2026-10-23T15:00:00.000Z");
++
++test("contagem de dias e tom do vencimento", () => {
++  assert.deepEqual(dueInfo(d("2026-10-22"), today), { daysLeft: -1, tone: "overdue", label: "Venceu há 1 dia" });
++  assert.deepEqual(dueInfo(d("2026-10-20"), today), { daysLeft: -3, tone: "overdue", label: "Venceu há 3 dias" });
++  assert.equal(dueInfo(d("2026-10-23"), today).tone, "today");
++  assert.equal(dueInfo(d("2026-10-24"), today).label, "Vence amanhã");
++  assert.equal(dueInfo(d("2026-10-25"), today).tone, "soon");
++  assert.equal(dueInfo(d("2026-10-30"), today).label, "Vence em 7 dias");
++  assert.equal(dueInfo(null, today).tone, "none");
++});
++
++test("vencidos primeiro, mais atrasado no topo; sem prazo por último", () => {
++  const rows = buildInbox(
++    [
++      { id: "a", kind: "DOCUMENT", label: "A", dueAt: d("2026-10-30"), sentAt: null },
++      { id: "b", kind: "BUDGET", label: "B", dueAt: null, sentAt: d("2026-10-01") },
++      { id: "c", kind: "DOCUMENT", label: "C", dueAt: d("2026-10-20"), sentAt: null },
++      { id: "d", kind: "DOCUMENT", label: "D", dueAt: d("2026-10-22"), sentAt: null },
++    ],
++    today,
++  );
++  assert.deepEqual(rows.map((r) => r.id), ["c", "d", "a", "b"]);
++});
+diff --git a/test/mail.test.mjs b/test/mail.test.mjs
+new file mode 100644
+index 0000000..1fd937d
+--- /dev/null
++++ b/test/mail.test.mjs
+@@ -0,0 +1,42 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { buildNotice, sendNotice, LogOnlyTransport, isSafeUrl } from "../lib/mail.ts";
++
++const base = {
++  kind: "DOCUMENT_SENT",
++  projectName: "Projeto <X>",
++  itemLabel: "PE-ELE-001 — Unifilar",
++  revision: "Rev. B",
++  senderName: "Luiz",
++  url: "https://datapulse.l2techs.com/documents/abc",
++  dueDate: new Date("2026-11-03T00:00:00Z"),
++};
++
++test("aviso: assunto, vencimento e escape de HTML; sem PDF nem comentário", () => {
++  const m = buildNotice(["A@x.com", "a@x.com", "invalido"], base);
++  assert.deepEqual(m.to, ["a@x.com"]);
++  assert.match(m.subject, /Documento enviado para avaliação — PE-ELE-001 — Unifilar \(Rev\. B\)/);
++  assert.match(m.text, /Vencimento: 03\/11\/2026/);
++  assert.match(m.html, /Projeto &lt;X&gt;/);
++  assert.ok(!m.html.includes("<X>"));
++  assert.match(m.text, /apenas um aviso/);
++});
++
++test("sem destinatário válido ou com link inseguro, não monta", () => {
++  assert.equal(buildNotice([], base), null);
++  assert.equal(buildNotice(["a@x.com"], { ...base, url: "javascript:alert(1)" }), null);
++  assert.equal(isSafeUrl("https://a.com/x"), true);
++  assert.equal(isSafeUrl("ftp://a.com"), false);
++});
++
++test("falha de envio nunca lança", async () => {
++  const lines = [];
++  const ok = await sendNotice(new LogOnlyTransport((l) => lines.push(l)), ["a@x.com"], base);
++  assert.equal(ok.sent, true);
++  assert.equal(lines.length, 1);
++  const boom = { name: "boom", send: async () => { throw new Error("rede caiu"); } };
++  const r = await sendNotice(boom, ["a@x.com"], base);
++  assert.deepEqual(r, { sent: false, reason: "rede caiu" });
++  const bad = { name: "bad", send: async () => ({ ok: false, error: "recusado" }) };
++  assert.deepEqual(await sendNotice(bad, ["a@x.com"], base), { sent: false, reason: "recusado" });
++});
+-- 
+2.43.0
+

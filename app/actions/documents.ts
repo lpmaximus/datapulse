@@ -618,6 +618,68 @@ export async function createRevision(
   return { ok: true };
 }
 
+/**
+ * Designa (ou troca) o projetista responsável por elaborar e emitir o
+ * documento — típico de documento em produção, cadastrado por quem gerencia e
+ * repassado a quem vai desenhar. O gerente designa qualquer pessoa da
+ * organização (inclusive Terceirizado/Projetista sem login); o projetista
+ * designado pode repassar o documento a outra pessoa.
+ */
+export async function assignDocumentIssuer(
+  _prev: TransitionState,
+  formData: FormData,
+): Promise<TransitionState> {
+  const user = await requireWriter();
+
+  const documentId = str(formData, "documentId");
+  if (!documentId) return { error: "Documento não identificado." };
+  const responsibleId = str(formData, "responsibleId") || null;
+
+  const doc = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: {
+      responsibleId: true,
+      projectId: true,
+      project: { select: { status: true, organizationId: true } },
+    },
+  });
+  if (
+    !doc ||
+    doc.project.organizationId !== user.organizationId ||
+    !(await canSeeProject(user, doc.projectId))
+  ) {
+    return { error: "Documento não encontrado." };
+  }
+  if (!isProjectWritable(doc.project.status)) return { error: READONLY_MESSAGE };
+  if (!canManageProjects(user) && doc.responsibleId !== user.id) {
+    return { error: "Só o gerente ou o projetista atual podem repassar o documento." };
+  }
+  // Quem não gerencia só repassa a alguém; não deixa o documento sem dono.
+  if (!responsibleId && !canManageProjects(user)) {
+    return { error: "Escolha para quem repassar o documento." };
+  }
+  if (responsibleId === doc.responsibleId) return { ok: true };
+
+  if (responsibleId) {
+    const target = await prisma.user.findFirst({
+      where: { id: responsibleId, organizationId: user.organizationId, isActive: true },
+      select: { id: true },
+    });
+    if (!target) return { error: "Pessoa inválida." };
+  }
+
+  await prisma.document.update({
+    where: { id: documentId },
+    data: { responsibleId },
+  });
+
+  revalidatePath(`/documents/${documentId}`);
+  revalidatePath(`/projects/${doc.projectId}/documents`);
+  revalidatePath("/documents");
+  revalidatePath("/my-work");
+  return { ok: true };
+}
+
 /** Edita apenas os metadados do documento. Não toca status nem histórico. */
 export async function updateDocumentMetadata(formData: FormData): Promise<void> {
   const user = await requireRole(["ADMIN", "MANAGER"]);

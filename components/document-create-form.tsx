@@ -178,7 +178,7 @@ export function DocumentCreateForm({
               ))}
             </select>
           </Field>
-          <Field label="Emissor responsável">
+          <Field label="Projetista responsável" hint="Quem vai elaborar e emitir. Pode ser designado depois.">
             <select name="responsibleId" defaultValue="" className={inputClass}>
               <option value="">Não definir</option>
               {users.map((u) => (

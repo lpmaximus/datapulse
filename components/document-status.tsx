@@ -1,5 +1,15 @@
 import clsx from "clsx";
-import { STATUS_LABEL, type DocumentStatus } from "@/lib/documents";
+import {
+  PRODUCTION_LABEL,
+  STATUS_LABEL,
+  revisionStatusLabel,
+  type DocumentStatus,
+} from "@/lib/documents";
+
+/** Status de exibição: os do banco mais "Em produção" (rascunho sem pacote). */
+export type DisplayStatus = DocumentStatus | "PRODUCTION";
+
+const PRODUCTION_COLOR = "bg-st-production";
 
 /**
  * Cor sólida por status, no padrão da coluna "Status" do monday.com.
@@ -16,10 +26,11 @@ export const STATUS_COLOR: Record<DocumentStatus, string> = {
 };
 
 /** Ordem de leitura na barra de distribuição: do encerrado ao travado. */
-export const STATUS_ORDER: DocumentStatus[] = [
+export const STATUS_ORDER: DisplayStatus[] = [
   "APPROVED",
   "IN_REVIEW",
   "DRAFT",
+  "PRODUCTION",
   "COMMENTED",
   "REJECTED",
   "SUPERSEDED",
@@ -28,9 +39,12 @@ export const STATUS_ORDER: DocumentStatus[] = [
 
 export function DocumentStatusChip({
   status,
+  inProduction = false,
   fill = false,
 }: {
   status: DocumentStatus;
+  /** Rascunho sem pacote: mostra "Em produção" em vez de "Emitida". */
+  inProduction?: boolean;
   /** Ocupa a célula inteira, como no quadro do monday. */
   fill?: boolean;
 }) {
@@ -40,10 +54,12 @@ export function DocumentStatusChip({
         "inline-flex items-center justify-center text-xs font-medium text-white",
         fill ? "h-full w-full px-2 py-2" : "min-w-[96px] px-2 py-1",
         status === "CANCELLED" && "line-through",
-        STATUS_COLOR[status] ?? STATUS_COLOR.DRAFT,
+        status === "DRAFT" && inProduction
+          ? PRODUCTION_COLOR
+          : STATUS_COLOR[status] ?? STATUS_COLOR.DRAFT,
       )}
     >
-      {STATUS_LABEL[status] ?? status}
+      {revisionStatusLabel(status, inProduction)}
     </span>
   );
 }
@@ -67,11 +83,11 @@ export function StuckBadge({ days }: { days: number | null }) {
 }
 
 /** Barra segmentada com a proporção de cada status — rodapé do grupo. */
-export function StatusDistribution({ statuses }: { statuses: DocumentStatus[] }) {
+export function StatusDistribution({ statuses }: { statuses: DisplayStatus[] }) {
   if (statuses.length === 0) {
     return <span className="block h-6 w-full rounded-sm bg-line" />;
   }
-  const counts = new Map<DocumentStatus, number>();
+  const counts = new Map<DisplayStatus, number>();
   for (const s of statuses) counts.set(s, (counts.get(s) ?? 0) + 1);
 
   return (
@@ -81,8 +97,8 @@ export function StatusDistribution({ statuses }: { statuses: DocumentStatus[] })
         return (
           <span
             key={s}
-            title={`${STATUS_LABEL[s]}: ${n} (${Math.round((n / statuses.length) * 100)}%)`}
-            className={clsx("h-full", STATUS_COLOR[s])}
+            title={`${s === "PRODUCTION" ? PRODUCTION_LABEL : STATUS_LABEL[s]}: ${n} (${Math.round((n / statuses.length) * 100)}%)`}
+            className={clsx("h-full", s === "PRODUCTION" ? PRODUCTION_COLOR : STATUS_COLOR[s])}
             style={{ width: `${(n / statuses.length) * 100}%` }}
           />
         );

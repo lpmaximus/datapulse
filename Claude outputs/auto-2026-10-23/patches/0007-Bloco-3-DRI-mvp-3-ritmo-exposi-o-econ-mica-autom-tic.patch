@@ -1,0 +1,397 @@
+From 28133dfa60d563cf376545e0406371f8acc0108b Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <claude@anthropic.com>
+Date: Fri, 23 Oct 2026 07:17:33 -0300
+Subject: [PATCH 7/9] =?UTF-8?q?Bloco=203:=20DRI=20mvp-3=20(ritmo,=20exposi?=
+ =?UTF-8?q?=C3=A7=C3=A3o=20econ=C3=B4mica=20autom=C3=A1tica,=20prioridade?=
+ =?UTF-8?q?=20de=20destravamento)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ lib/a1.ts                 | 15 +++++++
+ lib/dri.ts                | 89 ++++++++++++++++++++++++++++++++++++---
+ lib/server/dri-service.ts | 36 +++++++++++++---
+ test/dri.test.mjs         | 83 ++++++++++++++++++++++++++++++++++--
+ 4 files changed, 209 insertions(+), 14 deletions(-)
+
+diff --git a/lib/a1.ts b/lib/a1.ts
+index cf996ea..b0d0b70 100644
+--- a/lib/a1.ts
++++ b/lib/a1.ts
+@@ -86,3 +86,18 @@ export function activityEstimate(hours: number, hourlyCost: number): number | nu
+   if (!Number.isFinite(hours) || !Number.isFinite(hourlyCost) || hours < 0 || hourlyCost < 0) return null;
+   return roundTo(hours * hourlyCost, 2);
+ }
++
++/**
++ * Impacto econômico automático de uma tarefa (unidade única: reais). O valor
++ * digitado vence; senão, documento = A1 equivalente × valor do A1 do
++ * contratante. Sem nenhum dos dois, nulo (a tarefa não entra no termo
++ * econômico do DRI do projeto).
++ */
++export function taskEconomicImpact(input: {
++  explicit?: number | null;
++  a1Equivalent?: number | null;
++  a1UnitValue?: number | null;
++}): number | null {
++  if (input.explicit != null && Number.isFinite(input.explicit)) return input.explicit;
++  return a1Value(input.a1Equivalent ?? null, input.a1UnitValue ?? null);
++}
+diff --git a/lib/dri.ts b/lib/dri.ts
+index 0365f55..d2526b9 100644
+--- a/lib/dri.ts
++++ b/lib/dri.ts
+@@ -48,6 +48,18 @@ export interface OperationalInput {
+   maxRevisionsPerDocument: number;
+ }
+ 
++/**
++ * Ritmo: compara o avanço ESPERADO (linear entre o início PREVISTO e o prazo)
++ * com o avanço DECLARADO. Usa o início previsto, não o real; senão quem começa
++ * atrasado nunca aparece atrasado.
++ */
++export interface PaceInput {
++  startDate: Date | null;
++  dueDate: Date | null;
++  /** Avanço declarado, 0–100. */
++  progress: number;
++}
++
+ export interface MilestoneInput {
+   id: string;
+   name: string;
+@@ -59,6 +71,7 @@ export interface MilestoneInput {
+   humanSignals: HumanSignalInput[];
+   systemicSignals: SystemicSignalInput[];
+   operational?: OperationalInput;
++  pace?: PaceInput;
+ }
+ 
+ export interface Component {
+@@ -87,7 +100,14 @@ export interface DRIResult {
+   };
+ }
+ 
+-export const FORMULA_VERSION = "mvp-2";
++/**
++ * mvp-3 (15/10/2026): documento passa a ser uma tarefa por si, o peso entra
++ * como exposição econômica (score ÷ 100 × valor em R$) e surge o sinal de
++ * RITMO, que avisa antes de o prazo vencer. O score de cada tarefa continua
++ * "quão travada ela está" — não muda com o tamanho; o tamanho só reordena a
++ * prioridade de destravamento. Scores mvp-2 não são diretamente comparáveis.
++ */
++export const FORMULA_VERSION = "mvp-3";
+ 
+ /** Janelas de normalização. Recalibrar após o piloto (Semana 6). */
+ export const DRI_CONFIG = {
+@@ -109,6 +129,10 @@ export const DRI_CONFIG = {
+   reviewStallHorizonDays: 14,
+   /** Nº de revisões de um mesmo documento que já satura o retrabalho (4 = 3 devoluções). */
+   revisionCyclesCap: 4,
++  /** Diferença (em pontos percentuais) entre avanço esperado e declarado que já satura o ritmo. */
++  paceGapCap: 50,
++  /** Peso do componente de ritmo na Camada 1 — heurístico, calibrar no piloto. */
++  paceWeight: 0.2,
+   criticalityFactor: {
+     LOW: 0.85,
+     MEDIUM: 1,
+@@ -241,12 +265,30 @@ export function computeOperationalComponents(
+   return components;
+ }
+ 
++/**
++ * Componente de ritmo. Só existe com início previsto e prazo válidos (prazo
++ * depois do início). Antes do início, nada é esperado; depois do prazo, 100%
++ * era esperado (o atraso em si já é contado em `scheduleSlip`).
++ */
++export function computePaceComponent(pace: PaceInput | undefined, now: Date): Component | null {
++  if (!pace || !pace.startDate || !pace.dueDate) return null;
++  const span = pace.dueDate.getTime() - pace.startDate.getTime();
++  if (span <= 0) return null;
++  const expected = clamp(((now.getTime() - pace.startDate.getTime()) / span) * 100);
++  const gap = Math.max(0, expected - clamp(pace.progress));
++  return {
++    value: clamp((gap / DRI_CONFIG.paceGapCap) * 100),
++    weight: DRI_CONFIG.paceWeight,
++  };
++}
++
+ /** Camada 1 — desvio objetivo de cronograma e custo, mais sinais operacionais. */
+ export function computeSystemicScore(
+   milestone: Pick<MilestoneInput, "plannedDate" | "forecastDate" | "actualDate">,
+   signals: SystemicSignalInput[],
+   now: Date,
+   operational?: OperationalInput,
++  pace?: PaceInput,
+ ): { score: number | null; components: Record<string, Component>; used: number } {
+   const components: Record<string, Component> = {};
+   const latest = [...signals].sort(
+@@ -299,6 +341,9 @@ export function computeSystemicScore(
+ 
+   Object.assign(components, computeOperationalComponents(operational, now));
+ 
++  const paceComponent = computePaceComponent(pace, now);
++  if (paceComponent) components.pace = paceComponent;
++
+   return {
+     score: weightedBlend(components),
+     components,
+@@ -317,6 +362,7 @@ export function computeMilestoneDRI(
+     milestone.systemicSignals,
+     now,
+     milestone.operational,
++    milestone.pace,
+   );
+ 
+   // Marco já entregue não é restrição: o gargalo está adiante.
+@@ -425,11 +471,44 @@ export function computeProjectDRI(
+  * novo o atraso que já está contado na filha.
+  */
+ export function aggregateGroupDRI(
+-  children: { name: string; score: number }[],
+-): { score: number; dominantChild: string | null; childCount: number } {
+-  if (children.length === 0) return { score: 0, dominantChild: null, childCount: 0 };
++  children: { name: string; score: number; economicExposure?: number | null }[],
++): {
++  score: number;
++  dominantChild: string | null;
++  childCount: number;
++  /** Exposição econômica somada das filhas (R$); nula se nenhuma tem valor. */
++  economicExposure: number | null;
++} {
++  if (children.length === 0) {
++    return { score: 0, dominantChild: null, childCount: 0, economicExposure: null };
++  }
+   const top = children.reduce((a, b) => (b.score > a.score ? b : a));
+-  return { score: top.score, dominantChild: top.name, childCount: children.length };
++  const exposures = children.map((c) => c.economicExposure).filter((x): x is number => x != null);
++  const economicExposure = exposures.length
++    ? Math.round(exposures.reduce((a, b) => a + b, 0) * 100) / 100
++    : null;
++  return { score: top.score, dominantChild: top.name, childCount: children.length, economicExposure };
++}
++
++/**
++ * Prioridade de destravamento ("o que destravar primeiro"): ordena pela
++ * exposição econômica (score ÷ 100 × valor), para que um A1 grande travado
++ * apareça antes de um A4 travado com o mesmo score. Sem exposição em algum
++ * dos dois, cai no score. Estável em empate.
++ */
++export function rankByExposure<T extends { score: number; economicExposure?: number | null }>(
++  items: ReadonlyArray<T>,
++): T[] {
++  return items
++    .map((item, index) => ({ item, index }))
++    .sort((a, b) => {
++      const ea = a.item.economicExposure ?? null;
++      const eb = b.item.economicExposure ?? null;
++      if (ea != null && eb != null && ea !== eb) return eb - ea;
++      if (b.item.score !== a.item.score) return b.item.score - a.item.score;
++      return a.index - b.index;
++    })
++    .map((x) => x.item);
+ }
+ 
+ export type DRIBand = "low" | "watch" | "high" | "critical";
+diff --git a/lib/server/dri-service.ts b/lib/server/dri-service.ts
+index cd2c6d9..694710e 100644
+--- a/lib/server/dri-service.ts
++++ b/lib/server/dri-service.ts
+@@ -8,6 +8,7 @@ import {
+   type MilestoneInput,
+ } from "@/lib/dri";
+ import { leafTasks } from "@/lib/tasks";
++import { taskEconomicImpact } from "@/lib/a1";
+ 
+ /**
+  * Orquestra o recálculo do DRI: lê os sinais, chama o motor puro (lib/dri.ts)
+@@ -23,6 +24,14 @@ import { leafTasks } from "@/lib/tasks";
+  * revela a restrição se formando.
+  */
+ export async function recalculateProjectDRI(projectId: string, now = new Date()) {
++  // Valor do A1 do contratante do projeto: dá o impacto econômico automático
++  // dos documentos (A1 equivalente × valor do A1), em reais.
++  const projectClient = await prisma.project.findUnique({
++    where: { id: projectId },
++    select: { clientRef: { select: { a1Value: true } } },
++  });
++  const a1UnitValue = toNumber(projectClient?.clientRef?.a1Value ?? null);
++
+   const milestones = await prisma.milestone.findMany({
+     where: { projectId, status: { not: "CANCELLED" } },
+     include: {
+@@ -35,6 +44,7 @@ export async function recalculateProjectDRI(projectId: string, now = new Date())
+         take: 50,
+       },
+       // Sinais operacionais: o que trava a tarefa, já registrado no banco.
++      documentTask: { select: { a1Equivalent: true } },
+       impediments: { where: { resolvedAt: null }, select: { createdAt: true } },
+       requests: { where: { status: "PENDING" }, select: { dueAt: true } },
+       documentRevisions: {
+@@ -58,11 +68,21 @@ export async function recalculateProjectDRI(projectId: string, now = new Date())
+   const results = milestones
+     .filter((m) => leafIds.has(m.id))
+     .map((m) => {
++      const impact = taskEconomicImpact({
++        explicit: toNumber(m.economicImpact),
++        a1Equivalent: toNumber(m.documentTask?.a1Equivalent ?? null),
++        a1UnitValue,
++      });
+       const input: MilestoneInput = {
+         id: m.id,
+         name: m.name,
+         criticality: m.criticality,
+-        economicImpact: toNumber(m.economicImpact),
++        economicImpact: impact,
++        pace: {
++          startDate: m.startDate,
++          dueDate: m.forecastDate ?? m.plannedDate,
++          progress: m.progress,
++        },
+         plannedDate: m.plannedDate,
+         forecastDate: m.forecastDate,
+         actualDate: m.actualDate,
+@@ -94,24 +114,27 @@ export async function recalculateProjectDRI(projectId: string, now = new Date())
+           ),
+         },
+       };
+-      return { milestone: m, dri: computeMilestoneDRI(input, now) };
++      return { milestone: m, impact, dri: computeMilestoneDRI(input, now) };
+     });
+ 
+   const project = computeProjectDRI(
+     results.map((r) => ({
+       score: r.dri.score,
+-      economicImpact: toNumber(r.milestone.economicImpact),
++      economicImpact: r.impact,
+     })),
+   );
+ 
+   // Marcos que agrupam tarefas: pior score das filhas.
+-  const scoreById = new Map(results.map((r) => [r.milestone.id, r.dri.score]));
++  const resultById = new Map(results.map((r) => [r.milestone.id, r]));
+   const groups = milestones
+     .filter((m) => !leafIds.has(m.id))
+     .map((m) => {
+       const children = milestones
+-        .filter((c) => c.parentId === m.id && scoreById.has(c.id))
+-        .map((c) => ({ name: c.name, score: scoreById.get(c.id) as number }));
++        .filter((c) => c.parentId === m.id && resultById.has(c.id))
++        .map((c) => {
++          const r = resultById.get(c.id)!;
++          return { name: c.name, score: r.dri.score, economicExposure: r.dri.economicExposure };
++        });
+       return { milestone: m, agg: aggregateGroupDRI(children) };
+     });
+ 
+@@ -142,6 +165,7 @@ export async function recalculateProjectDRI(projectId: string, now = new Date())
+             aggregate: "pior das filhas",
+             dominantChild: g.agg.dominantChild,
+             childCount: g.agg.childCount,
++            economicExposure: g.agg.economicExposure,
+             calculatedAt: now.toISOString(),
+             formulaVersion: FORMULA_VERSION,
+           }),
+diff --git a/test/dri.test.mjs b/test/dri.test.mjs
+index 01f3bcb..1ed01ca 100644
+--- a/test/dri.test.mjs
++++ b/test/dri.test.mjs
+@@ -234,7 +234,7 @@ const noOp = {
+ };
+ 
+ test("versão da fórmula", () => {
+-  assert.equal(FORMULA_VERSION, "mvp-2");
++  assert.equal(FORMULA_VERSION, "mvp-3");
+ });
+ 
+ test("prazo previsto já vencido, sem conclusão, continua gerando atraso até hoje", () => {
+@@ -328,6 +328,83 @@ test("marco que agrupa: pior das filhas, não média", () => {
+     { name: "B", score: 80 },
+     { name: "C", score: 50 },
+   ]);
+-  assert.deepEqual(g, { score: 80, dominantChild: "B", childCount: 3 });
+-  assert.deepEqual(aggregateGroupDRI([]), { score: 0, dominantChild: null, childCount: 0 });
++  assert.deepEqual(g, { score: 80, dominantChild: "B", childCount: 3, economicExposure: null });
++  assert.deepEqual(aggregateGroupDRI([]), { score: 0, dominantChild: null, childCount: 0, economicExposure: null });
++});
++
++/* ------------------- mvp-3: ritmo, exposição e prioridade ------------------- */
++
++import { computePaceComponent, rankByExposure, DRI_CONFIG } from "../lib/dri.ts";
++import { taskEconomicImpact } from "../lib/a1.ts";
++
++test("ritmo: sem início ou prazo válidos, não existe", () => {
++  assert.equal(computePaceComponent(undefined, NOW), null);
++  assert.equal(computePaceComponent({ startDate: null, dueDate: daysAhead(10), progress: 0 }, NOW), null);
++  assert.equal(computePaceComponent({ startDate: daysAhead(5), dueDate: daysAhead(2), progress: 0 }, NOW), null);
++});
++
++test("ritmo: avanço em dia não pontua; defasagem de 50 p.p. satura", () => {
++  // metade do caminho: início há 10 dias, prazo em 10 dias => esperado 50%
++  const onTrack = computePaceComponent({ startDate: daysAgo(10), dueDate: daysAhead(10), progress: 50 }, NOW);
++  assert.equal(onTrack.value, 0);
++  assert.equal(onTrack.weight, DRI_CONFIG.paceWeight);
++  const slightly = computePaceComponent({ startDate: daysAgo(10), dueDate: daysAhead(10), progress: 25 }, NOW);
++  assert.ok(Math.abs(slightly.value - 50) < 0.01); // 25 p.p. de defasagem => 50
++  const saturated = computePaceComponent({ startDate: daysAgo(10), dueDate: daysAhead(10), progress: 0 }, NOW);
++  assert.equal(saturated.value, 100);
++  const ahead = computePaceComponent({ startDate: daysAgo(10), dueDate: daysAhead(10), progress: 90 }, NOW);
++  assert.equal(ahead.value, 0);
++});
++
++test("ritmo: antes do início nada é esperado", () => {
++  const c = computePaceComponent({ startDate: daysAhead(5), dueDate: daysAhead(15), progress: 0 }, NOW);
++  assert.equal(c.value, 0);
++});
++
++test("ritmo entra na Camada 1 do marco e avisa antes do prazo vencer", () => {
++  const base = {
++    id: "m", name: "Doc", criticality: "MEDIUM", economicImpact: 10000,
++    plannedDate: daysAhead(10), forecastDate: daysAhead(10), actualDate: null,
++    humanSignals: [], systemicSignals: [],
++  };
++  const noPace = computeMilestoneDRI(base, NOW);
++  const withPace = computeMilestoneDRI(
++    { ...base, pace: { startDate: daysAgo(10), dueDate: daysAhead(10), progress: 0 } },
++    NOW,
++  );
++  assert.ok(withPace.breakdown.systemic.pace);
++  assert.ok(withPace.score > noPace.score);
++  assert.equal(withPace.breakdown.formulaVersion, "mvp-3");
++});
++
++test("exposição econômica: score ÷ 100 × valor; A1 grande destrava antes de A4", () => {
++  const mk = (id, score, impact) => ({ id, score, economicExposure: impact == null ? null : (score / 100) * impact });
++  const big = mk("a1-grande", 60, 10000); // 6000
++  const small = mk("a4", 60, 125); // 75
++  const noValue = mk("sem-valor", 90, null);
++  const ranked = rankByExposure([small, noValue, big]);
++  assert.deepEqual(ranked.map((r) => r.id), ["sem-valor", "a1-grande", "a4"]);
++  // empate de exposição cai no score e depois na ordem original
++  const t1 = { id: "x", score: 50, economicExposure: 100 };
++  const t2 = { id: "y", score: 70, economicExposure: 100 };
++  assert.deepEqual(rankByExposure([t1, t2]).map((r) => r.id), ["y", "x"]);
++});
++
++test("marco soma a exposição das filhas e mantém o pior score", () => {
++  const agg = aggregateGroupDRI([
++    { name: "a", score: 40, economicExposure: 100 },
++    { name: "b", score: 80, economicExposure: 50.555 },
++    { name: "c", score: 10 },
++  ]);
++  assert.equal(agg.score, 80);
++  assert.equal(agg.dominantChild, "b");
++  assert.equal(agg.economicExposure, 150.56);
++  assert.equal(aggregateGroupDRI([{ name: "z", score: 1 }]).economicExposure, null);
++});
++
++test("impacto econômico automático: digitado vence; senão A1 × valor", () => {
++  assert.equal(taskEconomicImpact({ explicit: 500, a1Equivalent: 2, a1UnitValue: 1000 }), 500);
++  assert.equal(taskEconomicImpact({ a1Equivalent: 2, a1UnitValue: 1000 }), 2000);
++  assert.equal(taskEconomicImpact({ a1Equivalent: 2, a1UnitValue: null }), null);
++  assert.equal(taskEconomicImpact({}), null);
+ });
+-- 
+2.43.0
+

@@ -1,0 +1,683 @@
+From ec235c312d329c33a881d60e4a66522f5030126d Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <claude@anthropic.com>
+Date: Fri, 23 Oct 2026 07:08:51 -0300
+Subject: [PATCH 3/9] =?UTF-8?q?Bloco=202:=20A1=20equivalente,=20devolu?=
+ =?UTF-8?q?=C3=A7=C3=A3o=20da=20revis=C3=A3o,=20documento=20como=20tarefa,?=
+ =?UTF-8?q?=20avan=C3=A7o=20do=20cliente=20(m=C3=B3dulos=20puros)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ lib/a1.ts                     |  88 +++++++++++++++++++
+ lib/client-progress.ts        |  74 ++++++++++++++++
+ lib/document-task.ts          | 158 ++++++++++++++++++++++++++++++++++
+ lib/review-return.ts          |  80 +++++++++++++++++
+ test/a1.test.mjs              |  39 +++++++++
+ test/client-progress.test.mjs |  47 ++++++++++
+ test/document-task.test.mjs   |  87 +++++++++++++++++++
+ test/review-return.test.mjs   |  30 +++++++
+ 8 files changed, 603 insertions(+)
+ create mode 100644 lib/a1.ts
+ create mode 100644 lib/client-progress.ts
+ create mode 100644 lib/document-task.ts
+ create mode 100644 lib/review-return.ts
+ create mode 100644 test/a1.test.mjs
+ create mode 100644 test/client-progress.test.mjs
+ create mode 100644 test/document-task.test.mjs
+ create mode 100644 test/review-return.test.mjs
+
+diff --git a/lib/a1.ts b/lib/a1.ts
+new file mode 100644
+index 0000000..cf996ea
+--- /dev/null
++++ b/lib/a1.ts
+@@ -0,0 +1,88 @@
++/**
++ * A1 equivalente — a unidade de peso e de preço dos documentos (decisão de
++ * 15/10/2026). O tamanho do documento (formato × folhas) vira "folhas de A1":
++ * A1 = 1, A2 = 0,5, A3 = 0,25, A4 = 0,125. A tabela é configurável por
++ * projetista (um formato novo, como A0 = 2, entra sem mexer no código).
++ *
++ * Mede TAMANHO, não esforço: o valor em reais é A1 equivalente × valor do A1
++ * acertado com o contratante. Módulo puro, testado em `test/a1.test.mjs`.
++ */
++export type A1Factors = Record<string, number>;
++
++export const DEFAULT_A1_FACTORS: Readonly<A1Factors> = Object.freeze({
++  A1: 1,
++  A2: 0.5,
++  A3: 0.25,
++  A4: 0.125,
++});
++
++/** Casas decimais do A1 equivalente (0,125 exige pelo menos 3). */
++export const A1_DECIMALS = 3;
++
++export function roundTo(value: number, decimals: number): number {
++  const f = 10 ** decimals;
++  return Math.round((value + Number.EPSILON) * f) / f;
++}
++
++/** "a3 " -> "A3". Vazio -> null. */
++export function normalizeFormat(value: unknown): string | null {
++  const s = String(value ?? "").trim().toUpperCase();
++  return s.length > 0 ? s : null;
++}
++
++/**
++ * Lê a tabela de fatores guardada (JSON). Entradas inválidas (fator <= 0 ou
++ * não numérico) são descartadas; tabela vazia ou ausente cai no padrão.
++ */
++export function parseA1Factors(input: unknown): A1Factors {
++  if (!input || typeof input !== "object" || Array.isArray(input)) return { ...DEFAULT_A1_FACTORS };
++  const out: A1Factors = {};
++  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
++    const key = normalizeFormat(k);
++    const n = typeof v === "number" ? v : Number(String(v).replace(",", "."));
++    if (key && Number.isFinite(n) && n > 0) out[key] = n;
++  }
++  return Object.keys(out).length > 0 ? out : { ...DEFAULT_A1_FACTORS };
++}
++
++/**
++ * A1 equivalente de um documento: folhas × fator do formato. Devolve null se o
++ * formato não está na tabela ou as folhas não são um inteiro positivo.
++ */
++export function a1Equivalent(
++  format: unknown,
++  sheets: unknown,
++  factors: A1Factors = DEFAULT_A1_FACTORS,
++): number | null {
++  const key = normalizeFormat(format);
++  const n = typeof sheets === "number" ? sheets : Number(sheets);
++  if (!key || !Number.isInteger(n) || n < 1) return null;
++  const factor = factors[key];
++  if (factor === undefined) return null;
++  return roundTo(n * factor, A1_DECIMALS);
++}
++
++/** Valor em reais de um peso em A1 equivalente. Sem valor do A1 válido, null. */
++export function a1Value(a1eq: number | null | undefined, a1UnitValue: number | null | undefined): number | null {
++  if (a1eq == null || a1UnitValue == null || !Number.isFinite(a1UnitValue) || a1UnitValue <= 0) return null;
++  return roundTo(a1eq * a1UnitValue, 2);
++}
++
++/**
++ * Peso (em A1 equivalente) de uma atividade que não é documento: o valor
++ * estimado (horas × custo-hora) dividido pelo valor do A1.
++ */
++export function activityWeight(
++  estimatedValue: number | null | undefined,
++  a1UnitValue: number | null | undefined,
++): number | null {
++  if (estimatedValue == null || !Number.isFinite(estimatedValue) || estimatedValue < 0) return null;
++  if (a1UnitValue == null || !Number.isFinite(a1UnitValue) || a1UnitValue <= 0) return null;
++  return roundTo(estimatedValue / a1UnitValue, A1_DECIMALS);
++}
++
++/** Estimativa de uma atividade: horas × custo-hora. */
++export function activityEstimate(hours: number, hourlyCost: number): number | null {
++  if (!Number.isFinite(hours) || !Number.isFinite(hourlyCost) || hours < 0 || hourlyCost < 0) return null;
++  return roundTo(hours * hourlyCost, 2);
++}
+diff --git a/lib/client-progress.ts b/lib/client-progress.ts
+new file mode 100644
+index 0000000..95f9a2c
+--- /dev/null
++++ b/lib/client-progress.ts
+@@ -0,0 +1,74 @@
++/**
++ * Avanço mostrado ao contratante ("Seu projeto está x% concluído").
++ *
++ *   avanço = Σ (peso × avanço da tarefa) ÷ Σ pesos
++ *
++ * O peso é o A1 equivalente (tamanho, não esforço), o mesmo do orçamento — uma
++ * média simples distorceria (um A1 de 10 folhas pesa mais que um A4 de 1).
++ * Mostra DOIS números para não enganar o cliente:
++ *   - Elaboração: o que a projetista declara;
++ *   - Aprovado: parte do peso já aprovada pelo contratante.
++ * Documento em 100% de elaboração ainda não é documento aprovado.
++ *
++ * Cancelado sai do cálculo. Item fora de escopo (documento novo de LD revisada
++ * cujo orçamento complementar ainda não foi aprovado) também sai, e a tela deve
++ * deixar uma nota. Módulo puro, testado em `test/client-progress.test.mjs`.
++ */
++export interface ProgressItem {
++  /** A1 equivalente (ou peso equivalente da atividade). */
++  weight: number;
++  /** Avanço de elaboração declarado, 0–100. */
++  progress: number;
++  status: string;
++  /** Aprovado pelo contratante. */
++  approved: boolean;
++  /** Dentro do escopo já aprovado em orçamento. Padrão: true. */
++  inScope?: boolean;
++}
++
++export interface ClientProgress {
++  elaboration: number | null;
++  approved: number | null;
++  totalWeight: number;
++  /** Itens fora do escopo aprovado (para a nota na tela). */
++  pendingScopeItems: number;
++}
++
++const round1 = (n: number) => Math.round(n * 10) / 10;
++
++export function clientProgress(items: ReadonlyArray<ProgressItem>): ClientProgress {
++  let total = 0;
++  let elab = 0;
++  let appr = 0;
++  let pending = 0;
++  for (const it of items) {
++    if (it.status === "CANCELLED") continue;
++    if (it.inScope === false) {
++      pending += 1;
++      continue;
++    }
++    const w = Number.isFinite(it.weight) && it.weight > 0 ? it.weight : 0;
++    if (w === 0) continue;
++    const p = Math.min(100, Math.max(0, Number.isFinite(it.progress) ? it.progress : 0));
++    total += w;
++    elab += w * p;
++    appr += w * (it.approved ? 100 : 0);
++  }
++  if (total === 0) return { elaboration: null, approved: null, totalWeight: 0, pendingScopeItems: pending };
++  return {
++    elaboration: round1(elab / total),
++    approved: round1(appr / total),
++    totalWeight: Math.round(total * 1000) / 1000,
++    pendingScopeItems: pending,
++  };
++}
++
++/** Prazo de entrega exibido ao cliente. Cancelado e sem data ficam de fora. */
++export function clientDueDate(
++  items: ReadonlyArray<{ status: string; dueDate: Date | null }>,
++): Date | null {
++  const dates = items
++    .filter((i) => i.status !== "CANCELLED" && i.dueDate)
++    .map((i) => (i.dueDate as Date).getTime());
++  return dates.length ? new Date(Math.max(...dates)) : null;
++}
+diff --git a/lib/document-task.ts b/lib/document-task.ts
+new file mode 100644
+index 0000000..c4e5b4c
+--- /dev/null
++++ b/lib/document-task.ts
+@@ -0,0 +1,158 @@
++import type { DocumentStatus } from "./documents";
++import { daysBetween } from "./documents";
++
++/**
++ * Documento como Tarefa (decisão de 15/10/2026, substitui o "pacote de
++ * revisão"): cada documento tem a SUA tarefa. Status, avanço, datas e
++ * relógios saem do ciclo de revisão do próprio documento.
++ *
++ * Módulo puro, testado em `test/document-task.test.mjs`.
++ */
++
++export type DocTaskStatus = "NOT_STARTED" | "IN_PROGRESS" | "IN_REVIEW" | "BLOCKED" | "DONE" | "CANCELLED";
++
++/* ------------------------------ Etapas padrão ----------------------------- */
++
++/**
++ * Etapas padrão com percentual associado (padrão adotado, a recalibrar no
++ * piloto): a projetista escolhe a etapa em vez de digitar um número livre.
++ * O teto de cada etapa é o avanço que ela declara.
++ */
++export const DOCUMENT_STAGES = [
++  { key: "ELABORATING", label: "Em elaboração", min: 0, max: 70 },
++  { key: "INTERNAL_CHECK", label: "Verificação interna", min: 71, max: 90 },
++  { key: "READY_TO_ISSUE", label: "Pronto para emitir", min: 91, max: 99 },
++  { key: "ISSUED", label: "Emitido para avaliação", min: 100, max: 100 },
++] as const;
++
++export type DocumentStageKey = (typeof DOCUMENT_STAGES)[number]["key"];
++
++/** O documento só chega a 100% quando o PDF é enviado; antes disso, no máximo 99%. */
++export function capDeclaredProgress(progress: number, pdfSent: boolean): number {
++  const p = Number.isFinite(progress) ? Math.round(progress) : 0;
++  const clamped = Math.min(100, Math.max(0, p));
++  return pdfSent ? clamped : Math.min(clamped, 99);
++}
++
++export function stageForProgress(progress: number, pdfSent: boolean): (typeof DOCUMENT_STAGES)[number] {
++  const p = capDeclaredProgress(progress, pdfSent);
++  if (pdfSent && p === 100) return DOCUMENT_STAGES[3];
++  return DOCUMENT_STAGES.find((s) => s.key !== "ISSUED" && p >= s.min && p <= s.max) ?? DOCUMENT_STAGES[0];
++}
++
++/* ------------------------- Projeção do status da tarefa ------------------- */
++
++export interface DocumentTaskInput {
++  /** Revisão vigente (maior sequência) ou null se ainda não há revisão. */
++  current: { status: DocumentStatus; dueAt: Date | null; analyzedAt: Date | null } | null;
++  /** Avanço declarado pela projetista (0–100). */
++  declaredProgress: number;
++  /** Impedimento ativo na tarefa. */
++  blocked?: boolean;
++}
++
++export interface DocumentTaskProjection {
++  status: DocTaskStatus;
++  progress: number;
++  /** Prazo de análise da revisão em análise, se houver. */
++  forecastDate: Date | null;
++  /** Fim real = data da aprovação (não a do envio). */
++  actualDate: Date | null;
++  /** Com quem está a bola. */
++  ball: "DESIGNER" | "CLIENT" | "NONE";
++}
++
++/**
++ * Status da tarefa do documento a partir da revisão vigente.
++ *
++ * - Sem revisão ou rascunho: A fazer (0%) ou Em andamento (>0%), limitado a 99%.
++ * - Em análise: Em revisão, 100% de elaboração (o PDF foi enviado), bola com o contratante.
++ * - Comentada/reprovada: volta para a projetista — Em andamento, no máximo 99% até novo PDF.
++ * - Aprovada: Concluída, fim real = data da aprovação.
++ * - Cancelada: Cancelada (fora de todos os cálculos).
++ * - Impedimento ativo: Impedida (exceto concluída/cancelada).
++ */
++export function projectDocumentTask(input: DocumentTaskInput): DocumentTaskProjection {
++  const { current, blocked } = input;
++  const declared = capDeclaredProgress(input.declaredProgress, false);
++
++  if (!current || current.status === "DRAFT") {
++    const status: DocTaskStatus = blocked ? "BLOCKED" : declared > 0 ? "IN_PROGRESS" : "NOT_STARTED";
++    return { status, progress: declared, forecastDate: null, actualDate: null, ball: "DESIGNER" };
++  }
++
++  switch (current.status) {
++    case "IN_REVIEW":
++      return {
++        status: blocked ? "BLOCKED" : "IN_REVIEW",
++        progress: 100,
++        forecastDate: current.dueAt,
++        actualDate: null,
++        ball: "CLIENT",
++      };
++    case "COMMENTED":
++    case "REJECTED":
++      return {
++        status: blocked ? "BLOCKED" : "IN_PROGRESS",
++        progress: declared,
++        forecastDate: null,
++        actualDate: null,
++        ball: "DESIGNER",
++      };
++    case "APPROVED":
++    case "SUPERSEDED":
++      return { status: "DONE", progress: 100, forecastDate: null, actualDate: current.analyzedAt, ball: "NONE" };
++    case "CANCELLED":
++      return { status: "CANCELLED", progress: 0, forecastDate: null, actualDate: null, ball: "NONE" };
++    default:
++      return { status: "IN_PROGRESS", progress: declared, forecastDate: null, actualDate: null, ball: "DESIGNER" };
++  }
++}
++
++/* ----------------------------- Início real -------------------------------- */
++
++/**
++ * O início real é gravado automaticamente na primeira vez que o avanço sai de
++ * 0%. Serve para medir atraso de início e tempo de ciclo; nunca é digitado.
++ */
++export function shouldStampActualStart(
++  previousProgress: number,
++  nextProgress: number,
++  currentActualStart: Date | null | undefined,
++): boolean {
++  return !currentActualStart && previousProgress <= 0 && nextProgress > 0;
++}
++
++/* ------------------------------ Dois relógios ----------------------------- */
++
++export interface CycleStamp {
++  issuedAt: Date | null;
++  analyzedAt: Date | null;
++}
++
++export interface TwoClocks {
++  /** Dias com a projetista (do início/da última devolução até cada envio). */
++  designerDays: number;
++  /** Dias com o contratante (do envio até a decisão; em aberto, até agora). */
++  clientDays: number;
++}
++
++/**
++ * Dois relógios: a análise lenta do contratante não conta como atraso da
++ * projetista. `startedAt` é o início real (ou, sem ele, o planejado).
++ * Os ciclos devem vir em ordem cronológica.
++ */
++export function twoClocks(cycles: ReadonlyArray<CycleStamp>, startedAt: Date | null, now: Date): TwoClocks {
++  let designer = 0;
++  let client = 0;
++  let cursor = startedAt;
++  for (const c of cycles) {
++    if (!c.issuedAt) continue;
++    const d = daysBetween(c.issuedAt, cursor);
++    if (d != null) designer += d;
++    const end = c.analyzedAt ?? now;
++    client += daysBetween(end, c.issuedAt) ?? 0;
++    cursor = c.analyzedAt ?? null;
++  }
++  return { designerDays: designer, clientDays: client };
++}
+diff --git a/lib/review-return.ts b/lib/review-return.ts
+new file mode 100644
+index 0000000..e6fd062
+--- /dev/null
++++ b/lib/review-return.ts
+@@ -0,0 +1,80 @@
++/**
++ * Devolução da revisão pelo contratante (decisão de 15/10/2026): a marcação de
++ * comentários é feita SÓ no PDF, no programa que o contratante já usa; ele
++ * anexa o PDF comentado e/ou escreve uma nota. O sistema não edita o PDF e não
++ * cadastra comentário item por item.
++ *
++ * Regras:
++ *  - Comentar exige o PDF comentado OU um texto.
++ *  - Aprovar não exige nada.
++ *  - Cancelar exige motivo (documento cancelado sai de todos os cálculos).
++ *  - A projetista não aprova o próprio trabalho.
++ *
++ * Módulo puro, testado em `test/review-return.test.mjs`.
++ */
++export type ReturnDecision = "APPROVE" | "COMMENT" | "CANCEL";
++
++export const DECISION_LABEL: Record<ReturnDecision, string> = {
++  APPROVE: "Aprovar",
++  COMMENT: "Comentar",
++  CANCEL: "Cancelar",
++};
++
++/** Só PDF no sistema; DWG segue por e-mail depois da aprovação. */
++export const COMMENT_FILE_CONTENT_TYPE = "application/pdf";
++/** Padrão adotado (ajustável): 25 MB por PDF comentado e até 5 versões por documento. */
++export const MAX_COMMENT_FILE_BYTES = 25 * 1024 * 1024;
++export const MAX_COMMENT_FILES_PER_DOCUMENT = 5;
++
++export type ReturnInput = {
++  decision: ReturnDecision;
++  text?: string | null;
++  hasFile?: boolean;
++};
++
++export type ValidationResult = { ok: true } | { ok: false; error: string };
++
++export function validateReturn(input: ReturnInput): ValidationResult {
++  const text = (input.text ?? "").trim();
++  switch (input.decision) {
++    case "APPROVE":
++      return { ok: true };
++    case "COMMENT":
++      if (!text && !input.hasFile) {
++        return { ok: false, error: "Para comentar, anexe o PDF comentado ou escreva uma nota." };
++      }
++      return { ok: true };
++    case "CANCEL":
++      if (!text) return { ok: false, error: "Informe o motivo do cancelamento." };
++      return { ok: true };
++    default:
++      return { ok: false, error: "Decisão inválida." };
++  }
++}
++
++/** A projetista (emissora) não decide sobre o que ela mesma emitiu. */
++export function canDecideOnRevision(actor: { id: string }, issuerId: string | null | undefined): boolean {
++  return !issuerId || actor.id !== issuerId;
++}
++
++export function validateCommentFile(file: {
++  contentType: string;
++  sizeBytes: number;
++  existingCount: number;
++}): ValidationResult {
++  const type = file.contentType.split(";")[0].trim().toLowerCase();
++  if (type !== COMMENT_FILE_CONTENT_TYPE) return { ok: false, error: "O PDF comentado deve estar em formato PDF." };
++  if (!(file.sizeBytes > 0)) return { ok: false, error: "Arquivo vazio." };
++  if (file.sizeBytes > MAX_COMMENT_FILE_BYTES) {
++    return { ok: false, error: "O PDF comentado passa de 25 MB." };
++  }
++  if (file.existingCount >= MAX_COMMENT_FILES_PER_DOCUMENT) {
++    return { ok: false, error: "Limite de 5 PDFs comentados por documento atingido." };
++  }
++  return { ok: true };
++}
++
++/** Caminho do blob do PDF comentado (sempre por projeto, nome seguro). */
++export function commentBlobPrefix(projectId: string): string {
++  return `projetos/${projectId}/comentarios/`;
++}
+diff --git a/test/a1.test.mjs b/test/a1.test.mjs
+new file mode 100644
+index 0000000..ef90b82
+--- /dev/null
++++ b/test/a1.test.mjs
+@@ -0,0 +1,39 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import {
++  a1Equivalent, a1Value, activityWeight, activityEstimate, parseA1Factors, normalizeFormat, DEFAULT_A1_FACTORS,
++} from "../lib/a1.ts";
++
++test("fatores padrão: A1=1, A2=0,5, A3=0,25, A4=0,125", () => {
++  assert.equal(a1Equivalent("A1", 10), 10);
++  assert.equal(a1Equivalent("A2", 3), 1.5);
++  assert.equal(a1Equivalent("A3", 2), 0.5);
++  assert.equal(a1Equivalent("A4", 3), 0.375);
++  assert.equal(a1Equivalent(" a4 ", 1), 0.125);
++});
++
++test("entradas inválidas devolvem null", () => {
++  assert.equal(a1Equivalent("A0", 1), null);
++  assert.equal(a1Equivalent("A1", 0), null);
++  assert.equal(a1Equivalent("A1", 1.5), null);
++  assert.equal(a1Equivalent("", 2), null);
++  assert.equal(a1Equivalent("A1", "x"), null);
++});
++
++test("tabela configurável: formato novo sem mexer no código", () => {
++  const f = parseA1Factors({ a0: 2, A1: "1,5", A2: -1, bad: "x" });
++  assert.deepEqual(f, { A0: 2, A1: 1.5 });
++  assert.equal(a1Equivalent("A0", 2, f), 4);
++  assert.deepEqual(parseA1Factors(null), { ...DEFAULT_A1_FACTORS });
++  assert.deepEqual(parseA1Factors({}), { ...DEFAULT_A1_FACTORS });
++});
++
++test("valor em reais e peso de atividade", () => {
++  assert.equal(a1Value(2.5, 1000), 2500);
++  assert.equal(a1Value(1, 0), null);
++  assert.equal(a1Value(null, 1000), null);
++  assert.equal(activityEstimate(8, 150), 1200);
++  assert.equal(activityWeight(1200, 1000), 1.2);
++  assert.equal(activityWeight(1200, 0), null);
++  assert.equal(normalizeFormat("  "), null);
++});
+diff --git a/test/client-progress.test.mjs b/test/client-progress.test.mjs
+new file mode 100644
+index 0000000..05195ad
+--- /dev/null
++++ b/test/client-progress.test.mjs
+@@ -0,0 +1,47 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { clientProgress, clientDueDate } from "../lib/client-progress.ts";
++
++test("média ponderada pelo A1 equivalente, não simples", () => {
++  const r = clientProgress([
++    { weight: 10, progress: 100, status: "DONE", approved: true },
++    { weight: 0.125, progress: 0, status: "NOT_STARTED", approved: false },
++  ]);
++  // simples seria 50%; ponderada ≈ 98,8%
++  assert.equal(r.elaboration, 98.8);
++  assert.equal(r.approved, 98.8);
++});
++
++test("elaboração e aprovado são números diferentes", () => {
++  const r = clientProgress([
++    { weight: 1, progress: 100, status: "IN_REVIEW", approved: false },
++    { weight: 1, progress: 100, status: "DONE", approved: true },
++  ]);
++  assert.equal(r.elaboration, 100);
++  assert.equal(r.approved, 50);
++});
++
++test("cancelado sai; fora de escopo sai e é contado; vazio é null", () => {
++  const r = clientProgress([
++    { weight: 1, progress: 50, status: "IN_PROGRESS", approved: false },
++    { weight: 5, progress: 0, status: "CANCELLED", approved: false },
++    { weight: 5, progress: 0, status: "NOT_STARTED", approved: false, inScope: false },
++  ]);
++  assert.equal(r.elaboration, 50);
++  assert.equal(r.pendingScopeItems, 1);
++  assert.equal(clientProgress([]).elaboration, null);
++  assert.equal(clientProgress([{ weight: 0, progress: 10, status: "X", approved: false }]).elaboration, null);
++});
++
++test("prazo do cliente = maior data entre os não cancelados", () => {
++  const d = (s) => new Date(s + "T00:00:00.000Z");
++  assert.equal(
++    clientDueDate([
++      { status: "IN_PROGRESS", dueDate: d("2026-11-10") },
++      { status: "CANCELLED", dueDate: d("2027-01-01") },
++      { status: "DONE", dueDate: null },
++    ]).toISOString().slice(0, 10),
++    "2026-11-10",
++  );
++  assert.equal(clientDueDate([]), null);
++});
+diff --git a/test/document-task.test.mjs b/test/document-task.test.mjs
+new file mode 100644
+index 0000000..61d5101
+--- /dev/null
++++ b/test/document-task.test.mjs
+@@ -0,0 +1,87 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import {
++  capDeclaredProgress, stageForProgress, projectDocumentTask, shouldStampActualStart, twoClocks,
++} from "../lib/document-task.ts";
++
++const d = (s) => new Date(s + "T00:00:00.000Z");
++
++test("100% só com PDF enviado", () => {
++  assert.equal(capDeclaredProgress(100, false), 99);
++  assert.equal(capDeclaredProgress(100, true), 100);
++  assert.equal(capDeclaredProgress(-5, true), 0);
++  assert.equal(capDeclaredProgress(NaN, true), 0);
++  assert.equal(stageForProgress(50, false).key, "ELABORATING");
++  assert.equal(stageForProgress(80, false).key, "INTERNAL_CHECK");
++  assert.equal(stageForProgress(95, false).key, "READY_TO_ISSUE");
++  assert.equal(stageForProgress(100, true).key, "ISSUED");
++});
++
++test("sem revisão ou rascunho: A fazer / Em andamento, nunca 100%", () => {
++  assert.deepEqual(
++    (({ status, progress }) => ({ status, progress }))(projectDocumentTask({ current: null, declaredProgress: 0 })),
++    { status: "NOT_STARTED", progress: 0 },
++  );
++  const p = projectDocumentTask({ current: { status: "DRAFT", dueAt: null, analyzedAt: null }, declaredProgress: 100 });
++  assert.equal(p.status, "IN_PROGRESS");
++  assert.equal(p.progress, 99);
++  assert.equal(p.ball, "DESIGNER");
++});
++
++test("em análise: Em revisão, 100%, bola com o contratante, prazo = dueAt", () => {
++  const p = projectDocumentTask({
++    current: { status: "IN_REVIEW", dueAt: d("2026-11-01"), analyzedAt: null },
++    declaredProgress: 30,
++  });
++  assert.equal(p.status, "IN_REVIEW");
++  assert.equal(p.progress, 100);
++  assert.equal(p.ball, "CLIENT");
++  assert.equal(p.forecastDate.toISOString().slice(0, 10), "2026-11-01");
++});
++
++test("comentada volta para a projetista (máx. 99%); aprovada fecha com data da aprovação", () => {
++  const c = projectDocumentTask({
++    current: { status: "COMMENTED", dueAt: null, analyzedAt: d("2026-10-10") },
++    declaredProgress: 100,
++  });
++  assert.equal(c.status, "IN_PROGRESS");
++  assert.equal(c.progress, 99);
++  const a = projectDocumentTask({
++    current: { status: "APPROVED", dueAt: null, analyzedAt: d("2026-10-12") },
++    declaredProgress: 10,
++  });
++  assert.equal(a.status, "DONE");
++  assert.equal(a.progress, 100);
++  assert.equal(a.actualDate.toISOString().slice(0, 10), "2026-10-12");
++});
++
++test("cancelado sai; impedimento bloqueia só o que está aberto", () => {
++  assert.equal(
++    projectDocumentTask({ current: { status: "CANCELLED", dueAt: null, analyzedAt: null }, declaredProgress: 50, blocked: true }).status,
++    "CANCELLED",
++  );
++  assert.equal(
++    projectDocumentTask({ current: { status: "APPROVED", dueAt: null, analyzedAt: d("2026-10-12") }, declaredProgress: 0, blocked: true }).status,
++    "DONE",
++  );
++  assert.equal(projectDocumentTask({ current: null, declaredProgress: 20, blocked: true }).status, "BLOCKED");
++});
++
++test("início real: primeira vez que o avanço sai de 0%", () => {
++  assert.equal(shouldStampActualStart(0, 10, null), true);
++  assert.equal(shouldStampActualStart(10, 20, null), false);
++  assert.equal(shouldStampActualStart(0, 10, d("2026-10-01")), false);
++  assert.equal(shouldStampActualStart(0, 0, null), false);
++});
++
++test("dois relógios: análise lenta do contratante não pesa para a projetista", () => {
++  const clocks = twoClocks(
++    [
++      { issuedAt: d("2026-10-11"), analyzedAt: d("2026-10-21") }, // 10 dias com ele
++      { issuedAt: d("2026-10-26"), analyzedAt: null }, // devolvido em 21 → 5 dias com ela; em aberto até 30 → 4 dias com ele
++    ],
++    d("2026-10-01"), // 10 dias com ela no primeiro ciclo
++    d("2026-10-30"),
++  );
++  assert.deepEqual(clocks, { designerDays: 15, clientDays: 14 });
++});
+diff --git a/test/review-return.test.mjs b/test/review-return.test.mjs
+new file mode 100644
+index 0000000..67506e8
+--- /dev/null
++++ b/test/review-return.test.mjs
+@@ -0,0 +1,30 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { validateReturn, canDecideOnRevision, validateCommentFile } from "../lib/review-return.ts";
++
++test("comentar exige PDF ou texto", () => {
++  assert.equal(validateReturn({ decision: "COMMENT" }).ok, false);
++  assert.equal(validateReturn({ decision: "COMMENT", text: "  " }).ok, false);
++  assert.equal(validateReturn({ decision: "COMMENT", text: "ver folha 3" }).ok, true);
++  assert.equal(validateReturn({ decision: "COMMENT", hasFile: true }).ok, true);
++});
++
++test("aprovar não exige nada; cancelar exige motivo", () => {
++  assert.equal(validateReturn({ decision: "APPROVE" }).ok, true);
++  assert.equal(validateReturn({ decision: "CANCEL" }).ok, false);
++  assert.equal(validateReturn({ decision: "CANCEL", text: "duplicado" }).ok, true);
++});
++
++test("projetista não aprova o próprio trabalho", () => {
++  assert.equal(canDecideOnRevision({ id: "u1" }, "u1"), false);
++  assert.equal(canDecideOnRevision({ id: "u2" }, "u1"), true);
++  assert.equal(canDecideOnRevision({ id: "u2" }, null), true);
++});
++
++test("limites do PDF comentado", () => {
++  const ok = { contentType: "application/pdf", sizeBytes: 1000, existingCount: 0 };
++  assert.equal(validateCommentFile(ok).ok, true);
++  assert.equal(validateCommentFile({ ...ok, contentType: "image/png" }).ok, false);
++  assert.equal(validateCommentFile({ ...ok, sizeBytes: 26 * 1024 * 1024 }).ok, false);
++  assert.equal(validateCommentFile({ ...ok, existingCount: 5 }).ok, false);
++});
+-- 
+2.43.0
+

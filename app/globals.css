@@ -34,6 +34,7 @@
   --color-st-cancelled: #78716c;
   --color-st-dark: #64748b;
   --color-st-yellow: #facc15;
+  --color-st-production: #14b8a6;
 
   /* Prioridade (escala azul → navy, separada do status) */
   --color-pr-low: #60a5fa;

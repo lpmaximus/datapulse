@@ -74,6 +74,29 @@ export const STATUS_LABEL: Record<DocumentStatus, string> = {
   CANCELLED: "Cancelada",
 };
 
+/** Rótulo do documento que ainda está sendo elaborado (sem pacote de envio). */
+export const PRODUCTION_LABEL = "Em produção";
+
+/**
+ * Revisão em produção: ainda em rascunho e sem pacote. "Emitida" fica para a
+ * revisão que já está num pacote de envio; sem pacote o documento está sendo
+ * elaborado pela projetista.
+ */
+export function isInProduction(r: {
+  status: DocumentStatus;
+  milestone?: unknown;
+  milestoneId?: string | null;
+}): boolean {
+  if (r.status !== "DRAFT") return false;
+  if ("milestoneId" in r) return !r.milestoneId;
+  return !r.milestone;
+}
+
+/** Rótulo de status para exibição, distinguindo "Em produção" de "Emitida". */
+export function revisionStatusLabel(status: DocumentStatus, inProduction = false): string {
+  return status === "DRAFT" && inProduction ? PRODUCTION_LABEL : STATUS_LABEL[status] ?? status;
+}
+
 export const EFFECT_LABEL: Record<AnalysisEffect, string> = {
   APPROVES: "Aprova e encerra a revisão",
   APPROVES_WITH_COMMENTS: "Aprova com comentários — exige nova revisão",

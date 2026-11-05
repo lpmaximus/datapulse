@@ -1,0 +1,278 @@
+From 2fe35ef7bcd58187dde6a0102d57d9a9ec5da1f4 Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <claude@anthropic.com>
+Date: Fri, 23 Oct 2026 07:06:11 -0300
+Subject: [PATCH 1/9] =?UTF-8?q?Bloco=201:=20cron=20fail-closed=20e=20plano?=
+ =?UTF-8?q?=20de=20prazo=20para=20revis=C3=B5es=20legadas?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/api/cron/acc-sync/route.ts |  7 ++---
+ app/api/cron/dri/route.ts      |  7 ++---
+ lib/cron-auth.ts               | 24 ++++++++++++++++
+ lib/due-backfill.ts            | 50 ++++++++++++++++++++++++++++++++++
+ scripts/backfill-due-dates.ts  | 50 ++++++++++++++++++++++++++++++++++
+ test/cron-auth.test.mjs        | 18 ++++++++++++
+ test/due-backfill.test.mjs     | 33 ++++++++++++++++++++++
+ 7 files changed, 181 insertions(+), 8 deletions(-)
+ create mode 100644 lib/cron-auth.ts
+ create mode 100644 lib/due-backfill.ts
+ create mode 100644 scripts/backfill-due-dates.ts
+ create mode 100644 test/cron-auth.test.mjs
+ create mode 100644 test/due-backfill.test.mjs
+
+diff --git a/app/api/cron/acc-sync/route.ts b/app/api/cron/acc-sync/route.ts
+index 1aeadc4..f2b78cf 100644
+--- a/app/api/cron/acc-sync/route.ts
++++ b/app/api/cron/acc-sync/route.ts
+@@ -1,4 +1,5 @@
+ import { NextResponse } from "next/server";
++import { isCronAuthorized } from "@/lib/cron-auth";
+ import { syncAllAccConnections } from "@/lib/acc/sync";
+ 
+ export const dynamic = "force-dynamic";
+@@ -12,10 +13,8 @@ export const maxDuration = 300;
+  * que tocou — o cron do DRI cobre os demais.
+  */
+ export async function GET(request: Request) {
+-  const secret = process.env.CRON_SECRET;
+-  const auth = request.headers.get("authorization");
+-
+-  if (secret && auth !== `Bearer ${secret}`) {
++  // Fail-closed: sem CRON_SECRET configurado, a rota nega tudo.
++  if (!isCronAuthorized(process.env.CRON_SECRET, request.headers.get("authorization"))) {
+     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+   }
+ 
+diff --git a/app/api/cron/dri/route.ts b/app/api/cron/dri/route.ts
+index 2b04941..d9215eb 100644
+--- a/app/api/cron/dri/route.ts
++++ b/app/api/cron/dri/route.ts
+@@ -1,4 +1,5 @@
+ import { NextResponse } from "next/server";
++import { isCronAuthorized } from "@/lib/cron-auth";
+ import { recalculateAllProjects } from "@/lib/server/dri-service";
+ 
+ export const dynamic = "force-dynamic";
+@@ -11,10 +12,8 @@ export const maxDuration = 60;
+  * A Vercel envia `Authorization: Bearer $CRON_SECRET` automaticamente.
+  */
+ export async function GET(request: Request) {
+-  const secret = process.env.CRON_SECRET;
+-  const auth = request.headers.get("authorization");
+-
+-  if (secret && auth !== `Bearer ${secret}`) {
++  // Fail-closed: sem CRON_SECRET configurado, a rota nega tudo.
++  if (!isCronAuthorized(process.env.CRON_SECRET, request.headers.get("authorization"))) {
+     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+   }
+ 
+diff --git a/lib/cron-auth.ts b/lib/cron-auth.ts
+new file mode 100644
+index 0000000..29c2797
+--- /dev/null
++++ b/lib/cron-auth.ts
+@@ -0,0 +1,24 @@
++/**
++ * Autorização das rotas de cron (Vercel Cron envia `Authorization: Bearer $CRON_SECRET`).
++ *
++ * Fail-closed: sem `CRON_SECRET` configurado NINGUÉM é autorizado. Antes, a
++ * checagem era `if (secret && auth !== ...)`, o que deixava a rota pública
++ * se a variável sumisse do ambiente.
++ *
++ * Módulo puro, testado em `test/cron-auth.test.mjs`.
++ */
++export function isCronAuthorized(
++  secret: string | undefined | null,
++  authorizationHeader: string | null | undefined,
++): boolean {
++  if (!secret || secret.trim().length === 0) return false;
++  if (!authorizationHeader) return false;
++  const expected = `Bearer ${secret}`;
++  if (authorizationHeader.length !== expected.length) return false;
++  // Comparação em tempo constante.
++  let diff = 0;
++  for (let i = 0; i < expected.length; i++) {
++    diff |= expected.charCodeAt(i) ^ authorizationHeader.charCodeAt(i);
++  }
++  return diff === 0;
++}
+diff --git a/lib/due-backfill.ts b/lib/due-backfill.ts
+new file mode 100644
+index 0000000..f34cc6e
+--- /dev/null
++++ b/lib/due-backfill.ts
+@@ -0,0 +1,50 @@
++import { reviewDueDate } from "./business-days";
++
++/**
++ * Plano de preenchimento de `dueAt` para revisões abertas legadas (sem prazo).
++ * Módulo puro: recebe linhas planas e devolve o que gravar. A gravação fica
++ * em `scripts/backfill-due-dates.ts`, opt-in e com `--dry` por padrão.
++ *
++ * Regra (decisão de 21/09/2026): prazo = entrada + 5 dias úteis. A entrada é a
++ * data de envio (`issuedAt`); sem ela, usa-se o início da análise atual
++ * (`inReviewSince`). Revisão sem nenhuma das duas datas é reportada, não chutada.
++ */
++export type OpenRevisionRow = {
++  id: string;
++  status: string;
++  dueAt: Date | null;
++  issuedAt: Date | null;
++  inReviewSince: Date | null;
++};
++
++export type DueBackfillPlan = {
++  updates: { id: string; dueAt: Date; basis: "issuedAt" | "inReviewSince" }[];
++  skippedHasDue: number;
++  skippedNotOpen: number;
++  withoutBasis: string[];
++};
++
++export function planDueDateBackfill(
++  rows: ReadonlyArray<OpenRevisionRow>,
++  holidays: ReadonlyArray<Date | string> = [],
++): DueBackfillPlan {
++  const plan: DueBackfillPlan = { updates: [], skippedHasDue: 0, skippedNotOpen: 0, withoutBasis: [] };
++  for (const r of rows) {
++    if (r.status !== "IN_REVIEW") {
++      plan.skippedNotOpen += 1;
++      continue;
++    }
++    if (r.dueAt) {
++      plan.skippedHasDue += 1;
++      continue;
++    }
++    const basis = r.issuedAt ? "issuedAt" : r.inReviewSince ? "inReviewSince" : null;
++    if (!basis) {
++      plan.withoutBasis.push(r.id);
++      continue;
++    }
++    const from = (basis === "issuedAt" ? r.issuedAt : r.inReviewSince) as Date;
++    plan.updates.push({ id: r.id, dueAt: reviewDueDate(from, holidays), basis });
++  }
++  return plan;
++}
+diff --git a/scripts/backfill-due-dates.ts b/scripts/backfill-due-dates.ts
+new file mode 100644
+index 0000000..3d01843
+--- /dev/null
++++ b/scripts/backfill-due-dates.ts
+@@ -0,0 +1,50 @@
++/**
++ * Preenche `dueAt` das revisões em análise que ficaram sem prazo (legado
++ * anterior ao prazo automático de 21/09/2026): entrada + 5 dias úteis.
++ *
++ * Uso (opt-in; sem --aplicar só mostra o que faria):
++ *   npx tsx scripts/backfill-due-dates.ts --organizacao "L2tech"
++ *   npx tsx scripts/backfill-due-dates.ts --organizacao "L2tech" --aplicar
++ *
++ * Rode primeiro num branch do Neon: produção e desenvolvimento compartilham banco.
++ */
++import { prisma } from "../lib/prisma";
++import { planDueDateBackfill } from "../lib/due-backfill";
++
++function arg(name: string): string | undefined {
++  const i = process.argv.indexOf(name);
++  return i >= 0 ? process.argv[i + 1] : undefined;
++}
++
++async function main() {
++  const orgName = arg("--organizacao");
++  if (!orgName) throw new Error('Informe --organizacao "Nome".');
++  const apply = process.argv.includes("--aplicar");
++
++  const org = await prisma.organization.findFirst({ where: { name: orgName }, select: { id: true } });
++  if (!org) throw new Error(`Organização "${orgName}" não encontrada.`);
++
++  const rows = await prisma.documentRevision.findMany({
++    where: { status: "IN_REVIEW", dueAt: null, document: { project: { organizationId: org.id } } },
++    select: { id: true, status: true, dueAt: true, issuedAt: true, inReviewSince: true },
++  });
++  const plan = planDueDateBackfill(rows);
++
++  console.log(`Revisões em análise sem prazo: ${rows.length}`);
++  console.log(`A preencher: ${plan.updates.length} | sem data-base (ignoradas): ${plan.withoutBasis.length}`);
++  if (!apply) {
++    console.log("Modo simulação (nada gravado). Use --aplicar para gravar.");
++    return;
++  }
++  for (const u of plan.updates) {
++    await prisma.documentRevision.update({ where: { id: u.id }, data: { dueAt: u.dueAt } });
++  }
++  console.log(`Gravado: ${plan.updates.length} prazo(s).`);
++}
++
++main()
++  .catch((e) => {
++    console.error(e);
++    process.exit(1);
++  })
++  .finally(() => prisma.$disconnect());
+diff --git a/test/cron-auth.test.mjs b/test/cron-auth.test.mjs
+new file mode 100644
+index 0000000..33c3ce4
+--- /dev/null
++++ b/test/cron-auth.test.mjs
+@@ -0,0 +1,18 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { isCronAuthorized } from "../lib/cron-auth.ts";
++
++test("sem secret configurado, nega (fail-closed)", () => {
++  assert.equal(isCronAuthorized(undefined, "Bearer x"), false);
++  assert.equal(isCronAuthorized("", "Bearer "), false);
++  assert.equal(isCronAuthorized("   ", "Bearer    "), false);
++  assert.equal(isCronAuthorized(undefined, undefined), false);
++});
++
++test("com secret, exige o header exato", () => {
++  assert.equal(isCronAuthorized("abc", "Bearer abc"), true);
++  assert.equal(isCronAuthorized("abc", "Bearer abd"), false);
++  assert.equal(isCronAuthorized("abc", "abc"), false);
++  assert.equal(isCronAuthorized("abc", null), false);
++  assert.equal(isCronAuthorized("abc", "Bearer abcd"), false);
++});
+diff --git a/test/due-backfill.test.mjs b/test/due-backfill.test.mjs
+new file mode 100644
+index 0000000..85cfb8a
+--- /dev/null
++++ b/test/due-backfill.test.mjs
+@@ -0,0 +1,33 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { planDueDateBackfill } from "../lib/due-backfill.ts";
++
++const d = (s) => new Date(s + "T00:00:00.000Z");
++
++test("calcula entrada + 5 dias úteis e respeita o que já tem prazo", () => {
++  const plan = planDueDateBackfill([
++    { id: "a", status: "IN_REVIEW", dueAt: null, issuedAt: d("2026-10-05"), inReviewSince: null }, // seg -> seg 12
++    { id: "b", status: "IN_REVIEW", dueAt: d("2026-10-30"), issuedAt: d("2026-10-05"), inReviewSince: null },
++    { id: "c", status: "APPROVED", dueAt: null, issuedAt: d("2026-10-05"), inReviewSince: null },
++    { id: "d", status: "IN_REVIEW", dueAt: null, issuedAt: null, inReviewSince: d("2026-10-09") }, // sex -> sex 16
++    { id: "e", status: "IN_REVIEW", dueAt: null, issuedAt: null, inReviewSince: null },
++  ]);
++  assert.deepEqual(
++    plan.updates.map((u) => [u.id, u.dueAt.toISOString().slice(0, 10), u.basis]),
++    [
++      ["a", "2026-10-12", "issuedAt"],
++      ["d", "2026-10-16", "inReviewSince"],
++    ],
++  );
++  assert.equal(plan.skippedHasDue, 1);
++  assert.equal(plan.skippedNotOpen, 1);
++  assert.deepEqual(plan.withoutBasis, ["e"]);
++});
++
++test("aceita lista de feriados", () => {
++  const plan = planDueDateBackfill(
++    [{ id: "a", status: "IN_REVIEW", dueAt: null, issuedAt: d("2026-10-05"), inReviewSince: null }],
++    ["2026-10-07"],
++  );
++  assert.equal(plan.updates[0].dueAt.toISOString().slice(0, 10), "2026-10-13");
++});
+-- 
+2.43.0
+

@@ -1,0 +1,864 @@
+From 899e864f9d4f41c73c8d9c654a229a8d07ec9a49 Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <noreply@anthropic.com>
+Date: Fri, 23 Oct 2026 07:21:37 -0300
+Subject: [PATCH 9/9] =?UTF-8?q?Bloco=205/6:=20vis=C3=A3o=20do=20cliente=20?=
+ =?UTF-8?q?e=20Decision=20OS=20fase=201?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01SnxcUd5J64rFiUjnQ1rEun
+---
+ app/projects/[id]/explicacao/page.tsx |  91 +++++++
+ app/projects/[id]/page.tsx            |   3 +
+ lib/client-view.ts                    | 106 ++++++++
+ lib/decision.ts                       | 363 ++++++++++++++++++++++++++
+ lib/server/decision-service.ts        | 104 ++++++++
+ test/client-view.test.mjs             |  44 ++++
+ test/decision.test.mjs                |  76 ++++++
+ 7 files changed, 787 insertions(+)
+ create mode 100644 app/projects/[id]/explicacao/page.tsx
+ create mode 100644 lib/client-view.ts
+ create mode 100644 lib/decision.ts
+ create mode 100644 lib/server/decision-service.ts
+ create mode 100644 test/client-view.test.mjs
+ create mode 100644 test/decision.test.mjs
+
+diff --git a/app/projects/[id]/explicacao/page.tsx b/app/projects/[id]/explicacao/page.tsx
+new file mode 100644
+index 0000000..f63d561
+--- /dev/null
++++ b/app/projects/[id]/explicacao/page.tsx
+@@ -0,0 +1,91 @@
++import Link from "next/link";
++import { notFound } from "next/navigation";
++import { requireUser } from "@/lib/authz";
++import { Card, DRIBadge, Empty, SectionTitle } from "@/components/ui";
++import { buildNarrative, formatBRL, recommend, validateNarrative } from "@/lib/decision";
++import { loadDecisionFacts } from "@/lib/server/decision-service";
++
++export const dynamic = "force-dynamic";
++
++/**
++ * Decision OS — Fase 1: "Por que o DRI está assim" e "O que fazer".
++ * Somente leitura: explica o último snapshot do DRI, não recalcula nada.
++ * Narrativa por template (sem IA), conferida contra os fatos.
++ */
++export default async function DecisionExplanationPage({
++  params,
++}: {
++  params: Promise<{ id: string }>;
++}) {
++  const { id } = await params;
++  const user = await requireUser(`/projects/${id}/explicacao`);
++
++  const facts = await loadDecisionFacts(id, user);
++  if (!facts) notFound();
++
++  const narrative = buildNarrative(facts);
++  const check = validateNarrative(narrative.text, facts);
++  const recs = recommend(facts, { limit: 12 });
++
++  return (
++    <div className="space-y-6">
++      <div className="flex flex-wrap items-center justify-between gap-3">
++        <div>
++          <Link href={`/projects/${id}`} className="text-sm text-ink-faint hover:underline">
++            ← {facts.projectName}
++          </Link>
++          <h1 className="mt-1 text-xl font-semibold">Explicação do DRI</h1>
++        </div>
++        <DRIBadge score={facts.projectScore} />
++      </div>
++
++      <Card>
++        <SectionTitle hint="Texto gerado por regras a partir dos fatos do último cálculo do DRI.">
++          Por que o DRI está assim
++        </SectionTitle>
++        <div className="space-y-2 text-sm leading-relaxed">
++          {narrative.sentences.map((s, i) => (
++            <p key={i}>{s}</p>
++          ))}
++        </div>
++        {!check.ok ? (
++          <p className="mt-3 text-xs text-ink-faint">
++            Atenção: o texto contém dado que não confere com os fatos e deve ser ignorado.
++          </p>
++        ) : null}
++        <p className="mt-3 text-xs text-ink-faint">
++          Esta página só explica o DRI; o cálculo continua sendo o do cron diário e das ações de documento.
++        </p>
++      </Card>
++
++      <Card>
++        <SectionTitle hint="Priorizadas por exposição econômica e depois por score.">
++          O que fazer
++        </SectionTitle>
++        {recs.length === 0 ? (
++          <Empty>Nenhuma decisão recomendada para o último cálculo do DRI.</Empty>
++        ) : (
++          <ol className="space-y-3">
++            {recs.map((r) => (
++              <li key={`${r.taskId}-${r.ruleId}`} className="rounded-lg border border-line p-3 text-sm">
++                <div className="flex flex-wrap items-center gap-2">
++                  <Link href={`/projects/${id}/tasks/${r.taskId}`} className="font-medium hover:underline">
++                    {r.taskName}
++                  </Link>
++                  <span className="text-xs text-ink-faint">
++                    DRI {r.taskScore}
++                    {r.economicExposure != null ? ` · exposição ${formatBRL(r.economicExposure)}` : ""}
++                  </span>
++                </div>
++                <p className="mt-1">{r.text}</p>
++                <p className="mt-1 text-xs text-ink-faint">
++                  Sugestão: {r.ownerRole}, em até {r.dueInDays} dia(s).
++                </p>
++              </li>
++            ))}
++          </ol>
++        )}
++      </Card>
++    </div>
++  );
++}
+diff --git a/app/projects/[id]/page.tsx b/app/projects/[id]/page.tsx
+index f1ef4d0..26b5252 100644
+--- a/app/projects/[id]/page.tsx
++++ b/app/projects/[id]/page.tsx
+@@ -232,6 +232,9 @@ export default async function ProjectPage({
+           <a href={`/api/reports/project/${project.id}`} target="_blank" rel="noreferrer">
+             <Button variant="outline">Relatório PDF</Button>
+           </a>
++          <Link href={`/projects/${project.id}/explicacao`}>
++            <Button variant="outline">Explicação do DRI</Button>
++          </Link>
+           {manage && writable ? (
+             <>
+               <Link href={`/projects/${project.id}/edit`}>
+diff --git a/lib/client-view.ts b/lib/client-view.ts
+new file mode 100644
+index 0000000..3586dbf
+--- /dev/null
++++ b/lib/client-view.ts
+@@ -0,0 +1,106 @@
++import { clientProgress, clientDueDate, type ClientProgress } from "./client-progress";
++
++/**
++ * O que o CONTRATANTE (avaliador convidado) vê — por construção, só uma
++ * lista branca de campos: o percentual, o prazo, o status dos documentos e o
++ * histórico de revisões. NÃO vê tarefas internas, horas (HH), equipe nem
++ * custos da projetista.
++ *
++ * `buildClientView` monta objetos novos campo a campo; qualquer propriedade
++ * extra da entrada (responsável, horas, custo, valor...) é descartada, então
++ * um campo novo no modelo interno nunca vaza por acidente.
++ *
++ * Módulo puro, testado em `test/client-view.test.mjs`.
++ */
++export interface ClientRevisionInput {
++  name: string;
++  status: string;
++  issuedAt: Date | null;
++  analyzedAt: Date | null;
++}
++
++export interface ClientDocumentInput {
++  id: string;
++  number: string | null;
++  name: string;
++  status: string;
++  /** Avanço de elaboração (0–100). */
++  progress: number;
++  approved: boolean;
++  /** A1 equivalente (peso do avanço). Não é exibido ao cliente. */
++  weight: number;
++  dueDate: Date | null;
++  inScope?: boolean;
++  revisions: ClientRevisionInput[];
++}
++
++export interface ClientRevisionView {
++  name: string;
++  status: string;
++  issuedAt: Date | null;
++  analyzedAt: Date | null;
++}
++
++export interface ClientDocumentView {
++  id: string;
++  number: string | null;
++  name: string;
++  status: string;
++  progress: number;
++  approved: boolean;
++  dueDate: Date | null;
++  inScope: boolean;
++  revisions: ClientRevisionView[];
++}
++
++export interface ClientView {
++  title: string;
++  progress: ClientProgress;
++  dueDate: Date | null;
++  documents: ClientDocumentView[];
++  /** Nota fixa quando há documentos fora do escopo aprovado (LD revisada). */
++  scopeNote: string | null;
++}
++
++export const SCOPE_NOTE =
++  "Há documentos novos da LD revisada que só entram no percentual quando o orçamento complementar for aprovado.";
++
++export function buildClientView(input: {
++  title: string;
++  documents: ReadonlyArray<ClientDocumentInput>;
++}): ClientView {
++  const documents: ClientDocumentView[] = input.documents.map((d) => ({
++    id: d.id,
++    number: d.number,
++    name: d.name,
++    status: d.status,
++    progress: d.progress,
++    approved: d.approved,
++    dueDate: d.dueDate,
++    inScope: d.inScope !== false,
++    revisions: d.revisions.map((r) => ({
++      name: r.name,
++      status: r.status,
++      issuedAt: r.issuedAt,
++      analyzedAt: r.analyzedAt,
++    })),
++  }));
++
++  const progress = clientProgress(
++    input.documents.map((d) => ({
++      weight: d.weight,
++      progress: d.progress,
++      status: d.status,
++      approved: d.approved,
++      inScope: d.inScope,
++    })),
++  );
++
++  return {
++    title: input.title,
++    progress,
++    dueDate: clientDueDate(input.documents.map((d) => ({ status: d.status, dueDate: d.dueDate }))),
++    documents,
++    scopeNote: progress.pendingScopeItems > 0 ? SCOPE_NOTE : null,
++  };
++}
+diff --git a/lib/decision.ts b/lib/decision.ts
+new file mode 100644
+index 0000000..f786119
+--- /dev/null
++++ b/lib/decision.ts
+@@ -0,0 +1,363 @@
++import { BAND_LABEL, DRI_CONFIG, driBand, rankByExposure } from "./dri";
++
++/**
++ * Decision OS — Fase 1 (sem IA e sem MiroFish). Camada que LÊ o DRI e explica:
++ *   1. por que o DRI está neste valor (narrativa por template);
++ *   2. o que fazer a respeito (decisões recomendadas por regras fixas, com
++ *      dono e prazo).
++ *
++ * O DRI continua sendo o único dono do cálculo: este módulo NUNCA recalcula
++ * nada, só lê os fatos (score, componentes e exposição de cada tarefa).
++ * Todo número e nome do texto vem dos fatos, e `validateNarrative` confere isso
++ * — barreira necessária quando, nas fases seguintes, um LLM puder reescrever o
++ * texto.
++ *
++ * Módulo puro, testado em `test/decision.test.mjs`.
++ */
++
++/* --------------------------------- Fatos --------------------------------- */
++
++export interface TaskFact {
++  id: string;
++  name: string;
++  /** DRI da tarefa (0–100). */
++  score: number;
++  /** Exposição econômica em R$ (score ÷ 100 × valor), se a tarefa tem valor. */
++  economicExposure?: number | null;
++  humanScore?: number | null;
++  systemicScore?: number | null;
++  /** Valor (0–100) de cada componente do breakdown, por chave (Camada 1 e 2 juntas). */
++  components: Record<string, number>;
++  /** Quantas avaliações humanas recentes existem (0 = silêncio total). */
++  humanSignalCount: number;
++}
++
++export interface DecisionFacts {
++  projectName: string;
++  projectScore: number;
++  /** Score do projeto há ~7 dias, se existir. */
++  previousScore?: number | null;
++  /** 0–1, confiança do score da tarefa dominante. */
++  confidence?: number | null;
++  /** Tarefas-folha abertas, com seus fatos. */
++  tasks: TaskFact[];
++}
++
++/* --------------------------------- Regras -------------------------------- */
++
++export type OwnerRole = "Gerente" | "Especialista" | "Gerente / especialista";
++
++export interface DecisionRule {
++  id: string;
++  /** Componente do breakdown que dispara a regra. */
++  component?: string;
++  /** Valor mínimo (0–100) do componente para disparar. */
++  minValue?: number;
++  /** Recomendação-base. */
++  recommendation: string;
++  ownerRole: OwnerRole;
++  dueInDays: number;
++}
++
++export const DEFAULT_MIN_COMPONENT_VALUE = 20;
++
++/** Regras fixas da fase 1 (tabela da seção 8 do desenho + ritmo, novo no mvp-3). */
++export const DEFAULT_RULES: DecisionRule[] = [
++  {
++    id: "impedimento-aberto",
++    component: "openImpediment",
++    recommendation: "Escalar a quem resolve o impedimento e fixar uma data de resposta.",
++    ownerRole: "Gerente",
++    dueInDays: 2,
++  },
++  {
++    id: "solicitacao-vencida",
++    component: "overdueRequests",
++    recommendation: "Cobrar a parte externa da solicitação vencida; considerar reprogramar.",
++    ownerRole: "Gerente",
++    dueInDays: 3,
++  },
++  {
++    id: "revisao-parada",
++    component: "reviewStall",
++    recommendation: "Cobrar o parecer da revisão em análise ou redistribuir a análise a outro especialista.",
++    ownerRole: "Gerente / especialista",
++    dueInDays: 2,
++  },
++  {
++    id: "retrabalho",
++    component: "revisionCycles",
++    recommendation: "Alinhar o critério de aceite entre o emissor e o analista antes da próxima revisão.",
++    ownerRole: "Especialista",
++    dueInDays: 5,
++  },
++  {
++    id: "atraso-cronograma",
++    component: "scheduleSlip",
++    recommendation: "Recuperar o prazo ou reprogramar formalmente (registrando no histórico de prazo).",
++    ownerRole: "Gerente",
++    dueInDays: 5,
++  },
++  {
++    id: "ritmo",
++    component: "pace",
++    recommendation: "O avanço está abaixo do esperado para a data: revisar capacidade e prioridade antes de o prazo vencer.",
++    ownerRole: "Gerente",
++    dueInDays: 3,
++  },
++  {
++    id: "silencio-camada-2",
++    component: "silence",
++    minValue: 50,
++    recommendation: "Convocar uma nova avaliação (Camada 2): faz tempo que ninguém diz como esta tarefa está.",
++    ownerRole: "Gerente",
++    dueInDays: 3,
++  },
++  {
++    id: "camada1-verde-camada2-vermelha",
++    recommendation: "Os registros estão em ordem, mas a equipe sente risco: investigar a restrição que não foi registrada.",
++    ownerRole: "Gerente",
++    dueInDays: 5,
++  },
++];
++
++export interface Recommendation {
++  ruleId: string;
++  taskId: string;
++  taskName: string;
++  text: string;
++  ownerRole: OwnerRole;
++  dueInDays: number;
++  /** Valor do componente (0–100) ou score da tarefa — o que sustenta a recomendação. */
++  evidence: number;
++  taskScore: number;
++  economicExposure: number | null;
++}
++
++/** Camada 1 "verde" e Camada 2 "vermelha" (faixas do `driBand`). */
++function greenVsRed(t: TaskFact): boolean {
++  if (t.systemicScore == null || t.humanScore == null) return false;
++  return driBand(t.systemicScore) === "low" && (driBand(t.humanScore) === "high" || driBand(t.humanScore) === "critical");
++}
++
++/**
++ * Recomendações para as tarefas do projeto. Só tarefas com algum risco
++ * (score ≥ `minTaskScore`) geram recomendação. Ordem: exposição econômica,
++ * depois score (a mesma prioridade de destravamento do DRI mvp-3). No máximo
++ * uma recomendação por regra e tarefa.
++ */
++export function recommend(
++  facts: DecisionFacts,
++  opts: { rules?: DecisionRule[]; minTaskScore?: number; limit?: number } = {},
++): Recommendation[] {
++  const rules = opts.rules ?? DEFAULT_RULES;
++  const minTaskScore = opts.minTaskScore ?? 35;
++  const out: Recommendation[] = [];
++
++  for (const task of rankByExposure(facts.tasks)) {
++    if (task.score < minTaskScore) continue;
++    for (const rule of rules) {
++      let evidence: number | null = null;
++      if (rule.component) {
++        const v = task.components[rule.component];
++        const min = rule.minValue ?? DEFAULT_MIN_COMPONENT_VALUE;
++        if (v !== undefined && v >= min) evidence = v;
++      } else if (rule.id === "camada1-verde-camada2-vermelha" && greenVsRed(task)) {
++        evidence = task.humanScore ?? null;
++      }
++      if (evidence === null) continue;
++      out.push({
++        ruleId: rule.id,
++        taskId: task.id,
++        taskName: task.name,
++        text: rule.recommendation,
++        ownerRole: rule.ownerRole,
++        dueInDays: rule.dueInDays,
++        evidence: Math.round(evidence * 10) / 10,
++        taskScore: Math.round(task.score * 10) / 10,
++        economicExposure: task.economicExposure ?? null,
++      });
++    }
++  }
++  return typeof opts.limit === "number" ? out.slice(0, opts.limit) : out;
++}
++
++/* -------------------------------- Narrativa ------------------------------- */
++
++export interface Narrative {
++  text: string;
++  /** Frases individuais (cada uma lastreada em fatos), para a UI renderizar chips. */
++  sentences: string[];
++}
++
++function fmt1(n: number): string {
++  return (Math.round(n * 10) / 10).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
++}
++
++export function formatBRL(n: number): string {
++  return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
++}
++
++/**
++ * Converte o valor normalizado de um componente de tempo de volta em dias
++ * (aproximado) usando o horizonte de saturação do DRI. Saturado = "ou mais".
++ */
++export function componentDays(value: number, horizonDays: number): { days: number; saturated: boolean } {
++  const saturated = value >= 100;
++  return { days: Math.round((Math.min(100, Math.max(0, value)) / 100) * horizonDays), saturated };
++}
++
++function factSentence(componentKey: string, value: number): string | null {
++  switch (componentKey) {
++    case "openImpediment": {
++      const { days, saturated } = componentDays(value, DRI_CONFIG.impedimentHorizonDays);
++      return `há um impedimento aberto há ${days} dias${saturated ? " ou mais" : ""}`;
++    }
++    case "overdueRequests": {
++      const { days, saturated } = componentDays(value, DRI_CONFIG.requestOverdueHorizonDays);
++      return `há solicitação vencida há ${days} dias${saturated ? " ou mais" : ""}`;
++    }
++    case "reviewStall": {
++      const { days, saturated } = componentDays(value, DRI_CONFIG.reviewStallHorizonDays);
++      return `há revisão parada em análise há ${days} dias${saturated ? " ou mais" : ""}`;
++    }
++    case "revisionCycles":
++      return "um documento já voltou várias vezes para revisão";
++    case "scheduleSlip": {
++      const { days, saturated } = componentDays(value, DRI_CONFIG.slipHorizonDays);
++      return `o prazo está atrasado ${days} dias${saturated ? " ou mais" : ""} em relação ao planejado`;
++    }
++    case "pace":
++      return "o avanço está abaixo do esperado para a data";
++    case "silence":
++      return "faz tempo que ninguém avalia a tarefa";
++    default:
++      return null;
++  }
++}
++
++/** Ordem em que os fatos aparecem na narrativa (do mais para o menos grave). */
++const FACT_ORDER = ["openImpediment", "scheduleSlip", "reviewStall", "overdueRequests", "pace", "revisionCycles", "silence"];
++
++/**
++ * Narrativa "por que o DRI está assim": 3 a 5 frases por template, todas
++ * lastreadas em fatos. Sem tarefas abertas com risco, diz isso com clareza.
++ */
++export function buildNarrative(facts: DecisionFacts): Narrative {
++  const band = BAND_LABEL[driBand(facts.projectScore)];
++  const sentences: string[] = [];
++
++  let head = `O projeto "${facts.projectName}" está com DRI ${fmt1(facts.projectScore)} (${band.toLowerCase()})`;
++  if (facts.previousScore != null) {
++    const delta = Math.round((facts.projectScore - facts.previousScore) * 10) / 10;
++    if (delta === 0) head += ", igual há 7 dias";
++    else head += `, ${delta > 0 ? "subiu" : "caiu"} ${fmt1(Math.abs(delta))} ponto(s) em relação a 7 dias atrás`;
++  }
++  sentences.push(head + ".");
++
++  const ranked = rankByExposure(facts.tasks.filter((t) => t.score > 0));
++  const dominant = ranked[0];
++  if (!dominant) {
++    sentences.push("Não há tarefa aberta com sinal de restrição neste momento.");
++    return { text: sentences.join(" "), sentences };
++  }
++
++  let dom = `A restrição dominante é "${dominant.name}", com DRI ${fmt1(dominant.score)}`;
++  if (dominant.economicExposure != null) dom += ` e exposição de ${formatBRL(dominant.economicExposure)}`;
++  sentences.push(dom + ".");
++
++  const reasons = FACT_ORDER.flatMap((key) => {
++    const v = dominant.components[key];
++    if (v === undefined || v < DEFAULT_MIN_COMPONENT_VALUE) return [];
++    const s = factSentence(key, v);
++    return s ? [s] : [];
++  }).slice(0, 3);
++  if (reasons.length > 0) {
++    sentences.push(`Nela, ${reasons.join("; ")}.`);
++  } else if (greenVsRed(dominant)) {
++    sentences.push("Os registros estão em ordem, mas a percepção da equipe indica risco que ainda não foi registrado.");
++  }
++
++  const others = ranked.filter((t) => t.score >= 55 && t.id !== dominant.id).length;
++  if (others > 0) {
++    sentences.push(`Além dela, ${others} outra(s) tarefa(s) estão em faixa de restrição provável ou dominante.`);
++  }
++
++  if (facts.confidence != null && facts.confidence < 0.6) {
++    sentences.push(
++      `A confiança deste score é ${fmt1(facts.confidence * 100)}%: trate como indicativo, não como conclusivo.`,
++    );
++  }
++
++  return { text: sentences.join(" "), sentences };
++}
++
++/* -------------------------------- Validador ------------------------------- */
++
++function collectNumbers(value: unknown, into: number[]): void {
++  if (typeof value === "number" && Number.isFinite(value)) into.push(value);
++  else if (Array.isArray(value)) value.forEach((v) => collectNumbers(v, into));
++  else if (value && typeof value === "object") Object.values(value).forEach((v) => collectNumbers(v, into));
++}
++
++/** Números derivados que a narrativa pode legitimamente citar (dias, deltas, %). */
++function derivedNumbers(facts: DecisionFacts): number[] {
++  const out: number[] = [];
++  if (facts.previousScore != null) out.push(Math.abs(Math.round((facts.projectScore - facts.previousScore) * 10) / 10));
++  if (facts.confidence != null) out.push(facts.confidence * 100);
++  for (const t of facts.tasks) {
++    const c = t.components;
++    if (c.openImpediment !== undefined) out.push(componentDays(c.openImpediment, DRI_CONFIG.impedimentHorizonDays).days);
++    if (c.overdueRequests !== undefined) out.push(componentDays(c.overdueRequests, DRI_CONFIG.requestOverdueHorizonDays).days);
++    if (c.reviewStall !== undefined) out.push(componentDays(c.reviewStall, DRI_CONFIG.reviewStallHorizonDays).days);
++    if (c.scheduleSlip !== undefined) out.push(componentDays(c.scheduleSlip, DRI_CONFIG.slipHorizonDays).days);
++  }
++  out.push(...[7, 0]);
++  // contagens de tarefas
++  out.push(facts.tasks.length);
++  for (let i = 0; i <= facts.tasks.length; i++) out.push(i);
++  return out;
++}
++
++/** Interpreta "1.234,56" / "12,5" / "7" (pt-BR) como número. */
++function parsePtBr(token: string): number {
++  return Number(token.replace(/\./g, "").replace(",", "."));
++}
++
++export interface NarrativeCheck {
++  ok: boolean;
++  /** Números do texto que não existem nos fatos. */
++  unknownNumbers: string[];
++  /** Nomes entre aspas que não são do projeto nem de nenhuma tarefa. */
++  unknownNames: string[];
++}
++
++/**
++ * Confere que TODO número e todo nome entre aspas do texto existem nos fatos.
++ * Hoje a narrativa vem de template e passa sempre; o validador existe para o
++ * dia em que um LLM reescrever o texto (fase 2+): texto que inventa número ou
++ * nome é descartado e vale o template.
++ */
++export function validateNarrative(text: string, facts: DecisionFacts): NarrativeCheck {
++  const allowed: number[] = [];
++  collectNumbers(
++    {
++      p: facts.projectScore,
++      t: facts.tasks.map((t) => [t.score, t.economicExposure, t.humanScore, t.systemicScore, Object.values(t.components)]),
++    },
++    allowed,
++  );
++  allowed.push(...derivedNumbers(facts));
++
++  const tokens = text.match(/\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?/g) ?? [];
++  const unknownNumbers = tokens.filter((tok) => {
++    const x = parsePtBr(tok);
++    return !allowed.some((a) => Math.abs(a - x) < 0.06 || Math.abs(Math.round(a) - x) < 0.51 && Number.isInteger(x));
++  });
++
++  const names = new Set<string>([facts.projectName, ...facts.tasks.map((t) => t.name)]);
++  const quoted = [...text.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
++  const unknownNames = quoted.filter((q) => !names.has(q));
++
++  return { ok: unknownNumbers.length === 0 && unknownNames.length === 0, unknownNumbers, unknownNames };
++}
+diff --git a/lib/server/decision-service.ts b/lib/server/decision-service.ts
+new file mode 100644
+index 0000000..a102f76
+--- /dev/null
++++ b/lib/server/decision-service.ts
+@@ -0,0 +1,104 @@
++import { prisma } from "@/lib/prisma";
++import { projectVisibility } from "@/lib/visibility";
++import { leafTasks } from "@/lib/tasks";
++import type { DecisionFacts, TaskFact } from "@/lib/decision";
++
++/**
++ * Lê (somente leitura) o último snapshot do DRI de um projeto e monta os
++ * fatos que o Decision OS explica. Nada é recalculado aqui: o DRI continua
++ * sendo o único dono do cálculo (cron diário + ações de documento).
++ *
++ * Respeita a visibilidade por papel: projeto fora da visão do usuário = null.
++ */
++type Component = { value?: number };
++
++function flattenComponents(breakdown: unknown): Record<string, number> {
++  const out: Record<string, number> = {};
++  if (!breakdown || typeof breakdown !== "object") return out;
++  const b = breakdown as { human?: Record<string, Component>; systemic?: Record<string, Component> };
++  for (const group of [b.human, b.systemic]) {
++    if (!group) continue;
++    for (const [key, c] of Object.entries(group)) {
++      if (c && typeof c.value === "number") out[key] = c.value;
++    }
++  }
++  return out;
++}
++
++function num(v: unknown): number | null {
++  return typeof v === "number" && Number.isFinite(v) ? v : null;
++}
++
++export async function loadDecisionFacts(
++  projectId: string,
++  user: { id: string; role: string; organizationId: string },
++  now: Date = new Date(),
++): Promise<DecisionFacts | null> {
++  const project = await prisma.project.findFirst({
++    where: { id: projectId, ...projectVisibility(user) },
++    select: { id: true, name: true },
++  });
++  if (!project) return null;
++
++  const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
++  const [projectNow, projectBefore, milestones] = await Promise.all([
++    prisma.dRIScore.findFirst({
++      where: { projectId, milestoneId: null },
++      orderBy: { calculatedAt: "desc" },
++      select: { score: true },
++    }),
++    prisma.dRIScore.findFirst({
++      where: { projectId, milestoneId: null, calculatedAt: { lte: weekAgo } },
++      orderBy: { calculatedAt: "desc" },
++      select: { score: true },
++    }),
++    prisma.milestone.findMany({
++      where: { projectId, status: { notIn: ["CANCELLED", "DONE"] } },
++      select: {
++        id: true,
++        name: true,
++        parentId: true,
++        driScores: {
++          orderBy: { calculatedAt: "desc" },
++          take: 1,
++          select: { score: true, humanScore: true, systemicScore: true, breakdown: true },
++        },
++      },
++    }),
++  ]);
++
++  const leafIds = new Set(
++    leafTasks(milestones.map((m) => ({ id: m.id, parentId: m.parentId }))).map((m) => m.id),
++  );
++
++  const tasks: TaskFact[] = [];
++  let confidence: number | null = null;
++  let topScore = -1;
++  for (const m of milestones) {
++    const snap = m.driScores[0];
++    if (!snap || !leafIds.has(m.id)) continue;
++    const b = snap.breakdown as Record<string, unknown> | null;
++    tasks.push({
++      id: m.id,
++      name: m.name,
++      score: snap.score,
++      economicExposure: num(b?.economicExposure),
++      humanScore: snap.humanScore,
++      systemicScore: snap.systemicScore,
++      components: flattenComponents(b),
++      humanSignalCount: num(b?.humanSignalCount) ?? 0,
++    });
++    if (snap.score > topScore) {
++      topScore = snap.score;
++      confidence = num(b?.confidence);
++    }
++  }
++
++  return {
++    projectName: project.name,
++    projectScore: projectNow?.score ?? 0,
++    previousScore: projectBefore?.score ?? null,
++    confidence,
++    tasks,
++  };
++}
+diff --git a/test/client-view.test.mjs b/test/client-view.test.mjs
+new file mode 100644
+index 0000000..d681c70
+--- /dev/null
++++ b/test/client-view.test.mjs
+@@ -0,0 +1,44 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { buildClientView, SCOPE_NOTE } from "../lib/client-view.ts";
++
++const d = (s) => new Date(s + "T00:00:00.000Z");
++
++test("a visão do contratante é lista branca: nada de equipe, horas ou custo", () => {
++  const view = buildClientView({
++    title: "Demanda 1",
++    documents: [
++      {
++        id: "d1", number: "PE-1", name: "Unifilar", status: "IN_REVIEW", progress: 100, approved: false,
++        weight: 2, dueDate: d("2026-11-10"),
++        revisions: [{ name: "R00", status: "COMMENTED", issuedAt: d("2026-10-01"), analyzedAt: d("2026-10-08"), specialistId: "u9", notes: "interno" }],
++        // campos internos que NÃO podem vazar:
++        assigneeName: "Fulana", hoursLogged: 12, hourlyCost: 150, internalNotes: "x", a1Value: 1000,
++      },
++    ],
++  });
++  const json = JSON.stringify(view);
++  for (const leaked of ["Fulana", "hoursLogged", "hourlyCost", "internalNotes", "a1Value", "specialistId", "interno", "weight"]) {
++    assert.ok(!json.includes(leaked), `vazou: ${leaked}`);
++  }
++  assert.deepEqual(Object.keys(view.documents[0]).sort(), [
++    "approved", "dueDate", "id", "inScope", "name", "number", "progress", "revisions", "status",
++  ]);
++  assert.deepEqual(Object.keys(view.documents[0].revisions[0]).sort(), ["analyzedAt", "issuedAt", "name", "status"]);
++});
++
++test("percentual com dois números, prazo e nota de escopo", () => {
++  const view = buildClientView({
++    title: "D",
++    documents: [
++      { id: "a", number: null, name: "A", status: "DONE", progress: 100, approved: true, weight: 1, dueDate: d("2026-11-01"), revisions: [] },
++      { id: "b", number: null, name: "B", status: "IN_PROGRESS", progress: 50, approved: false, weight: 1, dueDate: d("2026-11-20"), revisions: [] },
++      { id: "c", number: null, name: "C", status: "NOT_STARTED", progress: 0, approved: false, weight: 4, dueDate: null, inScope: false, revisions: [] },
++      { id: "x", number: null, name: "X", status: "CANCELLED", progress: 0, approved: false, weight: 9, dueDate: d("2027-01-01"), revisions: [] },
++    ],
++  });
++  assert.equal(view.progress.elaboration, 75);
++  assert.equal(view.progress.approved, 50);
++  assert.equal(view.dueDate.toISOString().slice(0, 10), "2026-11-20");
++  assert.equal(view.scopeNote, SCOPE_NOTE);
++});
+diff --git a/test/decision.test.mjs b/test/decision.test.mjs
+new file mode 100644
+index 0000000..e9231c9
+--- /dev/null
++++ b/test/decision.test.mjs
+@@ -0,0 +1,76 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { recommend, buildNarrative, validateNarrative, componentDays, DEFAULT_RULES } from "../lib/decision.ts";
++
++const facts = {
++  projectName: "Subestação 2",
++  projectScore: 68.4,
++  previousScore: 60.1,
++  confidence: 0.8,
++  tasks: [
++    {
++      id: "t1", name: "PE-ELE-001 — Unifilar", score: 72, economicExposure: 9000, humanScore: 40, systemicScore: 80,
++      components: { openImpediment: 50, reviewStall: 100, scheduleSlip: 60, silence: 10 }, humanSignalCount: 2,
++    },
++    {
++      id: "t2", name: "PE-CIV-004 — Fundação", score: 60, economicExposure: 150, humanScore: 70, systemicScore: 20,
++      components: { revisionCycles: 66, silence: 80 }, humanSignalCount: 1,
++    },
++    {
++      id: "t3", name: "Tarefa tranquila", score: 10, economicExposure: null, humanScore: null, systemicScore: 10,
++      components: { openImpediment: 90 }, humanSignalCount: 0,
++    },
++  ],
++};
++
++test("recomendações: por regra, na ordem da exposição, ignorando tarefa de baixo risco", () => {
++  const recs = recommend(facts);
++  const byTask = (id) => recs.filter((r) => r.taskId === id).map((r) => r.ruleId);
++  assert.deepEqual(byTask("t1"), ["impedimento-aberto", "atraso-cronograma", "revisao-parada"].sort((a, b) =>
++    DEFAULT_RULES.findIndex((r) => r.id === a) - DEFAULT_RULES.findIndex((r) => r.id === b)));
++  assert.deepEqual(byTask("t2"), ["retrabalho", "silencio-camada-2", "camada1-verde-camada2-vermelha"].sort((a, b) =>
++    DEFAULT_RULES.findIndex((r) => r.id === a) - DEFAULT_RULES.findIndex((r) => r.id === b)));
++  assert.deepEqual(byTask("t3"), []); // score 10 < 35
++  assert.equal(recs[0].taskId, "t1"); // maior exposição primeiro
++  assert.ok(recs.every((r) => r.dueInDays > 0 && r.ownerRole));
++});
++
++test("componente abaixo do mínimo não dispara; limite corta a lista", () => {
++  const recs = recommend(facts);
++  assert.ok(!recs.some((r) => r.taskId === "t1" && r.ruleId === "silencio-camada-2"));
++  assert.equal(recommend(facts, { limit: 2 }).length, 2);
++});
++
++test("narrativa: cita só fatos, com dias derivados e exposição em R$", () => {
++  const n = buildNarrative(facts);
++  assert.match(n.text, /"Subestação 2" está com DRI 68,4 \(restrição provável\)/);
++  assert.match(n.text, /subiu 8,3 ponto\(s\)/);
++  assert.match(n.text, /restrição dominante é "PE-ELE-001 — Unifilar", com DRI 72/);
++  assert.match(n.text, /R\$\s?9\.000,00/);
++  assert.match(n.text, /impedimento aberto há 11 dias/);
++  assert.match(n.text, /revisão parada em análise há 14 dias ou mais/);
++  assert.equal(validateNarrative(n.text, facts).ok, true);
++});
++
++test("validador rejeita número e nome inventados", () => {
++  const bad = 'O projeto "Subestação 2" está com DRI 99,9. A restrição é "Tarefa Fantasma" há 123 dias.';
++  const c = validateNarrative(bad, facts);
++  assert.equal(c.ok, false);
++  assert.ok(c.unknownNumbers.includes("99,9"));
++  assert.ok(c.unknownNumbers.includes("123"));
++  assert.deepEqual(c.unknownNames, ["Tarefa Fantasma"]);
++});
++
++test("sem tarefas com risco, diz isso; baixa confiança é avisada", () => {
++  const calm = buildNarrative({ projectName: "P", projectScore: 5, tasks: [] });
++  assert.match(calm.text, /Não há tarefa aberta com sinal de restrição/);
++  const low = buildNarrative({ ...facts, confidence: 0.4 });
++  assert.match(low.text, /confiança deste score é 40%/);
++  assert.equal(validateNarrative(low.text, { ...facts, confidence: 0.4 }).ok, true);
++});
++
++test("dias a partir do componente e saturação", () => {
++  assert.deepEqual(componentDays(50, 21), { days: 11, saturated: false });
++  assert.deepEqual(componentDays(100, 14), { days: 14, saturated: true });
++  assert.deepEqual(componentDays(-5, 14), { days: 0, saturated: false });
++});
+-- 
+2.43.0
+

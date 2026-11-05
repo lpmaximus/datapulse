@@ -1,0 +1,545 @@
+From f787839c7a9431d3b53085b163d07f8776720b24 Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <claude@anthropic.com>
+Date: Fri, 23 Oct 2026 07:09:36 -0300
+Subject: [PATCH 4/9] =?UTF-8?q?Bloco=204:=20LD=20(parse/revis=C3=A3o)=20e?=
+ =?UTF-8?q?=20or=C3=A7amento=20(A1,=20ciclo,=20congelamento,=20complementa?=
+ =?UTF-8?q?r)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ lib/budget.ts        | 150 ++++++++++++++++++++++++++++
+ lib/ld.ts            | 228 +++++++++++++++++++++++++++++++++++++++++++
+ test/budget.test.mjs |  64 ++++++++++++
+ test/ld.test.mjs     |  55 +++++++++++
+ 4 files changed, 497 insertions(+)
+ create mode 100644 lib/budget.ts
+ create mode 100644 lib/ld.ts
+ create mode 100644 test/budget.test.mjs
+ create mode 100644 test/ld.test.mjs
+
+diff --git a/lib/budget.ts b/lib/budget.ts
+new file mode 100644
+index 0000000..d0a933c
+--- /dev/null
++++ b/lib/budget.ts
+@@ -0,0 +1,150 @@
++import { a1Equivalent, roundTo, type A1Factors, DEFAULT_A1_FACTORS } from "./a1";
++
++/**
++ * Orçamento estimado (decisão de 15/10/2026): a projetista gera o orçamento a
++ * partir dos documentos da LD.
++ *
++ *   estimativa = Σ (folhas × fator do formato) × valor do A1
++ *
++ * O valor do A1 é acertado previamente com cada contratante. Ao APROVAR, o
++ * valor do A1 e a tabela de fatores usados são congelados no orçamento
++ * (snapshot), para que uma mudança de preço depois não altere orçamentos
++ * antigos. Mudança de escopo (LD revisada) gera um orçamento COMPLEMENTAR.
++ *
++ * Módulo puro, testado em `test/budget.test.mjs`.
++ */
++export interface BudgetLineInput {
++  key: string;
++  format: string | null;
++  sheets: number | null;
++}
++
++export interface BudgetLine extends BudgetLineInput {
++  a1Equivalent: number | null;
++  value: number | null;
++}
++
++export interface BudgetResult {
++  lines: BudgetLine[];
++  totalA1: number;
++  total: number;
++  /** Chaves das linhas que não puderam ser precificadas (formato/folhas ausentes ou inválidos). */
++  unpriced: string[];
++}
++
++export function buildBudget(
++  lines: ReadonlyArray<BudgetLineInput>,
++  a1UnitValue: number,
++  factors: A1Factors = DEFAULT_A1_FACTORS,
++): BudgetResult {
++  const unitOk = Number.isFinite(a1UnitValue) && a1UnitValue > 0;
++  const out: BudgetLine[] = [];
++  const unpriced: string[] = [];
++  let totalA1 = 0;
++  for (const l of lines) {
++    const a1 = a1Equivalent(l.format, l.sheets, factors);
++    const value = a1 !== null && unitOk ? roundTo(a1 * a1UnitValue, 2) : null;
++    if (a1 === null || value === null) unpriced.push(l.key);
++    else totalA1 += a1;
++    out.push({ ...l, a1Equivalent: a1, value });
++  }
++  totalA1 = roundTo(totalA1, 3);
++  return {
++    lines: out,
++    totalA1,
++    total: unitOk ? roundTo(totalA1 * a1UnitValue, 2) : 0,
++    unpriced,
++  };
++}
++
++/* --------------------------- Ciclo do orçamento --------------------------- */
++
++export type BudgetStatus = "DRAFT" | "SENT" | "COMMENTED" | "APPROVED" | "CANCELLED";
++export type BudgetAction = "SEND" | "COMMENT" | "APPROVE" | "CANCEL" | "RESEND";
++export type BudgetActor = "DESIGNER" | "CLIENT";
++
++export const BUDGET_STATUS_LABEL: Record<BudgetStatus, string> = {
++  DRAFT: "Rascunho",
++  SENT: "Enviado para avaliação",
++  COMMENTED: "Comentado (devolvido)",
++  APPROVED: "Aprovado",
++  CANCELLED: "Cancelado",
++};
++
++const TRANSITIONS: Record<BudgetStatus, Partial<Record<BudgetAction, { to: BudgetStatus; by: BudgetActor[] }>>> = {
++  DRAFT: { SEND: { to: "SENT", by: ["DESIGNER"] }, CANCEL: { to: "CANCELLED", by: ["DESIGNER"] } },
++  SENT: {
++    COMMENT: { to: "COMMENTED", by: ["CLIENT"] },
++    APPROVE: { to: "APPROVED", by: ["CLIENT"] },
++    CANCEL: { to: "CANCELLED", by: ["CLIENT"] },
++  },
++  COMMENTED: { RESEND: { to: "SENT", by: ["DESIGNER"] }, CANCEL: { to: "CANCELLED", by: ["DESIGNER", "CLIENT"] } },
++  APPROVED: {},
++  CANCELLED: {},
++};
++
++export function isBudgetFinal(status: BudgetStatus): boolean {
++  return status === "APPROVED" || status === "CANCELLED";
++}
++
++/** Ações permitidas ao ator no estado atual. Aprovado e Cancelado ficam travados. */
++export function allowedBudgetActions(status: BudgetStatus, actor: BudgetActor): BudgetAction[] {
++  const map = TRANSITIONS[status] ?? {};
++  return (Object.keys(map) as BudgetAction[]).filter((a) => map[a]?.by.includes(actor));
++}
++
++export function nextBudgetStatus(
++  status: BudgetStatus,
++  action: BudgetAction,
++  actor: BudgetActor,
++): BudgetStatus | null {
++  const t = TRANSITIONS[status]?.[action];
++  return t && t.by.includes(actor) ? t.to : null;
++}
++
++/* ------------------------------ Congelamento ------------------------------ */
++
++export interface BudgetSnapshot {
++  a1UnitValue: number;
++  factors: A1Factors;
++  frozenAt: Date;
++}
++
++/** Congela o valor do A1 e a tabela de fatores no momento da aprovação. */
++export function freezeBudget(a1UnitValue: number, factors: A1Factors, at: Date): BudgetSnapshot {
++  return { a1UnitValue, factors: { ...factors }, frozenAt: at };
++}
++
++/* ------------------------- Orçamento complementar ------------------------- */
++
++/**
++ * Escopo adicionado em relação ao que já foi aprovado: linhas novas e aumento
++ * de A1 equivalente de linhas existentes. Linhas removidas não geram crédito
++ * automático (decisão comercial) — são só reportadas.
++ */
++export function complementaryLines(
++  approved: ReadonlyArray<BudgetLineInput>,
++  revised: ReadonlyArray<BudgetLineInput>,
++  factors: A1Factors = DEFAULT_A1_FACTORS,
++): { added: BudgetLineInput[]; removedKeys: string[] } {
++  const approvedA1 = new Map(approved.map((l) => [l.key, a1Equivalent(l.format, l.sheets, factors) ?? 0]));
++  const revisedKeys = new Set(revised.map((l) => l.key));
++  const added: BudgetLineInput[] = [];
++  for (const l of revised) {
++    const before = approvedA1.get(l.key);
++    if (before === undefined) {
++      added.push(l);
++      continue;
++    }
++    const now = a1Equivalent(l.format, l.sheets, factors) ?? 0;
++    const delta = roundTo(now - before, 3);
++    if (delta > 0) {
++      // Representa só a diferença como folhas do mesmo formato.
++      const factor = factors[(l.format ?? "").toUpperCase()] ?? 0;
++      const extraSheets = factor > 0 ? Math.round(delta / factor) : 0;
++      if (extraSheets > 0) added.push({ key: l.key, format: l.format, sheets: extraSheets });
++    }
++  }
++  const removedKeys = approved.filter((l) => !revisedKeys.has(l.key)).map((l) => l.key);
++  return { added, removedKeys };
++}
+diff --git a/lib/ld.ts b/lib/ld.ts
+new file mode 100644
+index 0000000..9a49337
+--- /dev/null
++++ b/lib/ld.ts
+@@ -0,0 +1,228 @@
++import { a1Equivalent, normalizeFormat, type A1Factors, DEFAULT_A1_FACTORS } from "./a1";
++
++/**
++ * LD — Lista de Documentos enviada pelo contratante junto com a demanda.
++ * Cada linha vira um documento da demanda. Módulo puro: recebe linhas já lidas
++ * da planilha (cabeçalho -> valor) e devolve linhas normalizadas + erros, e
++ * compara uma LD nova com os documentos já cadastrados (casando pelo número do
++ * cliente). Testado em `test/ld.test.mjs`.
++ *
++ * Colunas reconhecidas (por sinônimo, sem acento/caixa): número do cliente,
++ * número do projetista, descrição, disciplina, formato, folhas, prazo. Cada
++ * contratante pode usar nomes diferentes; os sinônimos abaixo são o padrão e
++ * `columnMap` permite sobrescrever por contratante.
++ */
++export type LdColumn =
++  | "clientNumber"
++  | "designerNumber"
++  | "name"
++  | "discipline"
++  | "format"
++  | "sheets"
++  | "dueDate";
++
++export const LD_COLUMN_LABEL: Record<LdColumn, string> = {
++  clientNumber: "Número do cliente",
++  designerNumber: "Número do projetista",
++  name: "Descrição",
++  discipline: "Disciplina",
++  format: "Formato",
++  sheets: "Folhas",
++  dueDate: "Prazo",
++};
++
++export const LD_DEFAULT_ALIASES: Record<LdColumn, string[]> = {
++  clientNumber: ["numero do cliente", "n do cliente", "num cliente", "numero cliente", "codigo cliente", "numero do documento", "num doc", "documento"],
++  designerNumber: ["numero do projetista", "n do projetista", "num projetista", "numero projetista", "codigo projetista"],
++  name: ["descricao", "titulo", "nome", "nome do documento"],
++  discipline: ["disciplina", "area"],
++  format: ["formato", "folha formato", "tamanho"],
++  sheets: ["folhas", "numero de folhas", "n de folhas", "qtd folhas", "paginas"],
++  dueDate: ["prazo", "data prazo", "data limite", "vencimento", "data"],
++};
++
++export function normalizeHeader(h: unknown): string {
++  return String(h ?? "")
++    .normalize("NFD")
++    .replace(/[̀-ͯ]/g, "")
++    .toLowerCase()
++    .replace(/[º°.]/g, "")
++    .replace(/[^a-z0-9]+/g, " ")
++    .trim();
++}
++
++/** Chave de casamento do número do cliente: sem espaços extras, caixa alta. */
++export function normalizeNumber(v: unknown): string {
++  return String(v ?? "").trim().replace(/\s+/g, " ").toUpperCase();
++}
++
++export interface LdRow {
++  /** Linha da planilha (1 = primeira linha de dados), para mensagens de erro. */
++  line: number;
++  clientNumber: string;
++  designerNumber: string | null;
++  name: string;
++  discipline: string | null;
++  format: string | null;
++  sheets: number | null;
++  a1Equivalent: number | null;
++  dueDate: Date | null;
++}
++
++export interface LdIssue {
++  line: number;
++  message: string;
++}
++
++export interface LdParseResult {
++  rows: LdRow[];
++  issues: LdIssue[];
++  /** Colunas obrigatórias que não foram encontradas no cabeçalho. */
++  missingColumns: LdColumn[];
++}
++
++const REQUIRED: LdColumn[] = ["clientNumber", "name"];
++
++function parseDate(v: unknown): Date | null {
++  if (v instanceof Date && !Number.isNaN(v.getTime())) {
++    return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()));
++  }
++  const s = String(v ?? "").trim();
++  if (!s) return null;
++  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
++  if (m) return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
++  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
++  if (m) return new Date(Date.UTC(+m[3], +m[2] - 1, +m[1]));
++  return null;
++}
++
++export function parseLd(
++  input: ReadonlyArray<Record<string, unknown>>,
++  opts: { factors?: A1Factors; columnMap?: Partial<Record<LdColumn, string>> } = {},
++): LdParseResult {
++  const factors = opts.factors ?? DEFAULT_A1_FACTORS;
++  const headers = input.length ? Object.keys(input[0]) : [];
++  const byNorm = new Map(headers.map((h) => [normalizeHeader(h), h]));
++
++  const colKey: Partial<Record<LdColumn, string>> = {};
++  (Object.keys(LD_DEFAULT_ALIASES) as LdColumn[]).forEach((col) => {
++    const override = opts.columnMap?.[col];
++    if (override && byNorm.has(normalizeHeader(override))) {
++      colKey[col] = byNorm.get(normalizeHeader(override));
++      return;
++    }
++    for (const alias of LD_DEFAULT_ALIASES[col]) {
++      if (byNorm.has(alias)) {
++        colKey[col] = byNorm.get(alias);
++        return;
++      }
++    }
++  });
++
++  const missingColumns = REQUIRED.filter((c) => !colKey[c]);
++  const result: LdParseResult = { rows: [], issues: [], missingColumns };
++  if (missingColumns.length > 0) return result;
++
++  const seen = new Map<string, number>();
++  input.forEach((raw, i) => {
++    const line = i + 1;
++    const get = (c: LdColumn) => (colKey[c] ? raw[colKey[c] as string] : undefined);
++
++    const clientNumber = normalizeNumber(get("clientNumber"));
++    const name = String(get("name") ?? "").trim();
++    if (!clientNumber && !name) return; // linha em branco
++    if (!clientNumber) {
++      result.issues.push({ line, message: "Linha sem número do cliente." });
++      return;
++    }
++    if (!name) {
++      result.issues.push({ line, message: `${clientNumber}: linha sem descrição.` });
++      return;
++    }
++    if (seen.has(clientNumber)) {
++      result.issues.push({ line, message: `${clientNumber}: repetido (já aparece na linha ${seen.get(clientNumber)}).` });
++      return;
++    }
++    seen.set(clientNumber, line);
++
++    const format = normalizeFormat(get("format"));
++    const sheetsRaw = get("sheets");
++    const sheetsNum = sheetsRaw === undefined || sheetsRaw === "" ? null : Number(String(sheetsRaw).replace(",", "."));
++    const sheets = sheetsNum !== null && Number.isInteger(sheetsNum) && sheetsNum >= 1 ? sheetsNum : null;
++    if (sheetsNum !== null && sheets === null) {
++      result.issues.push({ line, message: `${clientNumber}: folhas inválidas (${String(sheetsRaw)}).` });
++    }
++    const a1 = format && sheets !== null ? a1Equivalent(format, sheets, factors) : null;
++    if (format && sheets !== null && a1 === null) {
++      result.issues.push({ line, message: `${clientNumber}: formato "${format}" não está na tabela de fatores.` });
++    }
++
++    const designer = String(get("designerNumber") ?? "").trim();
++    const discipline = String(get("discipline") ?? "").trim();
++    result.rows.push({
++      line,
++      clientNumber,
++      designerNumber: designer || null,
++      name,
++      discipline: discipline || null,
++      format,
++      sheets,
++      a1Equivalent: a1,
++      dueDate: parseDate(get("dueDate")),
++    });
++  });
++  return result;
++}
++
++/* ------------------------------ Revisão da LD ----------------------------- */
++
++export interface ExistingLdDocument {
++  id: string;
++  clientNumber: string;
++  name: string;
++  format: string | null;
++  sheets: number | null;
++  cancelled: boolean;
++}
++
++export interface LdDiff {
++  /** Documentos novos: entram na demanda (e geram orçamento complementar). */
++  create: LdRow[];
++  /** Mudaram descrição, formato ou folhas: atualizar (pode mudar o orçamento). */
++  update: { id: string; row: LdRow; changed: ("name" | "format" | "sheets")[] }[];
++  /** Saíram da lista: cancelar com motivo "LD revisada". */
++  cancel: string[];
++  /** Estavam cancelados e voltaram na lista. */
++  reactivate: string[];
++  unchanged: number;
++}
++
++export const LD_REVISED_REASON = "LD revisada";
++
++export function diffLd(existing: ReadonlyArray<ExistingLdDocument>, incoming: ReadonlyArray<LdRow>): LdDiff {
++  const byNumber = new Map(existing.map((d) => [normalizeNumber(d.clientNumber), d]));
++  const incomingNumbers = new Set(incoming.map((r) => r.clientNumber));
++  const diff: LdDiff = { create: [], update: [], cancel: [], reactivate: [], unchanged: 0 };
++
++  for (const row of incoming) {
++    const doc = byNumber.get(row.clientNumber);
++    if (!doc) {
++      diff.create.push(row);
++      continue;
++    }
++    if (doc.cancelled) {
++      diff.reactivate.push(doc.id);
++      continue;
++    }
++    const changed: ("name" | "format" | "sheets")[] = [];
++    if (doc.name.trim() !== row.name.trim()) changed.push("name");
++    if (row.format !== null && (doc.format ?? null) !== row.format) changed.push("format");
++    if (row.sheets !== null && (doc.sheets ?? null) !== row.sheets) changed.push("sheets");
++    if (changed.length) diff.update.push({ id: doc.id, row, changed });
++    else diff.unchanged += 1;
++  }
++  for (const doc of existing) {
++    if (!doc.cancelled && !incomingNumbers.has(normalizeNumber(doc.clientNumber))) diff.cancel.push(doc.id);
++  }
++  return diff;
++}
+diff --git a/test/budget.test.mjs b/test/budget.test.mjs
+new file mode 100644
+index 0000000..0731187
+--- /dev/null
++++ b/test/budget.test.mjs
+@@ -0,0 +1,64 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import {
++  buildBudget, allowedBudgetActions, nextBudgetStatus, freezeBudget, complementaryLines, isBudgetFinal,
++} from "../lib/budget.ts";
++
++test("estimativa = Σ(folhas × fator) × valor do A1", () => {
++  const b = buildBudget(
++    [
++      { key: "a", format: "A1", sheets: 2 }, // 2
++      { key: "b", format: "A3", sheets: 4 }, // 1
++      { key: "c", format: "A4", sheets: 8 }, // 1
++      { key: "d", format: null, sheets: 3 }, // sem preço
++    ],
++    1000,
++  );
++  assert.equal(b.totalA1, 4);
++  assert.equal(b.total, 4000);
++  assert.deepEqual(b.unpriced, ["d"]);
++  assert.equal(b.lines[0].value, 2000);
++});
++
++test("sem valor do A1 válido, nada é precificado", () => {
++  const b = buildBudget([{ key: "a", format: "A1", sheets: 1 }], 0);
++  assert.equal(b.total, 0);
++  assert.deepEqual(b.unpriced, ["a"]);
++});
++
++test("ciclo: projetista envia; contratante aprova/comenta/cancela; final trava", () => {
++  assert.deepEqual(allowedBudgetActions("DRAFT", "DESIGNER").sort(), ["CANCEL", "SEND"]);
++  assert.deepEqual(allowedBudgetActions("DRAFT", "CLIENT"), []);
++  assert.equal(nextBudgetStatus("SENT", "APPROVE", "CLIENT"), "APPROVED");
++  assert.equal(nextBudgetStatus("SENT", "APPROVE", "DESIGNER"), null); // não aprova o próprio trabalho
++  assert.equal(nextBudgetStatus("SENT", "COMMENT", "CLIENT"), "COMMENTED");
++  assert.equal(nextBudgetStatus("COMMENTED", "RESEND", "DESIGNER"), "SENT");
++  assert.deepEqual(allowedBudgetActions("APPROVED", "CLIENT"), []);
++  assert.equal(isBudgetFinal("CANCELLED"), true);
++  assert.equal(isBudgetFinal("SENT"), false);
++});
++
++test("congelar guarda cópia da tabela de fatores", () => {
++  const f = { A1: 1 };
++  const snap = freezeBudget(900, f, new Date("2026-10-23T00:00:00Z"));
++  f.A1 = 99;
++  assert.equal(snap.factors.A1, 1);
++  assert.equal(snap.a1UnitValue, 900);
++});
++
++test("complementar: linhas novas e aumento de folhas; removidas só reportadas", () => {
++  const approved = [
++    { key: "a", format: "A1", sheets: 2 },
++    { key: "b", format: "A1", sheets: 1 },
++  ];
++  const revised = [
++    { key: "a", format: "A1", sheets: 5 }, // +3
++    { key: "c", format: "A2", sheets: 2 }, // novo
++  ];
++  const r = complementaryLines(approved, revised);
++  assert.deepEqual(r.added, [
++    { key: "a", format: "A1", sheets: 3 },
++    { key: "c", format: "A2", sheets: 2 },
++  ]);
++  assert.deepEqual(r.removedKeys, ["b"]);
++});
+diff --git a/test/ld.test.mjs b/test/ld.test.mjs
+new file mode 100644
+index 0000000..00d6802
+--- /dev/null
++++ b/test/ld.test.mjs
+@@ -0,0 +1,55 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { parseLd, diffLd, normalizeHeader } from "../lib/ld.ts";
++
++test("lê a LD por sinônimos de cabeçalho e calcula o A1 equivalente", () => {
++  const r = parseLd([
++    { "Nº do Cliente": "pe-ele-001", "Descrição": "Diagrama unifilar", "Formato": "A1", "Folhas": 3, "Prazo": "30/11/2026", Disciplina: "Elétrica" },
++    { "Nº do Cliente": "PE-ELE-002", "Descrição": "Detalhe", "Formato": "a4", "Folhas": "8", "Prazo": "2026-12-01" },
++    { "Nº do Cliente": "", "Descrição": "", "Formato": "", "Folhas": "" },
++  ]);
++  assert.deepEqual(r.missingColumns, []);
++  assert.equal(r.rows.length, 2);
++  assert.equal(r.rows[0].clientNumber, "PE-ELE-001");
++  assert.equal(r.rows[0].a1Equivalent, 3);
++  assert.equal(r.rows[0].dueDate.toISOString().slice(0, 10), "2026-11-30");
++  assert.equal(r.rows[1].a1Equivalent, 1);
++  assert.equal(r.issues.length, 0);
++});
++
++test("reporta repetidos, folhas e formatos inválidos, e colunas ausentes", () => {
++  const r = parseLd([
++    { Documento: "A-1", Titulo: "x", Formato: "A9", Folhas: 2 },
++    { Documento: "A-1", Titulo: "y" },
++    { Documento: "A-3", Titulo: "z", Formato: "A1", Folhas: "dois" },
++  ]);
++  assert.equal(r.rows.length, 2);
++  assert.equal(r.issues.length, 3);
++  assert.deepEqual(parseLd([{ Foo: 1 }]).missingColumns, ["clientNumber", "name"]);
++});
++
++test("revisão da LD: novos entram, saídos cancelam, mudanças atualizam", () => {
++  const incoming = parseLd([
++    { Documento: "A-1", Titulo: "Um", Formato: "A1", Folhas: 2 },
++    { Documento: "A-2", Titulo: "Dois (novo nome)", Formato: "A1", Folhas: 1 },
++    { Documento: "A-4", Titulo: "Quatro", Formato: "A3", Folhas: 1 },
++    { Documento: "A-5", Titulo: "Cinco" },
++  ]).rows;
++  const existing = [
++    { id: "d1", clientNumber: "a-1", name: "Um", format: "A1", sheets: 2, cancelled: false },
++    { id: "d2", clientNumber: "A-2", name: "Dois", format: "A1", sheets: 1, cancelled: false },
++    { id: "d3", clientNumber: "A-3", name: "Três", format: "A1", sheets: 1, cancelled: false },
++    { id: "d5", clientNumber: "A-5", name: "Cinco", format: null, sheets: null, cancelled: true },
++  ];
++  const diff = diffLd(existing, incoming);
++  assert.deepEqual(diff.create.map((r) => r.clientNumber), ["A-4"]);
++  assert.deepEqual(diff.cancel, ["d3"]);
++  assert.deepEqual(diff.reactivate, ["d5"]);
++  assert.deepEqual(diff.update.map((u) => [u.id, u.changed]), [["d2", ["name"]]]);
++  assert.equal(diff.unchanged, 1);
++});
++
++test("normalizeHeader remove acento, º e pontuação", () => {
++  assert.equal(normalizeHeader("Nº do Cliente"), "n do cliente");
++  assert.equal(normalizeHeader("  Descrição "), "descricao");
++});
+-- 
+2.43.0
+

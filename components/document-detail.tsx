@@ -130,7 +130,7 @@ export async function DocumentDetail({
       dueAt: true,
       daysInPreviousStage: true,
       createdAt: true,
-      revision: { select: { id: true, name: true } },
+      revision: { select: { id: true, name: true, milestoneId: true } },
     },
   });
 

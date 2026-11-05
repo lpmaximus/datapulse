@@ -1,0 +1,889 @@
+From 58c14d0fbc9deaf2995b8180677c5c8c67b656b8 Mon Sep 17 00:00:00 2001
+From: "Claude (auto)" <claude@anthropic.com>
+Date: Fri, 23 Oct 2026 07:15:45 -0300
+Subject: [PATCH 6/9] =?UTF-8?q?Bloco=202:=20tarefa=20por=20documento=20(se?=
+ =?UTF-8?q?rvi=C3=A7o,=20proje=C3=A7=C3=A3o,=20migra=C3=A7=C3=A3o=20do=20l?=
+ =?UTF-8?q?egado=20em=20simula=C3=A7=C3=A3o,=20campos=20de=20tamanho=20e?=
+ =?UTF-8?q?=20avan=C3=A7o=20declarado)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ app/actions/documents.ts              | 119 +++++++++--
+ components/document-create-form.tsx   |  16 ++
+ lib/document-migration.ts             | 113 ++++++++++
+ lib/server/document-size.ts           |  41 ++++
+ lib/server/document-task-service.ts   | 291 ++++++++++++++++++++++++++
+ lib/server/package-service.ts         |   7 +
+ lib/tasks.ts                          |  10 +
+ scripts/migrate-documents-to-tasks.ts |  45 ++++
+ test/document-migration.test.mjs      |  56 +++++
+ 9 files changed, 685 insertions(+), 13 deletions(-)
+ create mode 100644 lib/document-migration.ts
+ create mode 100644 lib/server/document-size.ts
+ create mode 100644 lib/server/document-task-service.ts
+ create mode 100644 scripts/migrate-documents-to-tasks.ts
+ create mode 100644 test/document-migration.test.mjs
+
+diff --git a/app/actions/documents.ts b/app/actions/documents.ts
+index adaedb8..d026028 100644
+--- a/app/actions/documents.ts
++++ b/app/actions/documents.ts
+@@ -5,6 +5,10 @@ import { prisma } from "@/lib/prisma";
+ import { requireRole, requireWriter, canManageProjects } from "@/lib/authz";
+ import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
+ import { assertPackageUsable, recomputePackages } from "@/lib/server/package-service";
++import { createDocumentTask } from "@/lib/server/document-task-service";
++import { loadA1Factors, readDocumentSize } from "@/lib/server/document-size";
++import { recomputeRollup, type Db } from "@/lib/server/rollup";
++import { capDeclaredProgress } from "@/lib/document-task";
+ import { recalculateProjectDRI } from "@/lib/server/dri-service";
+ import {
+   actionForEffect,
+@@ -126,9 +130,19 @@ export async function createDocument(
+ 
+   // Toda revisão nasce dentro de um pacote (Tarefa), que por sua vez fica
+   // dentro de um Marco. Sem pacote o documento não entra no fluxo do projeto.
+-  const packageId = str(formData, "packageId");
+-  const packageError = await assertPackageUsable(packageId, projectId, user.organizationId);
+-  if (packageError) return { error: packageError };
++  //
++  // Modelo novo (documento é uma tarefa): sem pacote, mas com `marcoId`, o
++  // documento ganha a PRÓPRIA tarefa dentro do Marco escolhido.
++  const marcoId = str(formData, "marcoId");
++  const ownTask = !str(formData, "packageId") && !!marcoId;
++  const packageId = ownTask ? "" : str(formData, "packageId");
++  if (!ownTask) {
++    const packageError = await assertPackageUsable(packageId, projectId, user.organizationId);
++    if (packageError) return { error: packageError };
++  }
++
++  const size = readDocumentSize(formData, await loadA1Factors(user.organizationId));
++  if ("error" in size) return { error: size.error };
+ 
+   const revisionName = str(formData, "revisionName") || "R00";
+ 
+@@ -138,7 +152,7 @@ export async function createDocument(
+   const issuedAt = optDate(formData, "issuedAt");
+   const dueAt = optDate(formData, "dueAt") ?? (issuedAt ? reviewDueDate(issuedAt) : null);
+ 
+-  await prisma.document.create({
++  const created = await prisma.document.create({
+     data: {
+       projectId,
+       name,
+@@ -148,10 +162,14 @@ export async function createDocument(
+       designFirmId,
+       responsibleId,
+       notes: str(formData, "notes") || null,
++      designerNumber: size.designerNumber,
++      format: size.format,
++      sheets: size.sheets,
++      a1Equivalent: size.a1Equivalent,
+       revisions: {
+         create: {
+           name: revisionName,
+-          milestoneId: packageId,
++          milestoneId: ownTask ? null : packageId,
+           sequence: 0,
+           status: "DRAFT",
+           round: 0,
+@@ -174,7 +192,21 @@ export async function createDocument(
+     },
+   });
+ 
+-  await recomputePackages([packageId]);
++  if (ownTask) {
++    const task = await createDocumentTask({ documentId: created.id, projectId, marcoId, assigneeId: responsibleId });
++    if ("error" in task) {
++      // Não deixa documento sem lugar no fluxo: desfaz o cadastro.
++      await prisma.document.delete({ where: { id: created.id } });
++      return { error: task.error };
++    }
++    await prisma.documentRevision.updateMany({
++      where: { documentId: created.id },
++      data: { milestoneId: task.id },
++    });
++    await recomputePackages([task.id]);
++  } else {
++    await recomputePackages([packageId]);
++  }
+ 
+   revalidatePath(`/projects/${projectId}/documents`);
+   revalidatePath("/documents");
+@@ -448,6 +480,7 @@ export async function createRevision(
+     select: {
+       id: true,
+       projectId: true,
++      taskId: true,
+       project: { select: { status: true, organizationId: true } },
+       revisions: {
+         orderBy: { sequence: "desc" },
+@@ -477,13 +510,18 @@ export async function createRevision(
+ 
+   // A nova revisão é emitida num pacote (normalmente um pacote novo, como no
+   // ACC: cada emissão é uma tarefa). Marco pai e pacote são obrigatórios.
+-  const packageId = str(formData, "packageId");
+-  const packageError = await assertPackageUsable(
+-    packageId,
+-    document.projectId,
+-    user.organizationId,
+-  );
+-  if (packageError) return { error: packageError };
++  //
++  // Documento que já tem tarefa própria (modelo "documento é uma tarefa")
++  // emite a nova revisão nela; o pacote só vale para o fluxo legado.
++  const packageId = document.taskId ?? str(formData, "packageId");
++  if (!document.taskId) {
++    const packageError = await assertPackageUsable(
++      packageId,
++      document.projectId,
++      user.organizationId,
++    );
++    if (packageError) return { error: packageError };
++  }
+ 
+   const name = str(formData, "name") || nextRevisionName(last?.name ?? null);
+ 
+@@ -604,9 +642,16 @@ export async function updateDocumentMetadata(formData: FormData): Promise<void>
+   if (designFirmId && !designFirm) return;
+   if (responsibleId && !responsible) return;
+ 
++  const size = readDocumentSize(formData, await loadA1Factors(user.organizationId));
++  if ("error" in size) return;
++
+   const doc = await prisma.document.update({
+     where: { id: documentId },
+     data: {
++      designerNumber: size.designerNumber,
++      format: size.format,
++      sheets: size.sheets,
++      a1Equivalent: size.a1Equivalent,
+       name: str(formData, "name") || undefined,
+       number: str(formData, "number") || null,
+       type: str(formData, "type") || null,
+@@ -643,6 +688,7 @@ export async function deleteDocument(formData: FormData): Promise<DeleteResult>
+       id: true,
+       projectId: true,
+       project: { select: { status: true, organizationId: true } },
++      taskId: true,
+       revisions: { select: { milestoneId: true } },
+     },
+   });
+@@ -652,6 +698,12 @@ export async function deleteDocument(formData: FormData): Promise<DeleteResult>
+   if (!isProjectWritable(doc.project.status)) return { error: READONLY_MESSAGE };
+ 
+   await prisma.document.delete({ where: { id: documentId } });
++  if (doc.taskId) {
++    // A tarefa do documento é só projeção dele: sai junto e o Marco recalcula.
++    const task = await prisma.milestone.findUnique({ where: { id: doc.taskId }, select: { parentId: true } });
++    await prisma.milestone.deleteMany({ where: { id: doc.taskId } });
++    if (task?.parentId) await recomputeRollup(task.parentId, prisma as Db);
++  }
+   await recomputePackages(doc.revisions.map((r) => r.milestoneId));
+   revalidatePackages(doc.projectId);
+ 
+@@ -660,3 +712,44 @@ export async function deleteDocument(formData: FormData): Promise<DeleteResult>
+   revalidatePath("/my-work");
+   return { ok: true };
+ }
++
++/**
++ * Atualiza o avanço de elaboração declarado pela projetista (0–99). O 100%
++ * só existe com o PDF enviado (revisão em análise), então aqui o teto é 99.
++ * Só vale para documentos que já têm tarefa própria; o status e o início real
++ * da tarefa são recalculados a partir daí.
++ */
++export async function updateDocumentProgress(formData: FormData): Promise<void> {
++  const user = await requireWriter();
++
++  const documentId = str(formData, "documentId");
++  const raw = Number(str(formData, "progress"));
++  if (!documentId || !Number.isFinite(raw)) return;
++
++  const doc = await prisma.document.findFirst({
++    where: { id: documentId, project: { organizationId: user.organizationId } },
++    select: {
++      id: true,
++      projectId: true,
++      taskId: true,
++      responsibleId: true,
++      project: { select: { status: true } },
++    },
++  });
++  if (!doc || !doc.taskId) return;
++  if (!isProjectWritable(doc.project.status)) return;
++  if (!(await canSeeProject(user, doc.projectId))) return;
++  // ADMIN/MANAGER ou o próprio responsável pelo documento.
++  if (!canManageProjects(user) && doc.responsibleId !== user.id) return;
++
++  await prisma.document.update({
++    where: { id: doc.id },
++    data: { declaredProgress: capDeclaredProgress(raw, false) },
++  });
++  await recomputePackages([doc.taskId]);
++  await recalculateProjectDRI(doc.projectId);
++
++  revalidatePath(`/documents/${doc.id}`);
++  revalidatePath(`/projects/${doc.projectId}/documents`);
++  revalidatePackages(doc.projectId);
++}
+diff --git a/components/document-create-form.tsx b/components/document-create-form.tsx
+index 34a4421..5a335ad 100644
+--- a/components/document-create-form.tsx
++++ b/components/document-create-form.tsx
+@@ -167,6 +167,22 @@ export function DocumentCreateForm({
+             <input name="revisionName" defaultValue="R00" className={inputClass} />
+           </Field>
+ 
++          <Field label="Nº do projetista" hint="Opcional.">
++            <input name="designerNumber" className={inputClass} placeholder="L2-ELE-001" />
++          </Field>
++          <Field label="Formato" hint="A1 a A4 (tabela configurável). Base do orçamento.">
++            <input name="format" list="document-formats" className={inputClass} placeholder="A1" />
++            <datalist id="document-formats">
++              <option value="A1" />
++              <option value="A2" />
++              <option value="A3" />
++              <option value="A4" />
++            </datalist>
++          </Field>
++          <Field label="Folhas" hint="Número de folhas do documento.">
++            <input name="sheets" type="number" min={1} step={1} className={inputClass} placeholder="1" />
++          </Field>
++
+           <Field label="Empresa" hint="Empresa que emite o documento.">
+             <select name="designFirmId" defaultValue="" className={inputClass}>
+               <option value="">Não definir</option>
+diff --git a/lib/document-migration.ts b/lib/document-migration.ts
+new file mode 100644
+index 0000000..1385f3e
+--- /dev/null
++++ b/lib/document-migration.ts
+@@ -0,0 +1,113 @@
++import { projectDocumentTask, type DocTaskStatus } from "./document-task";
++import type { DocumentStatus } from "./documents";
++
++/**
++ * Planejamento da migração "pacote -> uma tarefa por documento" (decisão de
++ * 15/10/2026). Módulo puro: recebe os documentos como estão hoje e devolve a
++ * tarefa que cada um deve ganhar. A gravação fica em
++ * `scripts/migrate-documents-to-tasks.ts` (simulação por padrão).
++ *
++ * Regras:
++ *  - Documento que já tem tarefa (taskId) é ignorado (idempotente).
++ *  - Marco pai = o do pacote da revisão mais recente que tenha pacote; sem
++ *    pacote nenhum, o Marco "Legado — documentos existentes" do projeto.
++ *  - Status/avanço/datas saem de `projectDocumentTask` sobre a revisão vigente
++ *    (maior sequência). Documento sem revisão em análise/aprovada começa em 0%.
++ *  - Todas as revisões do documento passam a apontar para a nova tarefa.
++ */
++export const LEGACY_PARENT = "LEGACY" as const;
++
++/** Marco que recebe os documentos sem pacote (mesmo nome usado no legado dos pacotes). */
++export const LEGACY_MARCO_TITLE = "Legado — documentos existentes";
++
++export interface MigrationRevision {
++  id: string;
++  status: DocumentStatus;
++  sequence: number;
++  dueAt: Date | null;
++  analyzedAt: Date | null;
++  issuedAt: Date | null;
++  createdAt: Date;
++  /** Pacote atual da revisão (se houver) e o Marco em que ele está. */
++  packageParentId: string | null;
++}
++
++export interface MigrationDocument {
++  id: string;
++  projectId: string;
++  number: string | null;
++  name: string;
++  taskId: string | null;
++  responsibleId: string | null;
++  revisions: MigrationRevision[];
++}
++
++export interface DocumentTaskPlan {
++  documentId: string;
++  projectId: string;
++  name: string;
++  /** Id do Marco ou LEGACY_PARENT. */
++  parentId: string | typeof LEGACY_PARENT;
++  assigneeId: string | null;
++  status: DocTaskStatus;
++  progress: number;
++  startDate: Date | null;
++  actualStartDate: Date | null;
++  plannedDate: Date | null;
++  forecastDate: Date | null;
++  actualDate: Date | null;
++  revisionIds: string[];
++}
++
++export interface MigrationPlan {
++  tasks: DocumentTaskPlan[];
++  alreadyMigrated: number;
++}
++
++export function taskNameForDocument(d: { number: string | null; name: string }): string {
++  return d.number ? `${d.number} — ${d.name}` : d.name;
++}
++
++export function planDocumentTasks(docs: ReadonlyArray<MigrationDocument>): MigrationPlan {
++  const plan: MigrationPlan = { tasks: [], alreadyMigrated: 0 };
++  for (const d of docs) {
++    if (d.taskId) {
++      plan.alreadyMigrated += 1;
++      continue;
++    }
++    const revs = [...d.revisions].sort((a, b) => a.sequence - b.sequence);
++    const current = revs.length ? revs[revs.length - 1] : null;
++
++    const withPackage = [...revs].reverse().find((r) => r.packageParentId);
++    const parentId = withPackage?.packageParentId ?? LEGACY_PARENT;
++
++    const proj = projectDocumentTask({
++      current: current
++        ? { status: current.status, dueAt: current.dueAt, analyzedAt: current.analyzedAt }
++        : null,
++      declaredProgress: 0,
++    });
++
++    const dues = revs.map((r) => r.dueAt).filter((x): x is Date => !!x);
++    const plannedDate = dues.length ? new Date(Math.min(...dues.map((x) => x.getTime()))) : null;
++    const starts = revs.map((r) => r.issuedAt ?? r.createdAt);
++    const start = starts.length ? new Date(Math.min(...starts.map((x) => x.getTime()))) : null;
++
++    plan.tasks.push({
++      documentId: d.id,
++      projectId: d.projectId,
++      name: taskNameForDocument(d),
++      parentId,
++      assigneeId: d.responsibleId,
++      status: proj.status,
++      progress: proj.progress,
++      startDate: start,
++      actualStartDate: proj.progress > 0 ? start : null,
++      plannedDate,
++      forecastDate: proj.forecastDate ?? plannedDate,
++      actualDate: proj.actualDate,
++      revisionIds: revs.map((r) => r.id),
++    });
++  }
++  return plan;
++}
+diff --git a/lib/server/document-size.ts b/lib/server/document-size.ts
+new file mode 100644
+index 0000000..5a43de5
+--- /dev/null
++++ b/lib/server/document-size.ts
+@@ -0,0 +1,41 @@
++import { prisma } from "@/lib/prisma";
++import { a1Equivalent, normalizeFormat, parseA1Factors, type A1Factors } from "@/lib/a1";
++
++/** Tabela de fatores do A1 da organização (ou o padrão). */
++export async function loadA1Factors(organizationId: string): Promise<A1Factors> {
++  const org = await prisma.organization.findUnique({
++    where: { id: organizationId },
++    select: { a1Factors: true },
++  });
++  return parseA1Factors(org?.a1Factors ?? null);
++}
++
++export type DocumentSize =
++  | { error: string }
++  | { designerNumber: string | null; format: string | null; sheets: number | null; a1Equivalent: number | null };
++
++/**
++ * Lê número do projetista, formato e folhas do formulário e calcula o A1
++ * equivalente. Campos vazios são válidos (documento ainda sem tamanho); formato
++ * fora da tabela ou folhas que não sejam um inteiro positivo são erro.
++ */
++export function readDocumentSize(fd: FormData, factors: A1Factors): DocumentSize {
++  const designerNumber = String(fd.get("designerNumber") ?? "").trim() || null;
++  const format = normalizeFormat(fd.get("format"));
++  const sheetsRaw = String(fd.get("sheets") ?? "").trim();
++  let sheets: number | null = null;
++  if (sheetsRaw) {
++    const n = Number(sheetsRaw.replace(",", "."));
++    if (!Number.isInteger(n) || n < 1) return { error: "Folhas deve ser um número inteiro maior que zero." };
++    sheets = n;
++  }
++  if (format && factors[format] === undefined) {
++    return { error: `Formato "${format}" não está na tabela de fatores (${Object.keys(factors).join(", ")}).` };
++  }
++  return {
++    designerNumber,
++    format,
++    sheets,
++    a1Equivalent: format && sheets !== null ? a1Equivalent(format, sheets, factors) : null,
++  };
++}
+diff --git a/lib/server/document-task-service.ts b/lib/server/document-task-service.ts
+new file mode 100644
+index 0000000..9827ed3
+--- /dev/null
++++ b/lib/server/document-task-service.ts
+@@ -0,0 +1,291 @@
++import { prisma } from "@/lib/prisma";
++import {
++  DOCUMENT_TASK_TYPE,
++  PACKAGE_TYPE,
++  buildDeadlineChange,
++  isDocumentTaskType,
++  validateParentLink,
++} from "@/lib/tasks";
++import type { DocumentStatus } from "@/lib/documents";
++import { projectDocumentTask, shouldStampActualStart } from "@/lib/document-task";
++import {
++  LEGACY_MARCO_TITLE,
++  LEGACY_PARENT,
++  planDocumentTasks,
++  taskNameForDocument,
++  type MigrationDocument,
++} from "@/lib/document-migration";
++import { recomputeRollup, type Db } from "@/lib/server/rollup";
++
++/**
++ * Documento como Tarefa (decisão de 15/10/2026): cada documento tem a SUA
++ * tarefa (Milestone, type "Documento"). Status, avanço, prazo e fim real são
++ * PROJEÇÃO do ciclo de revisão do documento (lib/document-task.ts) — nunca
++ * digitados, no mesmo espírito do rollup do Marco.
++ */
++
++/** Recalcula a tarefa de um documento e propaga ao Marco pai. */
++export async function recomputeDocumentTask(milestoneId: string, db: Db = prisma) {
++  const task = await db.milestone.findUnique({
++    where: { id: milestoneId },
++    select: {
++      id: true,
++      type: true,
++      parentId: true,
++      progress: true,
++      actualStartDate: true,
++      plannedDate: true,
++      forecastDate: true,
++      impediments: { where: { resolvedAt: null }, select: { id: true }, take: 1 },
++      documentTask: { select: { declaredProgress: true } },
++      documentRevisions: {
++        orderBy: { sequence: "desc" },
++        take: 1,
++        select: { status: true, dueAt: true, analyzedAt: true },
++      },
++    },
++  });
++  if (!task || !isDocumentTaskType(task.type)) return;
++
++  const current = task.documentRevisions[0] ?? null;
++  const result = projectDocumentTask({
++    current: current
++      ? { status: current.status as DocumentStatus, dueAt: current.dueAt, analyzedAt: current.analyzedAt }
++      : null,
++    declaredProgress: task.documentTask?.declaredProgress ?? 0,
++    blocked: task.impediments.length > 0,
++  });
++
++  const nextForecast = result.forecastDate ?? task.forecastDate;
++  const change = buildDeadlineChange(task.forecastDate, nextForecast);
++  const stampStart = shouldStampActualStart(task.progress, result.progress, task.actualStartDate);
++
++  await db.milestone.update({
++    where: { id: task.id },
++    data: {
++      status: result.status,
++      progress: result.progress,
++      forecastDate: nextForecast,
++      actualDate: result.actualDate,
++      ...(task.plannedDate === null && nextForecast ? { plannedDate: nextForecast } : {}),
++      ...(stampStart ? { actualStartDate: new Date() } : {}),
++    },
++  });
++
++  if (change) {
++    await db.deadlineChange.create({
++      data: {
++        milestoneId: task.id,
++        fromDate: change.fromDate,
++        toDate: change.toDate,
++        reason: "Recalculado a partir do ciclo de revisão do documento.",
++      },
++    });
++  }
++
++  if (task.parentId) await recomputeRollup(task.parentId, db);
++}
++
++/**
++ * Cria a tarefa de um documento dentro de um Marco (pai obrigatório) e liga
++ * Document.taskId. Devolve o id da tarefa.
++ */
++export async function createDocumentTask(
++  input: { documentId: string; projectId: string; marcoId: string; assigneeId?: string | null },
++  db: Db = prisma,
++): Promise<{ error: string } | { id: string }> {
++  if (!input.marcoId) return { error: "Escolha o marco do documento." };
++  const [doc, marco] = await Promise.all([
++    db.document.findUnique({
++      where: { id: input.documentId },
++      select: { id: true, projectId: true, number: true, name: true, taskId: true, responsibleId: true },
++    }),
++    db.milestone.findUnique({
++      where: { id: input.marcoId },
++      select: { id: true, projectId: true, kind: true, parentId: true },
++    }),
++  ]);
++  if (!doc || doc.projectId !== input.projectId) return { error: "Documento não encontrado." };
++  if (doc.taskId) return { id: doc.taskId };
++  if (!marco) return { error: "Marco selecionado não encontrado." };
++  const error = validateParentLink({ projectId: input.projectId, kind: "TASK" }, marco);
++  if (error) return { error };
++
++  const created = await db.milestone.create({
++    data: {
++      projectId: input.projectId,
++      parentId: marco.id,
++      name: taskNameForDocument(doc),
++      kind: "TASK",
++      type: DOCUMENT_TASK_TYPE,
++      status: "NOT_STARTED",
++      assigneeId: input.assigneeId ?? doc.responsibleId ?? null,
++    },
++    select: { id: true },
++  });
++  await db.document.update({ where: { id: doc.id }, data: { taskId: created.id } });
++  await recomputeRollup(marco.id, db);
++  return { id: created.id };
++}
++
++/* ------------------------------------------------------------------------ */
++/* Migração do legado: pacote -> uma tarefa por documento                    */
++/* ------------------------------------------------------------------------ */
++
++export interface MigrationSummary {
++  organizations: number;
++  documentsToMigrate: number;
++  alreadyMigrated: number;
++  tasksCreated: number;
++  emptyPackagesRemoved: number;
++}
++
++/**
++ * Cria a tarefa de cada documento que ainda não tem uma, aponta as revisões
++ * para ela e remove os pacotes que ficaram sem revisões (eram só projeção).
++ * Sem `apply`, apenas conta (simulação). Idempotente.
++ *
++ * RODE PRIMEIRO NUM BRANCH DO NEON: produção e desenvolvimento compartilham o
++ * banco e a migração muda a estrutura de trabalho do projeto inteiro.
++ */
++export async function migrateDocumentsToTasks(
++  db: Db,
++  scope: { organizationId: string },
++  opts: { apply: boolean },
++): Promise<MigrationSummary> {
++  const docs = await db.document.findMany({
++    where: { project: { organizationId: scope.organizationId } },
++    select: {
++      id: true,
++      projectId: true,
++      number: true,
++      name: true,
++      taskId: true,
++      responsibleId: true,
++      revisions: {
++        select: {
++          id: true,
++          status: true,
++          sequence: true,
++          dueAt: true,
++          analyzedAt: true,
++          issuedAt: true,
++          createdAt: true,
++          milestone: { select: { parentId: true, type: true } },
++        },
++      },
++    },
++  });
++
++  const input: MigrationDocument[] = docs.map((d) => ({
++    id: d.id,
++    projectId: d.projectId,
++    number: d.number,
++    name: d.name,
++    taskId: d.taskId,
++    responsibleId: d.responsibleId,
++    revisions: d.revisions.map((r) => ({
++      id: r.id,
++      status: r.status as DocumentStatus,
++      sequence: r.sequence,
++      dueAt: r.dueAt,
++      analyzedAt: r.analyzedAt,
++      issuedAt: r.issuedAt,
++      createdAt: r.createdAt,
++      packageParentId: r.milestone && r.milestone.type === PACKAGE_TYPE ? r.milestone.parentId : null,
++    })),
++  }));
++
++  const plan = planDocumentTasks(input);
++  const summary: MigrationSummary = {
++    organizations: 1,
++    documentsToMigrate: plan.tasks.length,
++    alreadyMigrated: plan.alreadyMigrated,
++    tasksCreated: 0,
++    emptyPackagesRemoved: 0,
++  };
++  if (!opts.apply || plan.tasks.length === 0) return summary;
++
++  const legacyByProject = new Map<string, string>();
++  const parentsTouched = new Set<string>();
++  const packagesTouched = new Set<string>();
++
++  for (const t of plan.tasks) {
++    let parentId: string;
++    if (t.parentId === LEGACY_PARENT) {
++      let id = legacyByProject.get(t.projectId);
++      if (!id) {
++        const found = await db.milestone.findFirst({
++          where: { projectId: t.projectId, kind: "MILESTONE", name: LEGACY_MARCO_TITLE },
++          select: { id: true },
++        });
++        id =
++          found?.id ??
++          (
++            await db.milestone.create({
++              data: {
++                projectId: t.projectId,
++                name: LEGACY_MARCO_TITLE,
++                kind: "MILESTONE",
++                type: "Documentos",
++                status: "NOT_STARTED",
++              },
++              select: { id: true },
++            })
++          ).id;
++        legacyByProject.set(t.projectId, id);
++      }
++      parentId = id;
++    } else {
++      parentId = t.parentId;
++    }
++
++    const oldPackages = await db.documentRevision.findMany({
++      where: { id: { in: t.revisionIds }, milestoneId: { not: null } },
++      select: { milestoneId: true },
++    });
++    oldPackages.forEach((r) => r.milestoneId && packagesTouched.add(r.milestoneId));
++
++    const created = await db.milestone.create({
++      data: {
++        projectId: t.projectId,
++        parentId,
++        name: t.name,
++        kind: "TASK",
++        type: DOCUMENT_TASK_TYPE,
++        status: t.status,
++        progress: t.progress,
++        startDate: t.startDate,
++        actualStartDate: t.actualStartDate,
++        plannedDate: t.plannedDate,
++        forecastDate: t.forecastDate,
++        actualDate: t.actualDate,
++        assigneeId: t.assigneeId,
++      },
++      select: { id: true },
++    });
++    await db.document.update({ where: { id: t.documentId }, data: { taskId: created.id } });
++    await db.documentRevision.updateMany({
++      where: { id: { in: t.revisionIds } },
++      data: { milestoneId: created.id },
++    });
++    parentsTouched.add(parentId);
++    summary.tasksCreated += 1;
++  }
++
++  // Pacote sem revisões é só projeção vazia: sai (nunca remove pacote com revisão).
++  for (const id of packagesTouched) {
++    const pkg = await db.milestone.findUnique({
++      where: { id },
++      select: { type: true, parentId: true, _count: { select: { documentRevisions: true } } },
++    });
++    if (pkg && pkg.type === PACKAGE_TYPE && pkg._count.documentRevisions === 0) {
++      await db.milestone.delete({ where: { id } });
++      if (pkg.parentId) parentsTouched.add(pkg.parentId);
++      summary.emptyPackagesRemoved += 1;
++    }
++  }
++
++  for (const id of parentsTouched) await recomputeRollup(id, db);
++  return summary;
++}
+diff --git a/lib/server/package-service.ts b/lib/server/package-service.ts
+index 2225bb3..e7b5b08 100644
+--- a/lib/server/package-service.ts
++++ b/lib/server/package-service.ts
+@@ -2,12 +2,14 @@ import { prisma } from "@/lib/prisma";
+ import {
+   PACKAGE_TYPE,
+   buildDeadlineChange,
++  isDocumentTaskType,
+   isPackageType,
+   startOfDayUTC,
+   validateParentLink,
+ } from "@/lib/tasks";
+ import { projectPackageStatus, type DocumentStatus } from "@/lib/documents";
+ import { recomputeRollup, type Db } from "@/lib/server/rollup";
++import { recomputeDocumentTask } from "@/lib/server/document-task-service";
+ 
+ /**
+  * Pacote de revisão = Tarefa (tabela Milestone, type "Pacote de revisão") que
+@@ -41,6 +43,11 @@ export async function recomputePackage(milestoneId: string, db: Db = prisma) {
+       },
+     },
+   });
++  // Documento como tarefa: a projeção é a do ciclo do próprio documento.
++  if (pkg && isDocumentTaskType(pkg.type)) {
++    await recomputeDocumentTask(milestoneId, db);
++    return;
++  }
+   if (!pkg || !isPackageType(pkg.type)) return;
+ 
+   const revisions = pkg.documentRevisions.map((r) => ({
+diff --git a/lib/tasks.ts b/lib/tasks.ts
+index da5bc33..0d9734c 100644
+--- a/lib/tasks.ts
++++ b/lib/tasks.ts
+@@ -118,6 +118,16 @@ export function isPackageType(type: string | null | undefined): boolean {
+   return type === PACKAGE_TYPE;
+ }
+ 
++/**
++ * Tipo da Tarefa que representa UM documento (modelo "documento é uma tarefa",
++ * decisão de 15/10/2026). Substitui o pacote como estrutura de trabalho.
++ */
++export const DOCUMENT_TASK_TYPE = "Documento";
++
++export function isDocumentTaskType(type: string | null | undefined): boolean {
++  return type === DOCUMENT_TASK_TYPE;
++}
++
+ /** Atrasada = em aberto e com prazo anterior a hoje (o próprio dia ainda vale). */
+ export function isTaskOverdue(t: TaskDates, now: Date): boolean {
+   const due = taskDueDate(t);
+diff --git a/scripts/migrate-documents-to-tasks.ts b/scripts/migrate-documents-to-tasks.ts
+new file mode 100644
+index 0000000..031d550
+--- /dev/null
++++ b/scripts/migrate-documents-to-tasks.ts
+@@ -0,0 +1,45 @@
++/**
++ * Migra o legado "pacote de revisão" para "uma tarefa por documento".
++ *
++ * Uso (simulação por padrão; nada é gravado sem --aplicar):
++ *   npx tsx scripts/migrate-documents-to-tasks.ts --organizacao "L2tech"
++ *   npx tsx scripts/migrate-documents-to-tasks.ts --organizacao "L2tech" --aplicar
++ *
++ * RODE PRIMEIRO NUM BRANCH DO NEON (produção e desenvolvimento compartilham o
++ * banco). Pré-requisito: migração 20261023120000_documento_tarefa_demanda_orcamento.
++ * Idempotente: documento que já tem tarefa é ignorado.
++ */
++import { PrismaClient } from "@prisma/client";
++import { migrateDocumentsToTasks } from "../lib/server/document-task-service";
++
++const prisma = new PrismaClient();
++const argv = process.argv.slice(2);
++const APPLY = argv.includes("--aplicar");
++const orgIdx = argv.indexOf("--organizacao");
++const ORG_NAME = orgIdx >= 0 ? argv[orgIdx + 1] : "";
++
++async function main() {
++  if (!ORG_NAME) {
++    console.error('Informe --organizacao "Nome".');
++    process.exit(1);
++  }
++  const org = await prisma.organization.findFirst({ where: { name: ORG_NAME }, select: { id: true, name: true } });
++  if (!org) {
++    console.error(`Organização "${ORG_NAME}" não encontrada.`);
++    process.exit(1);
++  }
++  const s = await migrateDocumentsToTasks(prisma, { organizationId: org.id }, { apply: APPLY });
++  console.log(`${org.name}: ${s.documentsToMigrate} documento(s) a migrar, ${s.alreadyMigrated} já migrado(s).`);
++  if (APPLY) {
++    console.log(`Tarefas criadas: ${s.tasksCreated}. Pacotes vazios removidos: ${s.emptyPackagesRemoved}.`);
++  } else {
++    console.log("Simulação: nada gravado. Use --aplicar para gravar.");
++  }
++}
++
++main()
++  .catch((e) => {
++    console.error(e);
++    process.exit(1);
++  })
++  .finally(() => prisma.$disconnect());
+diff --git a/test/document-migration.test.mjs b/test/document-migration.test.mjs
+new file mode 100644
+index 0000000..f0ef9b1
+--- /dev/null
++++ b/test/document-migration.test.mjs
+@@ -0,0 +1,56 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { planDocumentTasks, LEGACY_PARENT, taskNameForDocument } from "../lib/document-migration.ts";
++
++const d = (s) => new Date(s + "T00:00:00.000Z");
++const rev = (o) => ({
++  id: "r", status: "DRAFT", sequence: 0, dueAt: null, analyzedAt: null, issuedAt: null,
++  createdAt: d("2026-09-01"), packageParentId: null, ...o,
++});
++
++test("uma tarefa por documento, com o Marco do pacote mais recente", () => {
++  const plan = planDocumentTasks([
++    {
++      id: "d1", projectId: "p1", number: "PE-1", name: "Unifilar", taskId: null, responsibleId: "u1",
++      revisions: [
++        rev({ id: "r0", sequence: 0, status: "COMMENTED", packageParentId: "m1", issuedAt: d("2026-09-02"), dueAt: d("2026-09-09"), analyzedAt: d("2026-09-08") }),
++        rev({ id: "r1", sequence: 1, status: "IN_REVIEW", packageParentId: "m2", issuedAt: d("2026-09-20"), dueAt: d("2026-09-27") }),
++      ],
++    },
++  ]);
++  assert.equal(plan.tasks.length, 1);
++  const t = plan.tasks[0];
++  assert.equal(t.parentId, "m2");
++  assert.equal(t.name, "PE-1 — Unifilar");
++  assert.equal(t.status, "IN_REVIEW");
++  assert.equal(t.progress, 100);
++  assert.equal(t.plannedDate.toISOString().slice(0, 10), "2026-09-09");
++  assert.equal(t.forecastDate.toISOString().slice(0, 10), "2026-09-27");
++  assert.deepEqual(t.revisionIds, ["r0", "r1"]);
++  assert.equal(t.assigneeId, "u1");
++});
++
++test("sem pacote vai para o Legado; aprovado fecha com a data da aprovação", () => {
++  const plan = planDocumentTasks([
++    {
++      id: "d2", projectId: "p1", number: null, name: "Memorial", taskId: null, responsibleId: null,
++      revisions: [rev({ id: "r9", status: "APPROVED", analyzedAt: d("2026-10-01"), issuedAt: d("2026-09-20") })],
++    },
++  ]);
++  const t = plan.tasks[0];
++  assert.equal(t.parentId, LEGACY_PARENT);
++  assert.equal(t.status, "DONE");
++  assert.equal(t.actualDate.toISOString().slice(0, 10), "2026-10-01");
++  assert.equal(taskNameForDocument({ number: null, name: "Memorial" }), "Memorial");
++});
++
++test("idempotente: documento que já tem tarefa é ignorado; sem revisões vira A fazer", () => {
++  const plan = planDocumentTasks([
++    { id: "d3", projectId: "p1", number: "X", name: "Y", taskId: "t1", responsibleId: null, revisions: [] },
++    { id: "d4", projectId: "p1", number: "Z", name: "W", taskId: null, responsibleId: null, revisions: [] },
++  ]);
++  assert.equal(plan.alreadyMigrated, 1);
++  assert.equal(plan.tasks.length, 1);
++  assert.equal(plan.tasks[0].status, "NOT_STARTED");
++  assert.equal(plan.tasks[0].progress, 0);
++});
+-- 
+2.43.0
+

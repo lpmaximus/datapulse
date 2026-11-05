@@ -5,7 +5,7 @@ import { hashRespondent } from "@/lib/auth";
 import { Card, SectionTitle, Empty, DRIBadge, CriticalityChip } from "@/components/ui";
 import { ResizableTable, Th, Td } from "@/components/table-ui";
 import { DocumentStatusChip, StuckBadge } from "@/components/document-status";
-import { daysBetween } from "@/lib/documents";
+import { daysBetween, isInProduction } from "@/lib/documents";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type {
   MyTaskRow,
@@ -488,7 +488,10 @@ export default async function MyWorkPage() {
                     <Td>
                       <div className="flex flex-wrap items-center gap-1.5">
                         {currentRevision(d) ? (
-                          <DocumentStatusChip status={currentRevision(d)!.status} />
+                          <DocumentStatusChip
+                            status={currentRevision(d)!.status}
+                            inProduction={isInProduction(currentRevision(d)!)}
+                          />
                         ) : (
                           "—"
                         )}

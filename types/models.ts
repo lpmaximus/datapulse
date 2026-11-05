@@ -602,7 +602,7 @@ export interface DocumentTransitionRow {
   dueAt: Date | null;
   daysInPreviousStage: number | null;
   createdAt: Date;
-  revision: { id: string; name: string };
+  revision: { id: string; name: string; milestoneId: string | null };
 }
 
 export interface DocumentDetailRow extends DocumentTableRow {
