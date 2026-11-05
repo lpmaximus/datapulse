@@ -11,6 +11,7 @@ import { Card, SectionTitle, Chip, Button, Field, inputClass } from "@/component
 import { DocumentPassages } from "@/components/document-passages";
 import { updateDocumentMetadata } from "@/app/actions/documents";
 import { DocumentTimeline } from "@/components/document-timeline";
+import { IssuerAssignForm, type IssuerOption } from "@/components/issuer-assign-form";
 import { RevisionList } from "@/components/revision-list";
 import {
   SubmitRevisionForm,
@@ -206,6 +207,22 @@ export async function DocumentDetail({
     isActionAllowed(current.status, "SUBMITTED") &&
     (canManageProjects(user) || doc.responsibleId === user.id);
 
+  // Projetista: designado pelo gerente ou repassado por quem está com ele.
+  // Só enquanto o trabalho está com o emissor (em produção ou devolvido).
+  const withIssuer = current == null || ["DRAFT", "COMMENTED", "REJECTED"].includes(current.status);
+  const canAssignIssuer =
+    writable &&
+    withIssuer &&
+    user.role !== "EXECUTIVE" &&
+    (canManageProjects(user) || doc.responsibleId === user.id);
+  const issuerCandidates: IssuerOption[] = canAssignIssuer
+    ? await prisma.user.findMany({
+        where: { isActive: true, organizationId: user.organizationId, role: { not: "EXECUTIVE" } },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, role: true, function: { select: { name: true } } },
+      })
+    : [];
+
   // Delegação da análise: um pedido pendente por revisão em análise.
   const pendingDelegation =
     current && current.status === "IN_REVIEW"
@@ -277,7 +294,11 @@ export async function DocumentDetail({
           ) : null}
           {doc.type ? <span>· {doc.type}</span> : null}
           {doc.designFirm ? <span>· empresa {doc.designFirm.name}</span> : null}
-          {doc.responsible ? <span>· emissor {doc.responsible.name}</span> : null}
+          {doc.responsible ? (
+            <span>· projetista {doc.responsible.name}</span>
+          ) : (
+            <span className="text-ink-faint">· sem projetista designado</span>
+          )}
         </p>
       </section>
 
@@ -397,6 +418,22 @@ export async function DocumentDetail({
             </div>
           ) : null}
 
+          {canAssignIssuer ? (
+            <div>
+              <SectionTitle hint={doc.responsible ? `hoje com ${doc.responsible.name}` : "ninguém designado"}>
+                Projetista responsável
+              </SectionTitle>
+              <Card>
+                <IssuerAssignForm
+                  documentId={doc.id}
+                  currentId={doc.responsibleId}
+                  candidates={issuerCandidates}
+                  canClear={canManageProjects(user)}
+                />
+              </Card>
+            </div>
+          ) : null}
+
           {canSubmit && current ? (
             <div>
               <SectionTitle hint={`revisão ${current.name}`}>
@@ -495,7 +532,7 @@ export async function DocumentDetail({
                         ))}
                       </select>
                     </Field>
-                    <Field label="Emissor responsável">
+                    <Field label="Projetista responsável">
                       <select name="responsibleId" defaultValue={doc.responsibleId ?? ""} className={inputClass}>
                         <option value="">Não definir</option>
                         {allUsers.map((u) => (
