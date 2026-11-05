@@ -13,6 +13,7 @@ import {
   isRevisionOpen,
   nextRevisionName,
   nextRound,
+  resolveActionDate,
   statusAfter,
   type AnalysisEffect,
   type DocumentAction,
@@ -253,7 +254,19 @@ export async function submitRevision(
     specialistName = s.name;
   }
 
-  const now = new Date();
+  // Data do envio informada no formulário (padrão: agora). Não pode ser
+  // anterior à emissão da revisão nem ao último evento do histórico.
+  const lastEvent = await prisma.documentTransition.findFirst({
+    where: { revisionId: revision.id },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  const floor = [revision.issuedAt, lastEvent?.createdAt]
+    .filter((d): d is Date => !!d)
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+  const when = resolveActionDate(str(formData, "occurredAt"), new Date(), floor, "a emissão / último evento");
+  if ("error" in when) return { error: when.error };
+  const now = when.at;
   const round = nextRound(revision.round, "SUBMITTED");
   // Vencimento: o gerente pode fixar uma exceção; senão vale o prazo que a
   // revisão já tem (entrada + 5 dias úteis desde o cadastro) ou, em revisão
@@ -277,7 +290,8 @@ export async function submitRevision(
         assignedToName: specialistName,
         comment: str(formData, "comment") || null,
         dueAt,
-        daysInPreviousStage: daysBetween(now, revision.updatedAt),
+        daysInPreviousStage: daysBetween(now, lastEvent?.createdAt ?? revision.updatedAt),
+        createdAt: now,
       },
     }),
     prisma.documentRevision.update({
@@ -378,6 +392,11 @@ export async function recordAnalysis(
     };
   }
 
+  // Data do retorno informada no formulário (padrão: agora). Não pode ser
+  // anterior ao envio para análise nem futura.
+  const when = resolveActionDate(str(formData, "occurredAt"), new Date(), revision.inReviewSince, "o envio para análise");
+  if ("error" in when) return { error: when.error };
+  const at = when.at;
   const now = new Date();
   const toStatus = statusAfter(action);
 
@@ -394,7 +413,8 @@ export async function recordAnalysis(
         actorId: user.id,
         actorName: user.name,
         comment: str(formData, "comment") || null,
-        daysInPreviousStage: daysBetween(now, revision.inReviewSince),
+        daysInPreviousStage: daysBetween(at, revision.inReviewSince),
+        createdAt: at,
       },
     }),
     prisma.documentRevision.update({
@@ -402,7 +422,7 @@ export async function recordAnalysis(
       data: {
         status: toStatus,
         analysisCodeId: code.id,
-        analyzedAt: now,
+        analyzedAt: at,
         inReviewSince: null,
       },
     }),

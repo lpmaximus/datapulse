@@ -501,3 +501,59 @@ export function documentSearchFilter(q?: string, includeProject = false) {
 
   return { OR };
 }
+
+/* ------------------------- data informada da ação ------------------------- */
+
+/** Fuso de referência para "hoje" nas datas digitadas. */
+const ACTION_TIME_ZONE = "America/Sao_Paulo";
+
+/** AAAA-MM-DD do instante no fuso de referência. */
+export function localDay(d: Date, timeZone = ACTION_TIME_ZONE): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+export type ActionDateResult = { at: Date } | { error: string };
+
+/**
+ * Converte a data digitada no formulário de trâmite (envio, parecer) no
+ * instante gravado no histórico.
+ *
+ * - Vazia ou igual a hoje: vale o instante atual (registro feito na hora).
+ * - Dia passado: meio-dia de Brasília (15:00 UTC) daquele dia, para a data
+ *   não "pular" de dia em nenhuma tela, seja ela exibida em UTC ou no fuso local.
+ * - Futuro: recusada. Antes do evento anterior (`floor`): recusada; no mesmo
+ *   dia do evento anterior, nunca fica antes dele, para a ordem do histórico
+ *   e a contagem de dias não inverterem.
+ */
+export function resolveActionDate(
+  input: string,
+  now: Date,
+  floor: Date | null | undefined,
+  floorLabel = "o evento anterior",
+): ActionDateResult {
+  const value = input.trim();
+  const today = localDay(now);
+  if (!value || value === today) return { at: now };
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { error: "Data inválida." };
+  const at = new Date(`${value}T15:00:00.000Z`);
+  if (Number.isNaN(at.getTime()) || localDay(at) !== value) {
+    return { error: "Data inválida." };
+  }
+  if (value > today) return { error: "A data não pode ser futura." };
+
+  if (floor) {
+    const floorDay = localDay(floor);
+    if (value < floorDay) {
+      const [y, m, d] = floorDay.split("-");
+      return { error: `A data não pode ser anterior a ${floorLabel} (${d}/${m}/${y}).` };
+    }
+    if (at.getTime() < floor.getTime()) return { at: new Date(floor.getTime() + 1000) };
+  }
+  return { at };
+}

@@ -9,7 +9,24 @@ import {
   type TransitionState,
 } from "@/app/actions/documents";
 import { Button, Field, inputClass } from "@/components/ui";
-import { EFFECT_LABEL, type AnalysisCodeLike } from "@/lib/documents";
+import { EFFECT_LABEL, localDay, type AnalysisCodeLike } from "@/lib/documents";
+
+/** Campo de data da ação: padrão hoje, sem datas futuras. */
+function ActionDateField({ label, hint }: { label: string; hint: string }) {
+  const today = localDay(new Date());
+  return (
+    <Field label={label} hint={hint}>
+      <input
+        type="date"
+        name="occurredAt"
+        defaultValue={today}
+        max={today}
+        required
+        className={inputClass}
+      />
+    </Field>
+  );
+}
 import { PackageSelect } from "@/components/package-select";
 import type { PackageOption, UserOption } from "@/types/models";
 
@@ -62,6 +79,11 @@ export function SubmitRevisionForm({
   return (
     <form action={formAction} className="space-y-4">
       <input type="hidden" name="revisionId" value={revisionId} />
+
+      <ActionDateField
+        label="Enviado em"
+        hint="Data em que o documento foi de fato enviado para análise."
+      />
 
       <Field label="Especialista designado" hint="Quem dará o parecer técnico.">
         <select name="specialistId" defaultValue="" className={inputClass}>
@@ -136,6 +158,11 @@ export function AnalysisForm({
           ))}
         </select>
       </Field>
+
+      <ActionDateField
+        label="Data do retorno"
+        hint="Data em que o parecer foi dado (aprovação, comentário, reprovação)."
+      />
 
       <Field label="Justificativa" hint="O que sustenta esta decisão?">
         <textarea name="comment" rows={3} className={inputClass} />
