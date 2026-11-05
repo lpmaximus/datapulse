@@ -13,6 +13,8 @@ export function PackageSelect({
   form,
   defaultValue = "",
   ariaLabel = "Pacote de revisão",
+  required = true,
+  emptyLabel,
 }: {
   packages: PackageOption[];
   showProject?: boolean;
@@ -20,6 +22,10 @@ export function PackageSelect({
   form?: string;
   defaultValue?: string;
   ariaLabel?: string;
+  /** Falso onde o documento pode ficar sem pacote (em produção). */
+  required?: boolean;
+  /** Rótulo da opção vazia; padrão depende de `required`. */
+  emptyLabel?: string;
 }) {
   const groups = new Map<string, { label: string; items: PackageOption[] }>();
   for (const p of packages) {
@@ -34,12 +40,19 @@ export function PackageSelect({
     <select
       form={form}
       name="packageId"
-      required
+      required={required}
       defaultValue={defaultValue}
       aria-label={ariaLabel}
       className={className}
     >
-      <option value="">{packages.length === 0 ? "Sem pacote — crie um" : "Pacote…"}</option>
+      <option value="">
+        {emptyLabel ??
+          (!required
+            ? "Em produção (sem pacote)"
+            : packages.length === 0
+              ? "Sem pacote — crie um"
+              : "Pacote…")}
+      </option>
       {[...groups.entries()].map(([key, g]) => (
         <optgroup key={key} label={g.label}>
           {g.items.map((p) => (

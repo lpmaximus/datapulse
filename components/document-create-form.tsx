@@ -126,12 +126,13 @@ export function DocumentCreateForm({
           <div className="sm:col-span-3">
             <Field
               label="Pacote de revisão"
-              hint="Emissão (tarefa) em que este documento chega, dentro de um marco."
+              hint="Emissão em que o documento é enviado ao cliente. Em branco: fica em produção e o pacote é escolhido no envio."
             >
               <PackageSelect
                 packages={packages}
                 showProject={!!projects}
                 className={inputClass}
+                required={false}
               />
             </Field>
           </div>
@@ -191,7 +192,10 @@ export function DocumentCreateForm({
           <Field label="Emitido em">
             <input type="date" name="issuedAt" className={inputClass} />
           </Field>
-          <Field label="Prazo da 1ª análise" hint="Em branco: data de envio + 5 dias úteis.">
+          <Field
+            label="Prazo"
+            hint="Sem pacote: prazo para concluir a produção. Com pacote: prazo da 1ª análise (em branco, envio + 5 dias úteis)."
+          >
             <input type="date" name="dueAt" className={inputClass} />
           </Field>
 

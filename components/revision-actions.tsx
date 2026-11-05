@@ -63,9 +63,12 @@ export function SubmitRevisionForm({
   specialists,
   defaultDueAt,
   canEditDueAt,
+  packages,
 }: {
   revisionId: string;
   specialists: UserOption[];
+  /** Presente quando a revisão está em produção: o pacote é escolhido no envio. */
+  packages?: PackageOption[];
   /** Vencimento padrão (AAAA-MM-DD): entrada + 5 dias úteis. */
   defaultDueAt: string;
   /** Só o gerente altera o vencimento; para os demais o campo é informativo. */
@@ -84,6 +87,15 @@ export function SubmitRevisionForm({
         label="Enviado em"
         hint="Data em que o documento foi de fato enviado para análise."
       />
+
+      {packages ? (
+        <Field
+          label="Pacote de envio"
+          hint="O documento estava em produção. Escolha a emissão em que ele segue para o cliente."
+        >
+          <PackageSelect packages={packages} className={inputClass} />
+        </Field>
+      ) : null}
 
       <Field label="Especialista designado" hint="Quem dará o parecer técnico.">
         <select name="specialistId" defaultValue="" className={inputClass}>
@@ -204,9 +216,13 @@ export function NewRevisionForm({
 
       <Field
         label="Pacote de revisão"
-        hint="Cada emissão é uma tarefa dentro de um marco. Em geral, um pacote novo."
+        hint="Em branco: a revisão fica em produção e o pacote é escolhido no envio."
       >
-        <PackageSelect packages={packages} className={inputClass} />
+        <PackageSelect packages={packages} className={inputClass} required={false} />
+      </Field>
+
+      <Field label="Prazo de produção" hint="Só para revisão em produção (sem pacote).">
+        <input type="date" name="dueAt" className={inputClass} />
       </Field>
 
       <Field label="Emitida em">

@@ -407,11 +407,14 @@ export async function DocumentDetail({
                   revisionId={current.id}
                   specialists={specialists}
                   defaultDueAt={(
-                    current.dueAt ?? reviewDueDate(current.issuedAt ?? new Date())
+                    current.milestone
+                      ? current.dueAt ?? reviewDueDate(current.issuedAt ?? new Date())
+                      : reviewDueDate(new Date())
                   )
                     .toISOString()
                     .slice(0, 10)}
                   canEditDueAt={canManageProjects(user)}
+                  packages={current.milestone ? undefined : packages}
                 />
               </Card>
             </div>

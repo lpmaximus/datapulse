@@ -113,6 +113,9 @@ export function parseMppXml(xml: string): { projectName: string; tasks: MppTask[
     const name = tag(flat, "Name");
     const level = Number(tag(flat, "OutlineLevel"));
     if (!name || !Number.isFinite(level)) continue;
+    // Alguns conversores (ex.: MPXJ) envolvem o arquivo inteiro num nível 0
+    // que representa o documento, não uma tarefa real do WBS — descartar.
+    if (level < 1) continue;
 
     tasks.push({
       uid: Number(tag(flat, "UID")),
@@ -242,4 +245,32 @@ export function planFromMpp(tasks: MppTask[], opts: PlanOptions = {}): MppPlan {
   }
 
   return { projectName, markers, tasks: out, warnings };
+}
+
+const normName = (s: string) =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Mantém só os marcos indicados (sem diferenciar maiúsculas/acentos) e as
+ * tarefas deles; o resto do cronograma — inclusive tarefas sem marco — sai.
+ * Lança erro se algum nome não existir, para não gravar um plano vazio por typo.
+ */
+export function filterPlan(plan: MppPlan, names: string[]): MppPlan {
+  const wanted = names.map(normName).filter(Boolean);
+  const missing = wanted.filter((w) => !plan.markers.some((m) => normName(m.name) === w));
+  if (missing.length) {
+    throw new Error(
+      `Marco não encontrado: ${missing.join(", ")}. Disponíveis: ${plan.markers.map((m) => m.name).join("; ")}`,
+    );
+  }
+  const markers = plan.markers.filter((m) => wanted.includes(normName(m.name)));
+  const kept = new Set(markers.map((m) => m.name));
+  const tasks = plan.tasks.filter((t) => t.parent !== null && kept.has(t.parent));
+  const keptNames = new Set(tasks.map((t) => t.name));
+  return {
+    ...plan,
+    markers,
+    tasks,
+    warnings: plan.warnings.filter((w) => [...keptNames].some((n) => w.includes(`"${n.replace(/ \(\d+\)$/, "")}"`))),
+  };
 }

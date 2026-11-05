@@ -6,7 +6,7 @@ import { formatDate } from "@/lib/format";
 const OUTCOME_LABEL: Partial<Record<DocumentAction, string>> = {
   COMMENTED: "Comentado",
   REJECTED: "Reprovado",
-  APPROVED_WITH_COMMENTS: "Aprovado c/ ressalvas",
+  APPROVED_WITH_COMMENTS: "Aprovado c/ comentários",
   APPROVED: "Aprovado",
   CANCELLED: "Cancelado",
 };

@@ -185,7 +185,7 @@ const EFFECT_BY_TAG: Record<string, AnalysisEffect> = {
 
 const STATUS_BY_EFFECT: Record<AnalysisEffect, DocumentStatus> = {
   APPROVES: "APPROVED",
-  APPROVES_WITH_COMMENTS: "APPROVED",
+  APPROVES_WITH_COMMENTS: "COMMENTED",
   COMMENTS: "COMMENTED",
   REJECTS: "REJECTED",
   CANCELS: "CANCELLED",

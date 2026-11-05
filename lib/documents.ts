@@ -53,7 +53,7 @@ export const ACTION_LABEL: Record<DocumentAction, string> = {
   SUBMITTED: "Emitido para análise",
   COMMENTED: "Analisado com comentários",
   REJECTED: "Reprovado",
-  APPROVED_WITH_COMMENTS: "Aprovado com ressalvas",
+  APPROVED_WITH_COMMENTS: "Aprovado com comentários",
   APPROVED: "Aprovação final",
   REVISED: "Nova revisão emitida",
   SUPERSEDED: "Substituído por revisão posterior",
@@ -76,7 +76,7 @@ export const STATUS_LABEL: Record<DocumentStatus, string> = {
 
 export const EFFECT_LABEL: Record<AnalysisEffect, string> = {
   APPROVES: "Aprova e encerra a revisão",
-  APPROVES_WITH_COMMENTS: "Aprova com ressalvas",
+  APPROVES_WITH_COMMENTS: "Aprova com comentários — exige nova revisão",
   COMMENTS: "Devolve ao emissor com comentários",
   REJECTS: "Reprova e devolve ao emissor",
   CANCELS: "Cancela o documento",
@@ -100,7 +100,10 @@ const ACTION_TO_STATUS: Record<DocumentAction, DocumentStatus> = {
   SUBMITTED: "IN_REVIEW",
   COMMENTED: "COMMENTED",
   REJECTED: "REJECTED",
-  APPROVED_WITH_COMMENTS: "APPROVED",
+  // Aprovado com comentários libera o uso, mas o documento ainda precisa ser
+  // corrigido: volta ao emissor como o comentado e exige a próxima revisão.
+  // O parecer (código e ação no histórico) guarda que houve aprovação.
+  APPROVED_WITH_COMMENTS: "COMMENTED",
   APPROVED: "APPROVED",
   REVISED: "DRAFT",
   SUPERSEDED: "SUPERSEDED",
@@ -242,11 +245,15 @@ export function summarizeCycles(transitions: TransitionLike[]): CycleSummary {
 
   for (const t of transitions) {
     if (t.round > rounds) rounds = t.round;
-    if (t.action === "COMMENTED" || t.action === "REJECTED") {
+    if (
+      t.action === "COMMENTED" ||
+      t.action === "REJECTED" ||
+      t.action === "APPROVED_WITH_COMMENTS"
+    ) {
       reworkCount += 1;
       totalDaysInReview += t.daysInPreviousStage ?? 0;
     }
-    if (t.action === "APPROVED" || t.action === "APPROVED_WITH_COMMENTS") {
+    if (t.action === "APPROVED") {
       totalDaysInReview += t.daysInPreviousStage ?? 0;
     }
   }

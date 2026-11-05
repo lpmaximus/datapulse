@@ -172,6 +172,7 @@ function DocumentEntryRow({
             packages={packages}
             showProject={showProject}
             className={cellInput}
+            required={false}
           />
         </EntryCell>
         <EntryBlank />
@@ -182,7 +183,7 @@ function DocumentEntryRow({
               form={formId}
               type="date"
               name="dueAt"
-              aria-label="Prazo da 1ª análise"
+              aria-label="Prazo (produção, se sem pacote; 1ª análise, se no pacote)"
               className={cellInput + " w-36! shrink-0"}
             />
             <EntryAddButton formId={formId} pending={pending} label="" />

@@ -71,7 +71,7 @@ test("cada parecer leva a um status terminal próprio, sem colapsar significados
   assert.equal(statusAfter("COMMENTED"), "COMMENTED");
   assert.equal(statusAfter("REJECTED"), "REJECTED");
   assert.equal(statusAfter("APPROVED"), "APPROVED");
-  assert.equal(statusAfter("APPROVED_WITH_COMMENTS"), "APPROVED");
+  assert.equal(statusAfter("APPROVED_WITH_COMMENTS"), "COMMENTED");
   assert.equal(statusAfter("CANCELLED"), "CANCELLED");
   assert.equal(statusAfter("SUBMITTED"), "IN_REVIEW");
   assert.notEqual(
@@ -114,7 +114,19 @@ test("um código customizado do cliente funciona pelo efeito, não pela sigla", 
   const custom = [{ id: "x", tag: "APR-R", name: "Aprovado com ressalva", effect: "APPROVES_WITH_COMMENTS" }];
   const aplicaveis = applicableCodes("IN_REVIEW", custom);
   assert.equal(aplicaveis.length, 1);
-  assert.equal(statusAfter(actionForEffect(aplicaveis[0].effect)), "APPROVED");
+  assert.equal(statusAfter(actionForEffect(aplicaveis[0].effect)), "COMMENTED");
+});
+
+test("aprovado com comentários exige nova revisão e conta como retrabalho", () => {
+  const status = statusAfter("APPROVED_WITH_COMMENTS");
+  assert.equal(requiresNewRevision(status), true);
+  assert.equal(isApproved(status), false);
+  const s = summarizeCycles([
+    { action: "SUBMITTED", round: 1, daysInPreviousStage: 0 },
+    { action: "APPROVED_WITH_COMMENTS", round: 1, daysInPreviousStage: 4 },
+  ]);
+  assert.equal(s.reworkCount, 1);
+  assert.equal(s.totalDaysInReview, 4);
 });
 
 /* ------------------------- nome da revisão ----------------------------- */

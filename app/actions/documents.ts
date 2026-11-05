@@ -125,19 +125,25 @@ export async function createDocument(
     return { error: `Já existe um documento "${name}" neste projeto.` };
   }
 
-  // Toda revisão nasce dentro de um pacote (Tarefa), que por sua vez fica
-  // dentro de um Marco. Sem pacote o documento não entra no fluxo do projeto.
-  const packageId = str(formData, "packageId");
-  const packageError = await assertPackageUsable(packageId, projectId, user.organizationId);
-  if (packageError) return { error: packageError };
+  // Pacote é a emissão para o cliente. Documento ainda em produção nasce sem
+  // pacote, com o prazo de produção; o pacote é escolhido no envio.
+  const packageId = str(formData, "packageId") || null;
+  if (packageId) {
+    const packageError = await assertPackageUsable(packageId, projectId, user.organizationId);
+    if (packageError) return { error: packageError };
+  }
 
   const revisionName = str(formData, "revisionName") || "R00";
 
   // Vencimento padrão: entrada (envio da projetista) + 5 dias úteis. O prazo
   // digitado é a exceção do gerente. Sem data de envio, o prazo nasce quando a
   // revisão for emitida para análise.
+  // Sem pacote, o prazo digitado é o de produção (não se calcula nada).
   const issuedAt = optDate(formData, "issuedAt");
-  const dueAt = optDate(formData, "dueAt") ?? (issuedAt ? reviewDueDate(issuedAt) : null);
+  const typedDueAt = optDate(formData, "dueAt");
+  const dueAt = packageId
+    ? typedDueAt ?? (issuedAt ? reviewDueDate(issuedAt) : null)
+    : typedDueAt;
 
   await prisma.document.create({
     data: {
@@ -168,6 +174,9 @@ export async function createDocument(
               actorId: user.id,
               actorName: user.name,
               comment: str(formData, "notes") || null,
+              // Em produção: guarda o prazo de produção no histórico, porque
+              // o prazo da revisão será trocado pelo de análise no envio.
+              dueAt: packageId ? null : dueAt,
             },
           },
         },
@@ -243,6 +252,21 @@ export async function submitRevision(
     return { error: "Esta revisão não pode ser emitida para análise agora." };
   }
 
+  // Revisão em produção (sem pacote) entra num pacote no envio: o pacote é a
+  // emissão para o cliente. Quem já está num pacote mantém o seu.
+  let packageId = revision.milestoneId;
+  const enteringPackage = !packageId;
+  if (enteringPackage) {
+    packageId = str(formData, "packageId") || null;
+    if (!packageId) return { error: "Escolha o pacote em que o documento será enviado." };
+    const packageError = await assertPackageUsable(
+      packageId,
+      revision.document.projectId,
+      user.organizationId,
+    );
+    if (packageError) return { error: packageError };
+  }
+
   const specialistId = str(formData, "specialistId") || null;
   let specialistName: string | null = null;
   if (specialistId) {
@@ -274,7 +298,11 @@ export async function submitRevision(
   // não é gerente não altera o prazo: o formulário chega desabilitado e o
   // servidor ignora o campo de qualquer forma.
   const managerDueAt = canManageProjects(user) ? optDate(formData, "dueAt") : null;
-  const dueAt = managerDueAt ?? revision.dueAt ?? reviewDueDate(revision.issuedAt ?? now);
+  // Saindo da produção, o prazo que a revisão tinha era o de produção (fica
+  // registrado no evento de criação); o de análise conta da data de envio.
+  const dueAt =
+    managerDueAt ??
+    (enteringPackage ? reviewDueDate(now) : revision.dueAt ?? reviewDueDate(revision.issuedAt ?? now));
 
   await prisma.$transaction([
     prisma.documentTransition.create({
@@ -302,13 +330,14 @@ export async function submitRevision(
         inReviewSince: now,
         specialistId,
         dueAt,
+        ...(enteringPackage ? { milestoneId: packageId, issuedAt: revision.issuedAt ?? now } : {}),
         analysisCodeId: null,
         analyzedAt: null,
       },
     }),
   ]);
 
-  await recomputePackages([revision.milestoneId]);
+  await recomputePackages([packageId]);
   await recalculateProjectDRI(revision.document.projectId);
 
   revalidatePath(`/documents/${revision.document.id}`);
@@ -495,15 +524,18 @@ export async function createRevision(
     };
   }
 
-  // A nova revisão é emitida num pacote (normalmente um pacote novo, como no
-  // ACC: cada emissão é uma tarefa). Marco pai e pacote são obrigatórios.
-  const packageId = str(formData, "packageId");
-  const packageError = await assertPackageUsable(
-    packageId,
-    document.projectId,
-    user.organizationId,
-  );
-  if (packageError) return { error: packageError };
+  // A nova revisão é enviada num pacote (normalmente um pacote novo, como no
+  // ACC: cada emissão é uma tarefa). Sem pacote, ela fica em produção e o
+  // pacote é escolhido no envio para análise.
+  const packageId = str(formData, "packageId") || null;
+  if (packageId) {
+    const packageError = await assertPackageUsable(
+      packageId,
+      document.projectId,
+      user.organizationId,
+    );
+    if (packageError) return { error: packageError };
+  }
 
   const name = str(formData, "name") || nextRevisionName(last?.name ?? null);
 
@@ -514,7 +546,11 @@ export async function createRevision(
   if (duplicate) return { error: `Já existe a revisão "${name}" neste documento.` };
 
   const now = new Date();
-  const issuedAt = optDate(formData, "issuedAt") ?? now;
+  // Em produção a revisão ainda não foi emitida: a data nasce no envio.
+  const issuedAt = optDate(formData, "issuedAt") ?? (packageId ? now : null);
+  // Com pacote: novo ciclo, novo prazo de análise (entrada + 5 dias úteis).
+  // Em produção: o prazo digitado é o de produção.
+  const productionDueAt = packageId ? null : optDate(formData, "dueAt");
 
   // Só uma revisão APROVADA é marcada como substituída ao ser sucedida.
   // Comentada ou reprovada mantém seu desfecho: sobrescrever com SUPERSEDED
@@ -551,8 +587,7 @@ export async function createRevision(
         status: "DRAFT",
         round: 0,
         issuedAt,
-        // Novo ciclo, novo prazo: entrada + 5 dias úteis.
-        dueAt: reviewDueDate(issuedAt),
+        dueAt: packageId && issuedAt ? reviewDueDate(issuedAt) : productionDueAt,
         externalUrl: str(formData, "externalUrl") || null,
         notes: str(formData, "notes") || null,
         transitions: {
@@ -564,6 +599,7 @@ export async function createRevision(
             actorId: user.id,
             actorName: user.name,
             comment: str(formData, "notes") || null,
+            dueAt: productionDueAt,
           },
         },
       },

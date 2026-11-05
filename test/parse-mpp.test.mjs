@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseMppXml, planFromMpp } from "../lib/parse-mpp.ts";
+import { parseMppXml, planFromMpp, filterPlan } from "../lib/parse-mpp.ts";
 
 const task = (uid, level, name, o = {}) => `
 <Task><UID>${uid}</UID><Name>${name}</Name><OutlineLevel>${level}</OutlineLevel>
@@ -12,6 +12,7 @@ ${o.base ? `<Baseline><Number>0</Number><Start>${o.base[0]}T09:00:00</Start><Fin
 </Task>`;
 
 const XML = `<?xml version="1.0"?><Project xmlns="http://schemas.microsoft.com/project"><Title>Obra X</Title><Tasks>
+${task(0, 0, "Cronograma Obra X", { sum: 1 })}
 ${task(1, 1, "OBRA X", { sum: 1 })}
 ${task(2, 2, "Fundação &amp; Blocos", { sum: 1 })}
 ${task(3, 3, "Escavação", { start: "2026-03-02", finish: "2026-03-05", pct: 40, base: ["2026-02-20", "2026-03-01"] })}
@@ -23,6 +24,12 @@ ${task(8, 3, "Imprimação", { pct: 100 })}
 ${task(9, 2, "Administração local", { start: "2026-03-01", finish: "2027-03-26" })}
 ${task(10, 2, "Termo de recebimento", { start: "2027-05-31", finish: "2027-05-31" })}
 </Tasks></Project>`;
+
+test("descarta o nível 0 que alguns conversores (MPXJ) usam para o documento inteiro", () => {
+  const { tasks } = parseMppXml(XML);
+  assert.equal(tasks.some((t) => t.level === 0), false);
+  assert.equal(tasks[0].name, "OBRA X");
+});
 
 test("lê tarefas, decodifica entidades e ignora tags de blocos aninhados", () => {
   const { projectName, tasks } = parseMppXml(XML);
@@ -61,4 +68,11 @@ test("--linha-base-mpp: planejado = baseline 0, previsto = datas atuais", () => 
   assert.equal(t[0].startDate.toISOString().slice(0, 10), "2026-02-20");
   assert.equal(t[0].plannedDate.toISOString().slice(0, 10), "2026-03-01");
   assert.equal(t[0].forecastDate.toISOString().slice(0, 10), "2026-03-05");
+});
+
+test("filterPlan mantém só o marco pedido e as tarefas dele", () => {
+  const plan = filterPlan(planFromMpp(parseMppXml(XML).tasks), ["drenagem"]);
+  assert.deepEqual(plan.markers.map((m) => m.name), ["Drenagem"]);
+  assert.deepEqual(plan.tasks.map((t) => t.name), ["Imprimação"]);
+  assert.throws(() => filterPlan(planFromMpp(parseMppXml(XML).tasks), ["Inexistente"]), /Marco não encontrado/);
 });

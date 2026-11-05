@@ -11,6 +11,7 @@
  *   --dry                  só mostra o que seria criado, não grava nada
  *   --linha-base-mpp       planejado = linha de base 0 do MS Project e previsto = datas atuais
  *                          (padrão: as datas atuais do arquivo são a linha de base)
+ *   --somente "A;B"       carrega só esses marcos (e as tarefas deles); o resto do cronograma é ignorado
  *   --substituir           apaga as tarefas atuais do projeto antes de carregar
  *
  * Sem --substituir, o script se recusa a gravar num projeto que já tem tarefas.
@@ -19,7 +20,7 @@
 
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
-import { parseMppXml, planFromMpp } from "../lib/parse-mpp";
+import { parseMppXml, planFromMpp, filterPlan } from "../lib/parse-mpp";
 import { rollupMilestone } from "../lib/tasks";
 import { recalculateProjectDRI } from "../lib/server/dri-service";
 
@@ -36,6 +37,7 @@ const DRY = flag("dry");
 const REPLACE = flag("substituir");
 const PROJECT = option("projeto");
 const ORG = option("organizacao");
+const ONLY = option("somente").split(";").map((n) => n.trim()).filter(Boolean);
 
 const norm = (s: string) =>
   s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -46,7 +48,8 @@ async function main(): Promise<void> {
   if (!PROJECT) throw new Error('Informe o projeto: --projeto "Nome do projeto".');
 
   const { tasks } = parseMppXml(readFileSync(file, "utf8"));
-  const plan = planFromMpp(tasks, { useMppBaseline: flag("linha-base-mpp") });
+  const full = planFromMpp(tasks, { useMppBaseline: flag("linha-base-mpp") });
+  const plan = ONLY.length ? filterPlan(full, ONLY) : full;
 
   console.log(`Cronograma: ${plan.projectName || "(sem nome)"}`);
   console.log(`  ${plan.markers.length} marcos, ${plan.tasks.length} tarefas`);
