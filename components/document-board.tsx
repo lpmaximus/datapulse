@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import clsx from "clsx";
 import { AlertCircle, Check, ChevronDown } from "lucide-react";
 import { ResizableTable, Th, Td, RowCheckbox } from "@/components/table-ui";
@@ -92,6 +92,33 @@ export function DocumentBoard({
   );
 }
 
+interface ProjectGroup {
+  id: string;
+  name: string;
+  rows: DocumentTableRow[];
+}
+
+/**
+ * Agrupa os documentos por projeto, com os projetos em ordem alfabética
+ * (pt-BR, sem diferenciar acento/maiúscula). Dentro de cada projeto, mantém
+ * a ordem recebida.
+ */
+function groupByProject(rows: DocumentTableRow[]): ProjectGroup[] {
+  const map = new Map<string, ProjectGroup>();
+  for (const d of rows) {
+    const id = d.project.id;
+    let g = map.get(id);
+    if (!g) {
+      g = { id, name: d.project.name, rows: [] };
+      map.set(id, g);
+    }
+    g.rows.push(d);
+  }
+  return [...map.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base", numeric: true }),
+  );
+}
+
 function BoardGroup({
   group,
   showProject,
@@ -104,7 +131,17 @@ function BoardGroup({
   canDelete: boolean;
 }) {
   const [open, setOpen] = useState(true);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const now = new Date();
+
+  function toggleProject(id: string) {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const revisions = group.rows
     .map(currentRevision)
@@ -165,9 +202,48 @@ function BoardGroup({
               </tr>
             </thead>
             <tbody>
-              {group.rows.map((d) => (
-                <DocumentRow key={d.id} doc={d} showProject={showProject} now={now} canDelete={canDelete} />
-              ))}
+              {showProject
+                ? groupByProject(group.rows).map((pg) => {
+                    const collapsed = collapsedProjects.has(pg.id);
+                    return (
+                      <Fragment key={pg.id}>
+                        <tr className="border-b border-line bg-canvas">
+                          <td colSpan={99} className="py-2 pl-4 pr-2">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleProject(pg.id)}
+                                aria-label={collapsed ? "Expandir projeto" : "Recolher projeto"}
+                                className="rounded p-0.5 text-ink-faint hover:bg-line"
+                              >
+                                <ChevronDown
+                                  size={16}
+                                  className={clsx("transition-transform", collapsed && "-rotate-90")}
+                                />
+                              </button>
+                              <Link
+                                href={`/projects/${pg.id}`}
+                                className="text-sm font-semibold text-ink hover:underline"
+                              >
+                                {pg.name}
+                              </Link>
+                              <span className="text-xs text-ink-faint">
+                                {pg.rows.length} documento{pg.rows.length === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                        {collapsed
+                          ? null
+                          : pg.rows.map((d) => (
+                              <DocumentRow key={d.id} doc={d} showProject={showProject} now={now} canDelete={canDelete} />
+                            ))}
+                      </Fragment>
+                    );
+                  })
+                : group.rows.map((d) => (
+                    <DocumentRow key={d.id} doc={d} showProject={showProject} now={now} canDelete={canDelete} />
+                  ))}
 
               {group.rows.length === 0 ? (
                 <tr className="border-b border-line">
