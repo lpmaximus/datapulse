@@ -740,6 +740,102 @@ export async function updateDocumentMetadata(formData: FormData): Promise<void> 
   revalidatePath(`/projects/${doc.projectId}/documents`);
 }
 
+export interface RescheduleRevisionState {
+  error?: string;
+  ok?: boolean;
+  /** Muda a cada sucesso — gatilho para o formulário fechar. */
+  at?: number;
+}
+
+/**
+ * Reprograma o prazo da revisão vigente (de produção ou de análise). Só gerente.
+ *
+ * Grava "era X, passou para Y" no histórico (DeadlineChange), no mesmo padrão
+ * da reprogramação de solicitação. Também acerta o prazo do evento que abriu
+ * a etapa atual (envio para análise ou cadastro em produção), para a tabela
+ * de passagens mostrar o prazo vigente; o original fica no histórico.
+ */
+export async function rescheduleRevision(
+  _prev: RescheduleRevisionState,
+  formData: FormData,
+): Promise<RescheduleRevisionState> {
+  const user = await requireRole(["ADMIN", "MANAGER"]);
+  const revisionId = str(formData, "revisionId");
+  if (!revisionId) return { error: "Revisão não identificada." };
+
+  const revision = await prisma.documentRevision.findUnique({
+    where: { id: revisionId },
+    select: {
+      id: true,
+      status: true,
+      dueAt: true,
+      milestoneId: true,
+      document: {
+        select: {
+          id: true,
+          projectId: true,
+          project: { select: { status: true, organizationId: true } },
+          revisions: { orderBy: { sequence: "desc" }, take: 1, select: { id: true } },
+        },
+      },
+    },
+  });
+  if (!revision || revision.document.project.organizationId !== user.organizationId) {
+    return { error: "Revisão não encontrada." };
+  }
+  if (!isProjectWritable(revision.document.project.status)) return { error: READONLY_MESSAGE };
+  if (revision.document.revisions[0]?.id !== revision.id) {
+    return { error: "Só a revisão vigente pode ter o prazo alterado." };
+  }
+  if (revision.status !== "DRAFT" && revision.status !== "IN_REVIEW") {
+    return { error: "O prazo só pode ser alterado em produção ou em análise." };
+  }
+
+  const nextDueAt = optDate(formData, "dueAt");
+  if (!nextDueAt) return { error: "Informe o novo prazo." };
+  if (revision.dueAt && revision.dueAt.getTime() === nextDueAt.getTime()) {
+    return { error: "O novo prazo é igual ao atual." };
+  }
+
+  // Evento que abriu a etapa atual: o envio, em análise; o cadastro, em produção.
+  // Revisão já num pacote mas ainda não enviada não guarda prazo no cadastro.
+  const touchesStageEvent = revision.status === "IN_REVIEW" || !revision.milestoneId;
+  const stageEvent = !touchesStageEvent ? null : await prisma.documentTransition.findFirst({
+    where: {
+      revisionId: revision.id,
+      action: { in: revision.status === "IN_REVIEW" ? ["SUBMITTED"] : ["CREATED", "REVISED"] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+
+  await prisma.$transaction([
+    prisma.documentRevision.update({ where: { id: revision.id }, data: { dueAt: nextDueAt } }),
+    prisma.deadlineChange.create({
+      data: {
+        revisionId: revision.id,
+        fromDate: revision.dueAt,
+        toDate: nextDueAt,
+        reason: str(formData, "reason") || null,
+        changedById: user.id,
+      },
+    }),
+    ...(stageEvent
+      ? [prisma.documentTransition.update({ where: { id: stageEvent.id }, data: { dueAt: nextDueAt } })]
+      : []),
+  ]);
+
+  if (revision.milestoneId) await recomputePackages([revision.milestoneId]);
+  await recalculateProjectDRI(revision.document.projectId);
+
+  revalidatePath(`/documents/${revision.document.id}`);
+  revalidatePath(`/projects/${revision.document.projectId}/documents`);
+  revalidatePath("/documents");
+  revalidatePackages(revision.document.projectId);
+
+  return { ok: true, at: Date.now() };
+}
+
 export interface DeleteResult {
   ok?: boolean;
   error?: string;

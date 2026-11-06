@@ -430,6 +430,10 @@ model DeadlineChange {
   requestId String?
   request   Request? @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
+  /// Prazo de revisão de documento (produção ou análise) reprogramado pelo gerente.
+  revisionId String?
+  revision   DocumentRevision? @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
   /// Nulo na primeira gravação (não havia prazo anterior).
   fromDate DateTime?
   toDate   DateTime
@@ -440,6 +444,7 @@ model DeadlineChange {
 
   @@index([milestoneId, createdAt])
   @@index([requestId, createdAt])
+  @@index([revisionId, createdAt])
 }
 
 /// Camada 1 — sinal sistêmico importado de um sistema/planilha do cliente.
@@ -823,6 +828,8 @@ model DocumentRevision {
   updatedAt DateTime @updatedAt
 
   transitions DocumentTransition[]
+  /// Reprogramações do prazo desta revisão (produção ou análise).
+  deadlineChanges DeadlineChange[]
   delegations AnalysisDelegation[]
 
   @@unique([documentId, name])

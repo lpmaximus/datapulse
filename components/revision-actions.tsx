@@ -1,11 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   submitRevision,
   recordAnalysis,
   createRevision,
+  rescheduleRevision,
+  type RescheduleRevisionState,
   type TransitionState,
 } from "@/app/actions/documents";
 import { Button, Field, inputClass } from "@/components/ui";
@@ -239,6 +241,62 @@ export function NewRevisionForm({
 
       <Feedback state={state} okText="Nova revisão criada." />
       <Submit label="Emitir nova revisão" pendingLabel="Criando…" />
+    </form>
+  );
+}
+
+/**
+ * Reprograma o prazo da revisão vigente (só gerente). Grava no histórico
+ * "era X, passou para Y" em vez de só sobrescrever.
+ */
+export function RevisionRescheduleForm({
+  revisionId,
+  currentDueAt,
+}: {
+  revisionId: string;
+  /** Prazo atual em AAAA-MM-DD, para já abrir preenchido. */
+  currentDueAt: string | null;
+}) {
+  const [state, action] = useActionState<RescheduleRevisionState, FormData>(rescheduleRevision, {});
+  const [open, setOpen] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (state.at) {
+      formRef.current?.reset();
+      setOpen(false);
+    }
+  }, [state.at]);
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="text-xs text-accent hover:underline">
+        Alterar prazo
+      </button>
+    );
+  }
+
+  return (
+    <form ref={formRef} action={action} className="space-y-2">
+      <input type="hidden" name="revisionId" value={revisionId} />
+      <div className="flex flex-wrap items-end gap-2">
+        <input
+          type="date"
+          name="dueAt"
+          required
+          defaultValue={currentDueAt ?? undefined}
+          aria-label="Novo prazo"
+          className={inputClass + " w-auto"}
+        />
+        <input name="reason" placeholder="Motivo (opcional)" className={inputClass + " min-w-0 flex-1"} />
+      </div>
+      <div className="flex items-center gap-3">
+        <Submit label="Salvar" pendingLabel="Salvando…" />
+        <button type="button" onClick={() => setOpen(false)} className="text-xs text-ink-faint hover:underline">
+          Cancelar
+        </button>
+        {state.error ? <p className="text-sm text-red-600">{state.error}</p> : null}
+      </div>
     </form>
   );
 }

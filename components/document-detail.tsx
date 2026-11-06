@@ -6,7 +6,7 @@ import type { SessionUser } from "@/lib/session";
 import { DeleteButton } from "@/components/delete-button";
 import { deleteDocument } from "@/app/actions/documents";
 import { isProjectWritable } from "@/lib/tasks";
-import { ReadOnlyBanner } from "@/components/task-ui";
+import { DeadlineHistoryList, ReadOnlyBanner } from "@/components/task-ui";
 import { Card, SectionTitle, Chip, Button, Field, inputClass } from "@/components/ui";
 import { DocumentPassages } from "@/components/document-passages";
 import { updateDocumentMetadata } from "@/app/actions/documents";
@@ -17,6 +17,7 @@ import {
   SubmitRevisionForm,
   AnalysisForm,
   NewRevisionForm,
+  RevisionRescheduleForm,
 } from "@/components/revision-actions";
 import {
   applicableCodes,
@@ -39,6 +40,7 @@ import {
 } from "@/components/delegation-forms";
 import { loadPackageOptions } from "@/lib/server/package-options";
 import type {
+  DeadlineChangeRow,
   DocumentDetailRow,
   DocumentTransitionRow,
   UserOption,
@@ -134,6 +136,17 @@ export async function DocumentDetail({
       revision: { select: { id: true, name: true, milestoneId: true } },
     },
   });
+
+  // Reprogramações de prazo da revisão vigente (mais recente primeiro).
+  const currentRevisionId = doc.revisions[0]?.id ?? null;
+  const deadlineChanges: DeadlineChangeRow[] = currentRevisionId
+    ? await prisma.deadlineChange.findMany({
+        where: { revisionId: currentRevisionId },
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        select: { id: true, fromDate: true, toDate: true, reason: true, createdAt: true },
+      })
+    : [];
 
   const packages = await loadPackageOptions(user.organizationId, doc.project.id);
 
@@ -414,6 +427,37 @@ export async function DocumentDetail({
                   revisionId={current.id}
                   candidates={delegationCandidates}
                 />
+              </Card>
+            </div>
+          ) : null}
+
+          {current ? (
+            <div>
+              <SectionTitle hint={`revisão ${current.name}`}>
+                {current.status === "IN_REVIEW"
+                  ? "Prazo da análise"
+                  : current.status === "DRAFT" && !current.milestone
+                    ? "Prazo de produção"
+                    : "Prazo"}
+              </SectionTitle>
+              <Card className="space-y-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-xl font-semibold tabular-nums">
+                    {current.dueAt ? formatDate(current.dueAt) : "sem prazo"}
+                  </span>
+                  {canEditData && (current.status === "DRAFT" || current.status === "IN_REVIEW") ? (
+                    <RevisionRescheduleForm
+                      revisionId={current.id}
+                      currentDueAt={current.dueAt ? new Date(current.dueAt).toISOString().slice(0, 10) : null}
+                    />
+                  ) : null}
+                </div>
+                {deadlineChanges.length > 0 ? (
+                  <div className="border-t border-line pt-2">
+                    <p className="mb-1.5 text-xs uppercase tracking-wider text-ink-faint">Reprogramações</p>
+                    <DeadlineHistoryList changes={deadlineChanges} />
+                  </div>
+                ) : null}
               </Card>
             </div>
           ) : null}
