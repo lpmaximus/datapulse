@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { generateTemporaryPassword, hashPassword } from "@/lib/password";
-import { getSessionIdentity, setSessionWorkspace } from "@/lib/session";
+import { getCurrentUser, getSessionIdentity, setSessionWorkspace } from "@/lib/session";
 import { listAccessibleWorkspaces } from "@/lib/server/workspace-service";
 import { safeNext } from "@/lib/workspaces";
 
@@ -104,4 +104,47 @@ export async function createWorkspace(
 
   revalidatePath("/workspaces");
   return { ok: true, workspaceName: name, adminEmail, temporaryPassword };
+}
+
+export interface RenameWorkspaceState {
+  error?: string;
+  ok?: boolean;
+  name?: string;
+}
+
+/**
+ * Renomeia o workspace ativo da sessão — exclusivo de ADMIN nesse workspace
+ * (superadmin entra como ADMIN em todos). O id vem da sessão, nunca do form.
+ */
+export async function renameWorkspace(
+  _prev: RenameWorkspaceState,
+  formData: FormData,
+): Promise<RenameWorkspaceState> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sessão expirada. Entre novamente." };
+  if (user.role !== "ADMIN") {
+    return { error: "Apenas administradores podem renomear o workspace." };
+  }
+
+  const name = str(formData, "name").replace(/\s+/g, " ");
+  if (name.length < 2) return { error: "Informe o nome do workspace." };
+  if (name.length > 60) return { error: "Use no máximo 60 caracteres." };
+  if (name === user.organizationName) return { ok: true, name };
+
+  const duplicate = await prisma.organization.findFirst({
+    where: {
+      name: { equals: name, mode: "insensitive" },
+      id: { not: user.organizationId },
+    },
+    select: { id: true },
+  });
+  if (duplicate) return { error: `Já existe um workspace chamado "${name}".` };
+
+  await prisma.organization.update({
+    where: { id: user.organizationId },
+    data: { name },
+  });
+
+  revalidatePath("/", "layout");
+  return { ok: true, name };
 }
