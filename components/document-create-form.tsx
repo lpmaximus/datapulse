@@ -169,15 +169,32 @@ export function DocumentCreateForm({
             <input name="revisionName" defaultValue="R00" className={inputClass} />
           </Field>
 
-          <Field label="Formato" hint="Folha do documento. Define o A1 equivalente.">
-            <select name="sheetFormat" defaultValue="" className={inputClass}>
-              <option value="">Não definir</option>
-              {SHEET_FORMATS.map((f) => (
-                <option key={f} value={f}>
-                  {f} — {formatA1(SHEET_FORMAT_A1[f])} A1 eq.
-                </option>
-              ))}
-            </select>
+          <Field
+            label="Formato × folhas"
+            hint="A1 equivalente = peso do formato × quantidade de folhas."
+          >
+            <div className="flex items-center gap-2">
+              <select name="sheetFormat" defaultValue="" className={inputClass + " min-w-0 flex-1"}>
+                <option value="">Não definir</option>
+                {SHEET_FORMATS.map((f) => (
+                  <option key={f} value={f}>
+                    {f} — {formatA1(SHEET_FORMAT_A1[f])} A1 eq.
+                  </option>
+                ))}
+              </select>
+              <span className="text-sm text-ink-faint" aria-hidden>
+                ×
+              </span>
+              <input
+                type="number"
+                name="sheetCount"
+                min={1}
+                step={1}
+                defaultValue={1}
+                aria-label="Quantidade de folhas"
+                className={inputClass + " w-20 shrink-0"}
+              />
+            </div>
           </Field>
 
           <Field label="Empresa" hint="Empresa que emite o documento.">

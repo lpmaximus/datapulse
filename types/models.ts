@@ -585,6 +585,8 @@ export interface DocumentTableRow {
   type: string | null;
   /** Formato da folha (A4–A0); base do A1 equivalente. */
   sheetFormat: SheetFormatValue | null;
+  /** Quantidade de folhas; A1 equivalente = peso do formato × quantidade. */
+  sheetCount: number;
   discipline: { id: string; tag: string; name: string } | null;
   designFirm: { id: string; name: string } | null;
   responsible: { id: string; name: string } | null;

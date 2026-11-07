@@ -29,6 +29,7 @@ import {
   summarizeCycles,
   SHEET_FORMATS,
   SHEET_FORMAT_A1,
+  a1Equivalent,
   formatA1,
   type AnalysisCodeLike,
   type DocumentStatus,
@@ -100,6 +101,7 @@ export async function DocumentDetail({
       name: true,
       type: true,
       sheetFormat: true,
+      sheetCount: true,
       notes: true,
       createdAt: true,
       project: { select: { id: true, name: true, status: true, organizationId: true } },
@@ -312,7 +314,9 @@ export async function DocumentDetail({
           {doc.type ? <span>· {doc.type}</span> : null}
           {doc.sheetFormat ? (
             <span>
-              · formato {doc.sheetFormat} ({formatA1(SHEET_FORMAT_A1[doc.sheetFormat])} A1 eq.)
+              · formato {doc.sheetFormat}
+              {doc.sheetCount > 1 ? ` × ${doc.sheetCount} folhas` : ""} (
+              {formatA1(a1Equivalent(doc.sheetFormat, doc.sheetCount) ?? 0)} A1 eq.)
             </span>
           ) : null}
           {doc.designFirm ? <span>· empresa {doc.designFirm.name}</span> : null}
@@ -565,15 +569,33 @@ export async function DocumentDetail({
                     <Field label="Tipo">
                       <input name="type" defaultValue={doc.type ?? ""} className={inputClass} />
                     </Field>
-                    <Field label="Formato" hint="Folha do documento. Define o A1 equivalente.">
-                      <select name="sheetFormat" defaultValue={doc.sheetFormat ?? ""} className={inputClass}>
-                        <option value="">Não definir</option>
-                        {SHEET_FORMATS.map((f) => (
-                          <option key={f} value={f}>
-                            {f} — {formatA1(SHEET_FORMAT_A1[f])} A1 eq.
-                          </option>
-                        ))}
-                      </select>
+                    <Field label="Formato × folhas" hint="A1 equivalente = peso do formato × quantidade de folhas.">
+                      <div className="flex items-center gap-2">
+                        <select
+                          name="sheetFormat"
+                          defaultValue={doc.sheetFormat ?? ""}
+                          className={inputClass + " min-w-0 flex-1"}
+                        >
+                          <option value="">Não definir</option>
+                          {SHEET_FORMATS.map((f) => (
+                            <option key={f} value={f}>
+                              {f} — {formatA1(SHEET_FORMAT_A1[f])} A1 eq.
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-sm text-ink-faint" aria-hidden>
+                          ×
+                        </span>
+                        <input
+                          type="number"
+                          name="sheetCount"
+                          min={1}
+                          step={1}
+                          defaultValue={doc.sheetCount}
+                          aria-label="Quantidade de folhas"
+                          className={inputClass + " w-20 shrink-0"}
+                        />
+                      </div>
                     </Field>
                     <Field label="Disciplina">
                       <select name="disciplineId" defaultValue={doc.disciplineId ?? ""} className={inputClass}>

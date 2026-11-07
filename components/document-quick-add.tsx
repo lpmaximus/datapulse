@@ -156,14 +156,36 @@ function DocumentEntryRow({
         </EntryCell>
 
         <EntryCell>
-          <select form={formId} name="sheetFormat" defaultValue="" aria-label="Formato da folha" className={cellInput}>
-            <option value="">—</option>
-            {SHEET_FORMATS.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center">
+            <select
+              form={formId}
+              name="sheetFormat"
+              defaultValue=""
+              aria-label="Formato da folha"
+              className={cellInput + " min-w-0 flex-1"}
+            >
+              <option value="">—</option>
+              {SHEET_FORMATS.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+            <span className="px-1 text-xs text-ink-faint" aria-hidden>
+              ×
+            </span>
+            <input
+              form={formId}
+              type="number"
+              name="sheetCount"
+              min={1}
+              step={1}
+              defaultValue={1}
+              aria-label="Quantidade de folhas"
+              title="Quantidade de folhas"
+              className={cellInput + " w-16! shrink-0 text-center tabular-nums"}
+            />
+          </div>
         </EntryCell>
 
         <EntryCell>

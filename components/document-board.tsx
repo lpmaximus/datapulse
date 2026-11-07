@@ -17,6 +17,7 @@ import {
 } from "@/components/document-status";
 import {
   SHEET_FORMAT_A1,
+  a1Equivalent,
   daysBetween,
   formatA1,
   isInProduction,
@@ -377,11 +378,17 @@ function DocumentRow({
       <Td className="text-center">
         {d.sheetFormat ? (
           <span
-            title={`${formatA1(SHEET_FORMAT_A1[d.sheetFormat])} A1 equivalente`}
+            title={`${d.sheetCount} folha(s) ${d.sheetFormat} × ${formatA1(SHEET_FORMAT_A1[d.sheetFormat])} = ${formatA1(a1Equivalent(d.sheetFormat, d.sheetCount) ?? 0)} A1 equivalente`}
             className="whitespace-nowrap text-xs text-ink-soft"
           >
-            <span className="font-mono">{d.sheetFormat}</span>
-            <span className="text-ink-faint"> · {formatA1(SHEET_FORMAT_A1[d.sheetFormat])}</span>
+            <span className="font-mono">
+              {d.sheetFormat}
+              {d.sheetCount > 1 ? ` ×${d.sheetCount}` : ""}
+            </span>
+            <span className="text-ink-faint">
+              {" "}
+              · {formatA1(a1Equivalent(d.sheetFormat, d.sheetCount) ?? 0)} A1
+            </span>
           </span>
         ) : (
           <span className="text-ink-faint">—</span>

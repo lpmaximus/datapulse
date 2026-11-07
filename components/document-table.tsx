@@ -34,6 +34,7 @@ export const DOCUMENT_SELECT = {
   name: true,
   type: true,
   sheetFormat: true,
+  sheetCount: true,
   discipline: { select: { id: true, tag: true, name: true } },
   designFirm: { select: { id: true, name: true } },
   responsible: { select: { id: true, name: true } },

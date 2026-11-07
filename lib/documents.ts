@@ -639,19 +639,33 @@ export function parseSheetFormat(value: unknown): SheetFormat | null {
   return (SHEET_FORMATS as string[]).includes(v) ? (v as SheetFormat) : null;
 }
 
-/** A1 equivalente do documento; nulo quando o formato não foi informado. */
-export function a1Equivalent(format: SheetFormat | null | undefined): number | null {
-  return format ? SHEET_FORMAT_A1[format] : null;
+/** Quantidade de folhas vinda do formulário: inteiro ≥ 1; vazio ou inválido = 1. */
+export function parseSheetCount(value: unknown): number {
+  const n = Number(String(value ?? "").trim().replace(",", "."));
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, 100_000) : 1;
+}
+
+/**
+ * A1 equivalente do documento: peso do formato × quantidade de folhas.
+ * Nulo quando o formato não foi informado.
+ */
+export function a1Equivalent(
+  format: SheetFormat | null | undefined,
+  sheetCount: number | null | undefined = 1,
+): number | null {
+  if (!format) return null;
+  const count = sheetCount && sheetCount > 0 ? sheetCount : 1;
+  return SHEET_FORMAT_A1[format] * count;
 }
 
 /** Soma em A1 equivalente e quantos documentos ficaram sem formato. */
 export function sumA1Equivalent(
-  docs: { sheetFormat?: SheetFormat | null }[],
+  docs: { sheetFormat?: SheetFormat | null; sheetCount?: number | null }[],
 ): { total: number; withFormat: number; missing: number } {
   let total = 0;
   let withFormat = 0;
   for (const d of docs) {
-    const v = a1Equivalent(d.sheetFormat);
+    const v = a1Equivalent(d.sheetFormat, d.sheetCount);
     if (v == null) continue;
     total += v;
     withFormat += 1;

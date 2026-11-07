@@ -5,6 +5,7 @@ import {
   SHEET_FORMAT_A1,
   a1Equivalent,
   formatA1,
+  parseSheetCount,
   parseSheetFormat,
   sumA1Equivalent,
 } from "../lib/documents.ts";
@@ -45,4 +46,24 @@ test("formato pt-BR sem zeros à direita", () => {
   assert.equal(formatA1(0.125), "0,125");
   assert.equal(formatA1(2), "2");
   assert.equal(formatA1(12.5), "12,5");
+});
+
+test("A1 equivalente multiplica pela quantidade de folhas", () => {
+  assert.equal(a1Equivalent("A4", 12), 1.5);
+  assert.equal(a1Equivalent("A1", 3), 3);
+  assert.equal(a1Equivalent("A0", 0), 2); // quantidade inválida conta como 1
+  const r = sumA1Equivalent([
+    { sheetFormat: "A4", sheetCount: 12 },
+    { sheetFormat: "A1", sheetCount: 1 },
+    { sheetFormat: null, sheetCount: 5 },
+  ]);
+  assert.deepEqual(r, { total: 2.5, withFormat: 2, missing: 1 });
+});
+
+test("lê a quantidade de folhas do formulário", () => {
+  assert.equal(parseSheetCount("12"), 12);
+  assert.equal(parseSheetCount(""), 1);
+  assert.equal(parseSheetCount("0"), 1);
+  assert.equal(parseSheetCount("2.5"), 1);
+  assert.equal(parseSheetCount("abc"), 1);
 });

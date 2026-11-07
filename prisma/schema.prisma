@@ -763,6 +763,9 @@ model Document {
   /// Formato da folha (A4–A0). Base da medida de produção em "A1 equivalente"
   /// (A4 = 0,125 · A3 = 0,25 · A2 = 0,5 · A1 = 1 · A0 = 2). Nulo = não informado.
   sheetFormat SheetFormat?
+  /// Quantidade de folhas do documento (um memorial A4 tem várias). O A1
+  /// equivalente é peso do formato × quantidade.
+  sheetCount Int @default(1)
 
   disciplineId String?
   discipline   Discipline? @relation(fields: [disciplineId], references: [id], onDelete: SetNull)
