@@ -411,6 +411,7 @@ export interface UnlinkedProjectRow {
 /* ---------------------------------------------------------------------- */
 
 export type RoleValue = "ADMIN" | "MANAGER" | "SPECIALIST" | "EXECUTIVE" | "EXTERNAL";
+export type SheetFormatValue = "A4" | "A3" | "A2" | "A1" | "A0";
 export type DocumentStatusValue =
   | "DRAFT"
   | "IN_REVIEW"
@@ -582,6 +583,8 @@ export interface DocumentTableRow {
   number: string | null;
   name: string;
   type: string | null;
+  /** Formato da folha (A4–A0); base do A1 equivalente. */
+  sheetFormat: SheetFormatValue | null;
   discipline: { id: string; tag: string; name: string } | null;
   designFirm: { id: string; name: string } | null;
   responsible: { id: string; name: string } | null;

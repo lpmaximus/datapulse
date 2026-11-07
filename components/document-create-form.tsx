@@ -6,6 +6,7 @@ import { Plus, X } from "lucide-react";
 import { createDocument, type DocumentFormState } from "@/app/actions/documents";
 import { Button, Field, inputClass } from "@/components/ui";
 import { PackageSelect } from "@/components/package-select";
+import { SHEET_FORMATS, SHEET_FORMAT_A1, formatA1 } from "@/lib/documents";
 import type {
   PackageOption,
   EmpresaRow,
@@ -168,6 +169,17 @@ export function DocumentCreateForm({
             <input name="revisionName" defaultValue="R00" className={inputClass} />
           </Field>
 
+          <Field label="Formato" hint="Folha do documento. Define o A1 equivalente.">
+            <select name="sheetFormat" defaultValue="" className={inputClass}>
+              <option value="">Não definir</option>
+              {SHEET_FORMATS.map((f) => (
+                <option key={f} value={f}>
+                  {f} — {formatA1(SHEET_FORMAT_A1[f])} A1 eq.
+                </option>
+              ))}
+            </select>
+          </Field>
+
           <Field label="Empresa" hint="Empresa que emite o documento.">
             <select name="designFirmId" defaultValue="" className={inputClass}>
               <option value="">Não definir</option>
@@ -189,7 +201,7 @@ export function DocumentCreateForm({
               ))}
             </select>
           </Field>
-          <Field label="Emitido em">
+          <Field label="Emitido em" hint="Pode ser passada: documento já emitido antes do cadastro.">
             <input type="date" name="issuedAt" className={inputClass} />
           </Field>
           <Field

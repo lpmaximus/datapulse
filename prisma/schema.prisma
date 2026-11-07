@@ -731,6 +731,16 @@ enum DocumentStatus {
   CANCELLED
 }
 
+/// Formato da folha do documento. O peso em A1 equivalente fica no código
+/// (`SHEET_FORMAT_A1` em lib/documents.ts), não no banco.
+enum SheetFormat {
+  A4
+  A3
+  A2
+  A1
+  A0
+}
+
 /**
  * Registro documental do projeto. O DataPulse guarda apenas a INFORMAÇÃO
  * sobre o documento (código, revisão, status, responsável, datas) — nunca o
@@ -750,6 +760,9 @@ model Document {
   name   String
   /// Tipo: "Projeto executivo", "Memorial", "ART", "Licença"...
   type String?
+  /// Formato da folha (A4–A0). Base da medida de produção em "A1 equivalente"
+  /// (A4 = 0,125 · A3 = 0,25 · A2 = 0,5 · A1 = 1 · A0 = 2). Nulo = não informado.
+  sheetFormat SheetFormat?
 
   disciplineId String?
   discipline   Discipline? @relation(fields: [disciplineId], references: [id], onDelete: SetNull)

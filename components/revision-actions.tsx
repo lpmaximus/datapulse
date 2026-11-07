@@ -12,9 +12,18 @@ import {
 } from "@/app/actions/documents";
 import { Button, Field, inputClass } from "@/components/ui";
 import { EFFECT_LABEL, localDay, type AnalysisCodeLike } from "@/lib/documents";
+import { reviewDueDate } from "@/lib/business-days";
 
 /** Campo de data da ação: padrão hoje, sem datas futuras. */
-function ActionDateField({ label, hint }: { label: string; hint: string }) {
+function ActionDateField({
+  label,
+  hint,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  onChange?: (value: string) => void;
+}) {
   const today = localDay(new Date());
   return (
     <Field label={label} hint={hint}>
@@ -24,10 +33,17 @@ function ActionDateField({ label, hint }: { label: string; hint: string }) {
         defaultValue={today}
         max={today}
         required
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         className={inputClass}
       />
     </Field>
   );
+}
+
+/** AAAA-MM-DD do envio + 5 dias úteis (mesma regra do servidor). */
+function reviewDueFrom(day: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  return reviewDueDate(new Date(day + "T00:00:00.000Z")).toISOString().slice(0, 10);
 }
 import { PackageSelect } from "@/components/package-select";
 import type { PackageOption, UserOption } from "@/types/models";
@@ -80,6 +96,11 @@ export function SubmitRevisionForm({
     submitRevision,
     {},
   );
+  // O prazo acompanha a data de envio (envio + 5 dias úteis) até o gerente
+  // digitar um prazo de exceção — senão um envio passado herdaria o prazo
+  // calculado a partir de hoje.
+  const [dueAt, setDueAt] = useState(defaultDueAt);
+  const [dueTouched, setDueTouched] = useState(false);
 
   return (
     <form action={formAction} className="space-y-4">
@@ -87,7 +108,12 @@ export function SubmitRevisionForm({
 
       <ActionDateField
         label="Enviado em"
-        hint="Data em que o documento foi de fato enviado para análise."
+        hint="Data em que o documento foi de fato enviado para análise. Pode ser passada, para documentos já enviados antes do cadastro."
+        onChange={(day) => {
+          if (dueTouched) return;
+          const next = reviewDueFrom(day);
+          if (next) setDueAt(next);
+        }}
       />
 
       {packages ? (
@@ -122,7 +148,11 @@ export function SubmitRevisionForm({
         <input
           type="date"
           name="dueAt"
-          defaultValue={defaultDueAt}
+          value={dueAt}
+          onChange={(e) => {
+            setDueAt(e.target.value);
+            setDueTouched(true);
+          }}
           disabled={!canEditDueAt}
           className={inputClass}
         />

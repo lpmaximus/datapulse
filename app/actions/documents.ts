@@ -10,11 +10,14 @@ import {
   actionForEffect,
   daysBetween,
   isActionAllowed,
+  isRegistrationEvent,
   isRevisionOpen,
   nextRevisionName,
   nextRound,
+  parseSheetFormat,
   resolveActionDate,
   statusAfter,
+  submissionFloor,
   type AnalysisEffect,
   type DocumentAction,
   type DocumentStatus,
@@ -151,6 +154,7 @@ export async function createDocument(
       name,
       number: number || null,
       type: str(formData, "type") || null,
+      sheetFormat: parseSheetFormat(str(formData, "sheetFormat")),
       disciplineId,
       designFirmId,
       responsibleId,
@@ -224,6 +228,7 @@ export async function submitRevision(
       issuedAt: true,
       dueAt: true,
       milestoneId: true,
+      sequence: true,
       document: {
         select: {
           id: true,
@@ -278,19 +283,52 @@ export async function submitRevision(
     specialistName = s.name;
   }
 
-  // Data do envio informada no formulário (padrão: agora). Não pode ser
-  // anterior à emissão da revisão nem ao último evento do histórico.
-  const lastEvent = await prisma.documentTransition.findFirst({
-    where: { revisionId: revision.id },
-    orderBy: { createdAt: "desc" },
-    select: { createdAt: true },
-  });
-  const floor = [revision.issuedAt, lastEvent?.createdAt]
-    .filter((d): d is Date => !!d)
-    .sort((a, b) => b.getTime() - a.getTime())[0];
-  const when = resolveActionDate(str(formData, "occurredAt"), new Date(), floor, "a emissão / último evento");
+  // Data do envio informada no formulário (padrão: agora). Pode ser passada:
+  // documento já feito e enviado antes de ser cadastrado no DataPulse entra
+  // com a data real. O piso é só o que de fato aconteceu — o desfecho da
+  // revisão anterior e eventos de trâmite desta —, nunca a data do cadastro.
+  const [events, predecessor] = await Promise.all([
+    prisma.documentTransition.findMany({
+      where: { revisionId: revision.id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, action: true, createdAt: true },
+    }),
+    revision.sequence > 0
+      ? prisma.documentRevision.findFirst({
+          where: { documentId: revision.document.id, sequence: { lt: revision.sequence } },
+          orderBy: { sequence: "desc" },
+          select: { analyzedAt: true },
+        })
+      : Promise.resolve(null),
+  ]);
+  const floor = submissionFloor(
+    events.map((e) => ({ action: e.action as DocumentAction, createdAt: e.createdAt })),
+    predecessor?.analyzedAt,
+  );
+  const when = resolveActionDate(
+    str(formData, "occurredAt"),
+    new Date(),
+    floor,
+    predecessor?.analyzedAt && floor?.getTime() === predecessor.analyzedAt.getTime()
+      ? "o parecer da revisão anterior"
+      : "o último evento do trâmite",
+  );
   if ("error" in when) return { error: when.error };
   const now = when.at;
+
+  // Cadastro retroativo: o evento de cadastro (criado / nova revisão) foi
+  // gravado depois do envio informado. Ele passa para logo antes do envio,
+  // para o rastreamento seguir a ordem real e a contagem de dias não inverter.
+  const backdated = events
+    .filter((e) => isRegistrationEvent(e.action as DocumentAction) && e.createdAt.getTime() >= now.getTime())
+    .map((e) => e.id);
+  const registrationAt = new Date(now.getTime() - 1000);
+  const lastEvent = events.at(-1);
+  const lastEventAt =
+    lastEvent && backdated.includes(lastEvent.id) ? registrationAt : lastEvent?.createdAt;
+  // "Emitido em" posterior ao envio informado também era data de cadastro.
+  const issuedAt =
+    revision.issuedAt && revision.issuedAt.getTime() > now.getTime() ? now : revision.issuedAt;
   const round = nextRound(revision.round, "SUBMITTED");
   // Vencimento: o gerente pode fixar uma exceção; senão vale o prazo que a
   // revisão já tem (entrada + 5 dias úteis desde o cadastro) ou, em revisão
@@ -302,7 +340,9 @@ export async function submitRevision(
   // registrado no evento de criação); o de análise conta da data de envio.
   const dueAt =
     managerDueAt ??
-    (enteringPackage ? reviewDueDate(now) : revision.dueAt ?? reviewDueDate(revision.issuedAt ?? now));
+    (enteringPackage || issuedAt !== revision.issuedAt
+      ? reviewDueDate(now)
+      : revision.dueAt ?? reviewDueDate(issuedAt ?? now));
 
   await prisma.$transaction([
     prisma.documentTransition.create({
@@ -318,10 +358,18 @@ export async function submitRevision(
         assignedToName: specialistName,
         comment: str(formData, "comment") || null,
         dueAt,
-        daysInPreviousStage: daysBetween(now, lastEvent?.createdAt ?? revision.updatedAt),
+        daysInPreviousStage: daysBetween(now, lastEventAt ?? revision.updatedAt),
         createdAt: now,
       },
     }),
+    ...(backdated.length
+      ? [
+          prisma.documentTransition.updateMany({
+            where: { id: { in: backdated } },
+            data: { createdAt: registrationAt },
+          }),
+        ]
+      : []),
     prisma.documentRevision.update({
       where: { id: revision.id },
       data: {
@@ -330,7 +378,8 @@ export async function submitRevision(
         inReviewSince: now,
         specialistId,
         dueAt,
-        ...(enteringPackage ? { milestoneId: packageId, issuedAt: revision.issuedAt ?? now } : {}),
+        issuedAt: issuedAt ?? (enteringPackage ? now : null),
+        ...(enteringPackage ? { milestoneId: packageId } : {}),
         analysisCodeId: null,
         analyzedAt: null,
       },
@@ -728,6 +777,7 @@ export async function updateDocumentMetadata(formData: FormData): Promise<void> 
       name: str(formData, "name") || undefined,
       number: str(formData, "number") || null,
       type: str(formData, "type") || null,
+      sheetFormat: parseSheetFormat(str(formData, "sheetFormat")),
       disciplineId,
       designFirmId,
       responsibleId,

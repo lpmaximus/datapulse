@@ -15,6 +15,7 @@ import {
   onEntryKeyDown,
 } from "@/components/grid-entry";
 import { PackageSelect } from "@/components/package-select";
+import { SHEET_FORMATS } from "@/lib/documents";
 import { ColumnResizeHandle, MIN_COL_WIDTH } from "@/components/table-ui";
 import type { DisciplineRow, PackageOption, ProjectOption } from "@/types/models";
 
@@ -149,6 +150,17 @@ function DocumentEntryRow({
             {disciplines.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.tag}
+              </option>
+            ))}
+          </select>
+        </EntryCell>
+
+        <EntryCell>
+          <select form={formId} name="sheetFormat" defaultValue="" aria-label="Formato da folha" className={cellInput}>
+            <option value="">—</option>
+            {SHEET_FORMATS.map((f) => (
+              <option key={f} value={f}>
+                {f}
               </option>
             ))}
           </select>

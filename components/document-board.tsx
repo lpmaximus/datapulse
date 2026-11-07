@@ -15,7 +15,13 @@ import {
   StatusDistribution,
   StuckBadge,
 } from "@/components/document-status";
-import { daysBetween, isInProduction } from "@/lib/documents";
+import {
+  SHEET_FORMAT_A1,
+  daysBetween,
+  formatA1,
+  isInProduction,
+  sumA1Equivalent,
+} from "@/lib/documents";
 import { formatDate } from "@/lib/format";
 import type { DocumentTableRow, RevisionRow } from "@/types/models";
 
@@ -152,8 +158,10 @@ function BoardGroup({
     .map((d) => new Date(d).getTime())
     .sort((a, b) => a - b);
 
-  // Colunas antes de "Status": seleção, documento, [projeto], disciplina, revisão.
-  const colsBeforeStatus = showProject ? 5 : 4;
+  const a1 = sumA1Equivalent(group.rows);
+
+  // Colunas antes de "Formato": seleção, documento, [projeto], disciplina.
+  const colsBeforeFormat = showProject ? 4 : 3;
 
   return (
     <section>
@@ -190,6 +198,7 @@ function BoardGroup({
                 <Th className="min-w-[260px]">Documento</Th>
                 {showProject ? <Th className="min-w-[160px]">Projeto</Th> : null}
                 <Th>Disciplina</Th>
+                <Th>Formato</Th>
                 <Th>Rev.</Th>
                 <Th className="w-[140px]">Status</Th>
                 <Th>Parecer</Th>
@@ -257,7 +266,23 @@ function BoardGroup({
 
               {/* Rodapé-resumo, como no monday: distribuição de status e janela de prazos. */}
               <tr className="bg-surface">
-                <td colSpan={colsBeforeStatus} className="border-r border-line" />
+                <td colSpan={colsBeforeFormat} className="border-r border-line" />
+                <td
+                  className="border-r border-line px-2 py-2 text-center"
+                  title={
+                    a1.missing > 0
+                      ? `${a1.missing} documento(s) sem formato não entram na soma`
+                      : "Soma em A1 equivalente"
+                  }
+                >
+                  <span className="whitespace-nowrap text-xs font-medium tabular-nums text-ink">
+                    {formatA1(a1.total)} A1
+                  </span>
+                  {a1.missing > 0 ? (
+                    <span className="block text-[10px] text-ink-faint">{a1.missing} sem formato</span>
+                  ) : null}
+                </td>
+                <td className="border-r border-line" />
                 <td className="border-r border-line px-2 py-2">
                   <StatusDistribution
                     statuses={revisions.map((r) => (isInProduction(r) ? "PRODUCTION" : r.status))}
@@ -349,6 +374,19 @@ function DocumentRow({
         </Td>
       ) : null}
       <Td className="text-center text-ink-soft">{d.discipline?.tag ?? "—"}</Td>
+      <Td className="text-center">
+        {d.sheetFormat ? (
+          <span
+            title={`${formatA1(SHEET_FORMAT_A1[d.sheetFormat])} A1 equivalente`}
+            className="whitespace-nowrap text-xs text-ink-soft"
+          >
+            <span className="font-mono">{d.sheetFormat}</span>
+            <span className="text-ink-faint"> · {formatA1(SHEET_FORMAT_A1[d.sheetFormat])}</span>
+          </span>
+        ) : (
+          <span className="text-ink-faint">—</span>
+        )}
+      </Td>
       <Td className="text-center font-mono text-xs">{rev?.name ?? "—"}</Td>
       <td className="h-px border-r border-line p-0">
         {rev ? (

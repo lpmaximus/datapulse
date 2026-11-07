@@ -27,6 +27,9 @@ import {
   requiresNewRevision,
   nextRevisionName,
   summarizeCycles,
+  SHEET_FORMATS,
+  SHEET_FORMAT_A1,
+  formatA1,
   type AnalysisCodeLike,
   type DocumentStatus,
 } from "@/lib/documents";
@@ -96,6 +99,7 @@ export async function DocumentDetail({
       number: true,
       name: true,
       type: true,
+      sheetFormat: true,
       notes: true,
       createdAt: true,
       project: { select: { id: true, name: true, status: true, organizationId: true } },
@@ -306,6 +310,11 @@ export async function DocumentDetail({
             </span>
           ) : null}
           {doc.type ? <span>· {doc.type}</span> : null}
+          {doc.sheetFormat ? (
+            <span>
+              · formato {doc.sheetFormat} ({formatA1(SHEET_FORMAT_A1[doc.sheetFormat])} A1 eq.)
+            </span>
+          ) : null}
           {doc.designFirm ? <span>· empresa {doc.designFirm.name}</span> : null}
           {doc.responsible ? (
             <span>· projetista {doc.responsible.name}</span>
@@ -555,6 +564,16 @@ export async function DocumentDetail({
                     </Field>
                     <Field label="Tipo">
                       <input name="type" defaultValue={doc.type ?? ""} className={inputClass} />
+                    </Field>
+                    <Field label="Formato" hint="Folha do documento. Define o A1 equivalente.">
+                      <select name="sheetFormat" defaultValue={doc.sheetFormat ?? ""} className={inputClass}>
+                        <option value="">Não definir</option>
+                        {SHEET_FORMATS.map((f) => (
+                          <option key={f} value={f}>
+                            {f} — {formatA1(SHEET_FORMAT_A1[f])} A1 eq.
+                          </option>
+                        ))}
+                      </select>
                     </Field>
                     <Field label="Disciplina">
                       <select name="disciplineId" defaultValue={doc.disciplineId ?? ""} className={inputClass}>

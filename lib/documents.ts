@@ -587,3 +587,79 @@ export function resolveActionDate(
   }
   return { at };
 }
+
+/**
+ * Piso da data de envio para análise.
+ *
+ * Só conta o que de fato aconteceu com o documento: o desfecho da revisão
+ * anterior e eventos de trâmite desta revisão. Os eventos de cadastro
+ * (CREATED / REVISED) registram quando alguém digitou o documento no sistema,
+ * não quando ele foi feito — por isso não barram um envio passado: documento
+ * já feito e enviado antes de existir no DataPulse precisa poder ser lançado
+ * com a data real.
+ */
+export function submissionFloor(
+  events: { action: DocumentAction; createdAt: Date }[],
+  predecessorOutcomeAt: Date | null | undefined,
+): Date | null {
+  const times = events
+    .filter((e) => !isRegistrationEvent(e.action))
+    .map((e) => e.createdAt.getTime());
+  if (predecessorOutcomeAt) times.push(predecessorOutcomeAt.getTime());
+  return times.length ? new Date(Math.max(...times)) : null;
+}
+
+/** Evento que marca o cadastro da revisão no sistema, não um passo do trâmite. */
+export function isRegistrationEvent(action: DocumentAction): boolean {
+  return action === "CREATED" || action === "REVISED";
+}
+
+/* --------------------------- formato da folha --------------------------- */
+
+export type SheetFormat = "A4" | "A3" | "A2" | "A1" | "A0";
+
+/** Do menor para o maior — ordem das listas de escolha. */
+export const SHEET_FORMATS: SheetFormat[] = ["A4", "A3", "A2", "A1", "A0"];
+
+/**
+ * Peso de cada formato em A1 equivalente: cada formato tem o dobro da área
+ * do anterior. É a unidade de medida da produção de desenhos.
+ */
+export const SHEET_FORMAT_A1: Record<SheetFormat, number> = {
+  A4: 0.125,
+  A3: 0.25,
+  A2: 0.5,
+  A1: 1,
+  A0: 2,
+};
+
+/** Valor vindo de formulário ou planilha → formato válido, ou nulo. */
+export function parseSheetFormat(value: unknown): SheetFormat | null {
+  const v = String(value ?? "").trim().toUpperCase();
+  return (SHEET_FORMATS as string[]).includes(v) ? (v as SheetFormat) : null;
+}
+
+/** A1 equivalente do documento; nulo quando o formato não foi informado. */
+export function a1Equivalent(format: SheetFormat | null | undefined): number | null {
+  return format ? SHEET_FORMAT_A1[format] : null;
+}
+
+/** Soma em A1 equivalente e quantos documentos ficaram sem formato. */
+export function sumA1Equivalent(
+  docs: { sheetFormat?: SheetFormat | null }[],
+): { total: number; withFormat: number; missing: number } {
+  let total = 0;
+  let withFormat = 0;
+  for (const d of docs) {
+    const v = a1Equivalent(d.sheetFormat);
+    if (v == null) continue;
+    total += v;
+    withFormat += 1;
+  }
+  return { total, withFormat, missing: docs.length - withFormat };
+}
+
+/** 0,125 · 1 · 12,5 — formato pt-BR, sem zeros à direita. */
+export function formatA1(value: number): string {
+  return value.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
+}
