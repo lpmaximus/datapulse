@@ -41,17 +41,22 @@ export function DocumentStatusChip({
   status,
   inProduction = false,
   fill = false,
+  progress,
 }: {
   status: DocumentStatus;
   /** Rascunho sem pacote: mostra "Em produção" em vez de "Emitida". */
   inProduction?: boolean;
   /** Ocupa a célula inteira, como no quadro do monday. */
   fill?: boolean;
+  /** Avanço da produção (0–100); só aparece no selo "Em produção". */
+  progress?: number;
 }) {
+  const showProgress = status === "DRAFT" && inProduction && progress != null;
   return (
     <span
+      title={showProgress ? `Em produção — ${progress}% elaborado` : undefined}
       className={clsx(
-        "inline-flex items-center justify-center text-xs font-medium text-white",
+        "relative inline-flex items-center justify-center overflow-hidden text-xs font-medium text-white",
         fill ? "h-full w-full px-2 py-2" : "min-w-[96px] px-2 py-1",
         status === "CANCELLED" && "line-through",
         status === "DRAFT" && inProduction
@@ -59,7 +64,17 @@ export function DocumentStatusChip({
           : STATUS_COLOR[status] ?? STATUS_COLOR.DRAFT,
       )}
     >
-      {revisionStatusLabel(status, inProduction)}
+      {showProgress ? (
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 bg-white/25"
+          style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+        />
+      ) : null}
+      <span className="relative">
+        {revisionStatusLabel(status, inProduction)}
+        {showProgress ? <span className="tabular-nums"> · {progress}%</span> : null}
+      </span>
     </span>
   );
 }

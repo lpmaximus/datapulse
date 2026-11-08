@@ -10,10 +10,12 @@ import {
   actionForEffect,
   daysBetween,
   isActionAllowed,
+  isInProduction,
   isRegistrationEvent,
   isRevisionOpen,
   nextRevisionName,
   nextRound,
+  parseProgress,
   parseSheetCount,
   parseSheetFormat,
   resolveActionDate,
@@ -231,6 +233,7 @@ export async function submitRevision(
       dueAt: true,
       milestoneId: true,
       sequence: true,
+      productionProgress: true,
       document: {
         select: {
           id: true,
@@ -381,11 +384,29 @@ export async function submitRevision(
         specialistId,
         dueAt,
         issuedAt: issuedAt ?? (enteringPackage ? now : null),
-        ...(enteringPackage ? { milestoneId: packageId } : {}),
+        // Saindo da produção, a elaboração terminou: o avanço vai a 100.
+        ...(enteringPackage
+          ? { milestoneId: packageId, productionProgress: 100, progressUpdatedAt: now }
+          : {}),
         analysisCodeId: null,
         analyzedAt: null,
       },
     }),
+    ...(enteringPackage && revision.productionProgress !== 100
+      ? [
+          prisma.revisionProgressLog.create({
+            data: {
+              revisionId: revision.id,
+              fromProgress: revision.productionProgress,
+              toProgress: 100,
+              note: "Enviado ao pacote",
+              actorId: user.id,
+              actorName: user.name,
+              createdAt: now,
+            },
+          }),
+        ]
+      : []),
   ]);
 
   await recomputePackages([packageId]);
@@ -726,6 +747,89 @@ export async function assignDocumentIssuer(
 
   revalidatePath(`/documents/${documentId}`);
   revalidatePath(`/projects/${doc.projectId}/documents`);
+  revalidatePath("/documents");
+  revalidatePath("/my-work");
+  return { ok: true };
+}
+
+/**
+ * Atualiza o avanço da elaboração de uma revisão em produção (0–99%).
+ *
+ * Só o gerente ou o projetista do documento. O 100% não é aceito aqui: ele é
+ * gravado no envio ao pacote. Repetir o mesmo número é permitido — confirma
+ * que o avanço continua valendo e zera o "atualizado há N dias".
+ */
+export async function updateRevisionProgress(
+  _prev: TransitionState,
+  formData: FormData,
+): Promise<TransitionState> {
+  const user = await requireWriter();
+
+  const revisionId = str(formData, "revisionId");
+  if (!revisionId) return { error: "Revisão não identificada." };
+
+  const parsed = parseProgress(formData.get("progress"));
+  if ("error" in parsed) return { error: parsed.error };
+  const note = str(formData, "note").slice(0, 500) || null;
+
+  const revision = await prisma.documentRevision.findUnique({
+    where: { id: revisionId },
+    select: {
+      id: true,
+      status: true,
+      milestoneId: true,
+      productionProgress: true,
+      document: {
+        select: {
+          id: true,
+          projectId: true,
+          responsibleId: true,
+          project: { select: { status: true, organizationId: true } },
+        },
+      },
+    },
+  });
+  if (
+    !revision ||
+    revision.document.project.organizationId !== user.organizationId ||
+    !(await canSeeProject(user, revision.document.projectId))
+  ) {
+    return { error: "Revisão não encontrada." };
+  }
+  if (!isProjectWritable(revision.document.project.status)) return { error: READONLY_MESSAGE };
+  if (!canManageProjects(user) && revision.document.responsibleId !== user.id) {
+    return { error: "Só o gerente ou o projetista do documento podem informar o avanço." };
+  }
+  if (!isInProduction({ status: revision.status as DocumentStatus, milestoneId: revision.milestoneId })) {
+    return { error: "O avanço só é informado enquanto o documento está em produção." };
+  }
+
+  // Recuo sem explicação deixa quem acompanha sem entender o que houve.
+  if (parsed.value < revision.productionProgress && !note) {
+    return { error: "O avanço diminuiu — explique o motivo na observação." };
+  }
+
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.revisionProgressLog.create({
+      data: {
+        revisionId: revision.id,
+        fromProgress: revision.productionProgress,
+        toProgress: parsed.value,
+        note,
+        actorId: user.id,
+        actorName: user.name,
+        createdAt: now,
+      },
+    }),
+    prisma.documentRevision.update({
+      where: { id: revision.id },
+      data: { productionProgress: parsed.value, progressUpdatedAt: now },
+    }),
+  ]);
+
+  revalidatePath(`/documents/${revision.document.id}`);
+  revalidatePath(`/projects/${revision.document.projectId}/documents`);
   revalidatePath("/documents");
   revalidatePath("/my-work");
   return { ok: true };

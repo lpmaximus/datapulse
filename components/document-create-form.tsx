@@ -174,7 +174,7 @@ export function DocumentCreateForm({
             hint="A1 equivalente = peso do formato × quantidade de folhas."
           >
             <div className="flex items-center gap-2">
-              <select name="sheetFormat" defaultValue="" className={inputClass + " min-w-0 flex-1"}>
+              <select name="sheetFormat" defaultValue="" className={inputClass + " min-w-[9rem] flex-1"}>
                 <option value="">Não definir</option>
                 {SHEET_FORMATS.map((f) => (
                   <option key={f} value={f}>
@@ -192,7 +192,7 @@ export function DocumentCreateForm({
                 step={1}
                 defaultValue={1}
                 aria-label="Quantidade de folhas"
-                className={inputClass + " w-20 shrink-0"}
+                className={inputClass + " w-20! shrink-0 text-center tabular-nums"}
               />
             </div>
           </Field>

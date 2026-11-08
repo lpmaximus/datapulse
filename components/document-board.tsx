@@ -21,6 +21,8 @@ import {
   daysBetween,
   formatA1,
   isInProduction,
+  effectiveProgress,
+  weightedProduction,
   sumA1Equivalent,
 } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
@@ -160,6 +162,14 @@ function BoardGroup({
     .sort((a, b) => a - b);
 
   const a1 = sumA1Equivalent(group.rows);
+  // Avanço físico do grupo em A1 equivalente (produção ponderada pelo formato).
+  const produced = weightedProduction(
+    group.rows.map((d) => ({
+      sheetFormat: d.sheetFormat,
+      sheetCount: d.sheetCount,
+      revision: currentRevision(d),
+    })),
+  );
 
   // Colunas antes de "Formato": seleção, documento, [projeto], disciplina.
   const colsBeforeFormat = showProject ? 4 : 3;
@@ -279,6 +289,14 @@ function BoardGroup({
                   <span className="whitespace-nowrap text-xs font-medium tabular-nums text-ink">
                     {formatA1(a1.total)} A1
                   </span>
+                  {produced.percent != null ? (
+                    <span
+                      className="block text-[10px] tabular-nums text-ink-soft"
+                      title={`${formatA1(produced.done)} de ${formatA1(produced.total)} A1 equivalente elaborados`}
+                    >
+                      {produced.percent}% produzido
+                    </span>
+                  ) : null}
                   {a1.missing > 0 ? (
                     <span className="block text-[10px] text-ink-faint">{a1.missing} sem formato</span>
                   ) : null}
@@ -397,7 +415,12 @@ function DocumentRow({
       <Td className="text-center font-mono text-xs">{rev?.name ?? "—"}</Td>
       <td className="h-px border-r border-line p-0">
         {rev ? (
-          <DocumentStatusChip status={rev.status} inProduction={isInProduction(rev)} fill />
+          <DocumentStatusChip
+            status={rev.status}
+            inProduction={isInProduction(rev)}
+            progress={isInProduction(rev) ? effectiveProgress(rev) : undefined}
+            fill
+          />
         ) : (
           <span className="flex h-full items-center justify-center text-ink-faint">—</span>
         )}

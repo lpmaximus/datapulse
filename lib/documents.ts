@@ -677,3 +677,100 @@ export function sumA1Equivalent(
 export function formatA1(value: number): string {
   return value.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 }
+
+/* ------------------------- avanço da produção ------------------------- */
+
+/**
+ * Teto do avanço informado à mão. O 100% só existe quando o documento sai da
+ * produção (envio ao pacote): marcar 100% e não enviar seria o mesmo que não
+ * ter terminado.
+ */
+export const MAX_MANUAL_PROGRESS = 99;
+
+/** Sem atualização há mais que isso, o número deixa de ser confiável. */
+export const PROGRESS_STALE_DAYS = 7;
+
+/**
+ * Avanço vindo do formulário: inteiro de 0 a 99. Devolve erro legível para
+ * 100 (que é automático) e para valor inválido.
+ */
+export function parseProgress(value: unknown): { value: number } | { error: string } {
+  const raw = String(value ?? "").trim().replace("%", "").replace(",", ".");
+  const n = Number(raw);
+  if (raw === "" || !Number.isFinite(n)) return { error: "Informe o avanço em %." };
+  const v = Math.round(n);
+  if (v >= 100) {
+    return {
+      error: "O 100% é registrado sozinho quando o documento é enviado ao pacote. Informe até 99%.",
+    };
+  }
+  if (v < 0) return { error: "O avanço não pode ser negativo." };
+  return { value: v };
+}
+
+/**
+ * Avanço de exibição da revisão. Em produção, vale o informado pelo
+ * projetista; fora dela (já no pacote, em análise, com parecer) a produção
+ * terminou e vale 100. Cancelada não produz nada.
+ */
+export function effectiveProgress(r: {
+  status: DocumentStatus;
+  milestone?: unknown;
+  milestoneId?: string | null;
+  productionProgress?: number | null;
+}): number {
+  if (r.status === "CANCELLED") return 0;
+  if (!isInProduction(r)) return 100;
+  const p = r.productionProgress ?? 0;
+  return Math.max(0, Math.min(MAX_MANUAL_PROGRESS, p));
+}
+
+/** Dias inteiros desde a última atualização do avanço; nulo se nunca houve. */
+export function progressAgeDays(updatedAt: Date | string | null | undefined, now: Date): number | null {
+  if (!updatedAt) return null;
+  const ms = now.getTime() - new Date(updatedAt).getTime();
+  return Math.max(0, Math.floor(ms / 86_400_000));
+}
+
+/** "atualizado hoje", "atualizado há 1 dia", "nunca atualizado". */
+export function progressAgeLabel(updatedAt: Date | string | null | undefined, now: Date): string {
+  const d = progressAgeDays(updatedAt, now);
+  if (d == null) return "nunca atualizado";
+  if (d === 0) return "atualizado hoje";
+  return `atualizado há ${d} dia${d === 1 ? "" : "s"}`;
+}
+
+/** Número velho: nunca informado ou sem atualização há mais de 7 dias. */
+export function isProgressStale(updatedAt: Date | string | null | undefined, now: Date): boolean {
+  const d = progressAgeDays(updatedAt, now);
+  return d == null || d > PROGRESS_STALE_DAYS;
+}
+
+/**
+ * Avanço físico ponderado pelo A1 equivalente: um A0 a 50% pesa mais que um
+ * A4 pronto. `done` e `total` em A1; `percent` nulo quando nenhum documento
+ * tem formato. Documentos cancelados saem da conta.
+ */
+export function weightedProduction(
+  docs: {
+    sheetFormat?: SheetFormat | null;
+    sheetCount?: number | null;
+    revision: Parameters<typeof effectiveProgress>[0] | null;
+  }[],
+): { done: number; total: number; percent: number | null; missing: number } {
+  let done = 0;
+  let total = 0;
+  let missing = 0;
+  for (const d of docs) {
+    if (d.revision?.status === "CANCELLED") continue;
+    const a1 = a1Equivalent(d.sheetFormat, d.sheetCount);
+    if (a1 == null) {
+      missing += 1;
+      continue;
+    }
+    const p = d.revision ? effectiveProgress(d.revision) : 0;
+    total += a1;
+    done += (a1 * p) / 100;
+  }
+  return { done, total, percent: total > 0 ? Math.round((done / total) * 100) : null, missing };
+}

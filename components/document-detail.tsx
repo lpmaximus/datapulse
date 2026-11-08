@@ -14,6 +14,12 @@ import { DocumentTimeline } from "@/components/document-timeline";
 import { IssuerAssignForm, type IssuerOption } from "@/components/issuer-assign-form";
 import { RevisionList } from "@/components/revision-list";
 import {
+  ProductionProgressBar,
+  ProductionProgressForm,
+  ProductionProgressHistory,
+  type ProgressLogRow,
+} from "@/components/production-progress";
+import {
   SubmitRevisionForm,
   AnalysisForm,
   NewRevisionForm,
@@ -22,7 +28,9 @@ import {
 import {
   applicableCodes,
   buildPassages,
+  effectiveProgress,
   isActionAllowed,
+  isInProduction,
   isRevisionOpen,
   requiresNewRevision,
   nextRevisionName,
@@ -67,6 +75,8 @@ const REVISION_SELECT = {
   analysisCode: { select: { id: true, tag: true, name: true } },
   milestone: { select: { id: true, name: true, parent: { select: { name: true } } } },
   _count: { select: { transitions: true } },
+  productionProgress: true,
+  progressUpdatedAt: true,
 } as const;
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -156,6 +166,25 @@ export async function DocumentDetail({
 
   const packages = await loadPackageOptions(user.organizationId, doc.project.id);
 
+  // Avanço da produção: histórico da revisão vigente enquanto ela é elaborada.
+  const inProduction = doc.revisions[0] ? isInProduction(doc.revisions[0]) : false;
+  const progressLogs: ProgressLogRow[] =
+    currentRevisionId && inProduction
+      ? await prisma.revisionProgressLog.findMany({
+          where: { revisionId: currentRevisionId },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          select: {
+            id: true,
+            fromProgress: true,
+            toProgress: true,
+            note: true,
+            actorName: true,
+            createdAt: true,
+          },
+        })
+      : [];
+
   const [specialists, codes]: [UserOption[], AnalysisCodeLike[]] = await Promise.all([
     prisma.user.findMany({
       where: {
@@ -219,6 +248,14 @@ export async function DocumentDetail({
     current.status === "IN_REVIEW" &&
     (canManageProjects(user) ||
       (current.specialist ? current.specialist.id === user.id : doc.responsibleId === user.id));
+
+  // Avanço: informado pelo projetista do documento ou pelo gerente; visível a
+  // todos que enxergam o documento (inclusive Executivo, só leitura).
+  const canUpdateProgress =
+    writable &&
+    inProduction &&
+    user.role !== "EXECUTIVE" &&
+    (canManageProjects(user) || doc.responsibleId === user.id);
 
   const canSubmit =
     writable &&
@@ -444,6 +481,37 @@ export async function DocumentDetail({
             </div>
           ) : null}
 
+          {current && inProduction ? (
+            <div>
+              <SectionTitle
+                hint={doc.responsible ? `revisão ${current.name} · ${doc.responsible.name}` : `revisão ${current.name}`}
+              >
+                Avanço da produção
+              </SectionTitle>
+              <Card className="space-y-4">
+                <ProductionProgressBar
+                  progress={effectiveProgress(current)}
+                  updatedAt={current.progressUpdatedAt ?? null}
+                  now={now}
+                />
+                {canUpdateProgress ? (
+                  <div className="border-t border-line pt-3">
+                    <ProductionProgressForm
+                      revisionId={current.id}
+                      current={effectiveProgress(current)}
+                    />
+                  </div>
+                ) : null}
+                {progressLogs.length > 0 ? (
+                  <div className="border-t border-line pt-3">
+                    <p className="mb-1.5 text-xs uppercase tracking-wider text-ink-faint">Atualizações</p>
+                    <ProductionProgressHistory logs={progressLogs} />
+                  </div>
+                ) : null}
+              </Card>
+            </div>
+          ) : null}
+
           {current ? (
             <div>
               <SectionTitle hint={`revisão ${current.name}`}>
@@ -574,7 +642,7 @@ export async function DocumentDetail({
                         <select
                           name="sheetFormat"
                           defaultValue={doc.sheetFormat ?? ""}
-                          className={inputClass + " min-w-0 flex-1"}
+                          className={inputClass + " min-w-[9rem] flex-1"}
                         >
                           <option value="">Não definir</option>
                           {SHEET_FORMATS.map((f) => (
@@ -593,7 +661,7 @@ export async function DocumentDetail({
                           step={1}
                           defaultValue={doc.sheetCount}
                           aria-label="Quantidade de folhas"
-                          className={inputClass + " w-20 shrink-0"}
+                          className={inputClass + " w-20! shrink-0 text-center tabular-nums"}
                         />
                       </div>
                     </Field>

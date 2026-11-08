@@ -840,10 +840,20 @@ model DocumentRevision {
   externalUrl String?
   notes       String?
 
+  /// Avanço da elaboração (0–100) informado pelo projetista enquanto a
+  /// revisão está em produção. À mão vai até 99; o 100 é gravado sozinho no
+  /// envio ao pacote. Revisão que já nasceu num pacote é lida como 100
+  /// (`effectiveProgress` em lib/documents.ts), sem precisar de backfill.
+  productionProgress Int       @default(0)
+  /// Última atualização do avanço — base do "atualizado há N dias".
+  progressUpdatedAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   transitions DocumentTransition[]
+  /// Histórico append-only do avanço da produção.
+  progressLogs RevisionProgressLog[]
   /// Reprogramações do prazo desta revisão (produção ou análise).
   deadlineChanges DeadlineChange[]
   delegations AnalysisDelegation[]
@@ -854,6 +864,26 @@ model DocumentRevision {
   @@index([status])
   @@index([specialistId, status])
   @@index([dueAt])
+}
+
+/// Atualização do avanço da produção de uma revisão (log append-only, no
+/// padrão de DocumentTransition/DeadlineChange). Mostra ao gerente — e, no
+/// futuro, ao contratante — se o número está andando, não só onde está.
+model RevisionProgressLog {
+  id         String           @id @default(cuid())
+  revisionId String
+  revision   DocumentRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  fromProgress Int
+  toProgress   Int
+  note         String?
+
+  actorId   String?
+  actorName String?
+
+  createdAt DateTime @default(now())
+
+  @@index([revisionId, createdAt])
 }
 
 /// Evento no trâmite de um documento.

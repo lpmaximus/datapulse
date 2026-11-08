@@ -546,6 +546,9 @@ export interface RevisionRow {
   /** Pacote de revisão (Tarefa) em que foi emitida. Nulo só no legado sem backfill. */
   milestone: { id: string; name: string; parent: { name: string } | null } | null;
   _count: { transitions: number };
+  /** Avanço da elaboração (0–99 em produção; 100 depois do envio ao pacote). */
+  productionProgress?: number;
+  progressUpdatedAt?: Date | null;
 }
 
 /** Pacote de revisão escolhível ao emitir um documento/revisão. */

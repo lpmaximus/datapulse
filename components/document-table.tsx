@@ -57,6 +57,8 @@ export const DOCUMENT_SELECT = {
       analysisCode: { select: { id: true, tag: true, name: true } },
       milestone: { select: { id: true, name: true, parent: { select: { name: true } } } },
       _count: { select: { transitions: true } },
+      productionProgress: true,
+      progressUpdatedAt: true,
     },
   },
 } as const;
