@@ -6,6 +6,9 @@ export type ProjectFormValues = {
   name?: string;
   osNumber?: string | null;
   cost?: string | number | null;
+  a1Price?: string | number | null;
+  serviceNumber?: string | null;
+  seOsg?: string | null;
   clientId?: string | null;
   sectorId?: string | null;
   designFirmId?: string | null;
@@ -60,6 +63,24 @@ export function ProjectForm({
           placeholder="1500000"
         />
       </Field>
+
+      <Field label="Valor do A1 equivalente (R$)" hint="Acertado com o contratante — base do boletim de medição.">
+        <input
+          name="a1Price"
+          inputMode="decimal"
+          defaultValue={values.a1Price != null && values.a1Price !== "" ? String(values.a1Price).replace(".", ",") : ""}
+          className={inputClass}
+          placeholder="900,00"
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Nº do serviço" hint="Coluna do BM.">
+          <input name="serviceNumber" defaultValue={values.serviceNumber ?? ""} className={inputClass} placeholder="0511" />
+        </Field>
+        <Field label="SE/OSG" hint="Coluna do BM.">
+          <input name="seOsg" defaultValue={values.seOsg ?? ""} className={inputClass} placeholder="0004" />
+        </Field>
+      </div>
 
       <Field label="Cliente">
         <select name="clientId" defaultValue={values.clientId ?? ""} className={inputClass}>

@@ -25,6 +25,11 @@ model Organization {
   id   String @id @default(cuid())
   name String @unique
 
+  /// Emissor dos Boletins de Medição: razão social e CPF/CNPJ impressos no
+  /// cabeçalho do BM. Vazio = usa o nome da organização.
+  legalName String?
+  taxId     String?
+
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -42,6 +47,7 @@ model Organization {
   projectFiles   ProjectFile[]
   members        OrganizationMember[]
   sessions       Session[]
+  measurements   Measurement[]
 }
 
 /// Criticidade técnica do marco. Vira peso no DRI.
@@ -85,6 +91,13 @@ model Project {
   /// Custo contratado/orçado do projeto.
   cost Decimal? @db.Decimal(18, 2)
 
+  /// Valor do A1 equivalente acertado com o contratante (R$ por A1). Base da
+  /// medição: valor do item = A1 equivalente × % medido × este valor.
+  a1Price       Decimal? @db.Decimal(18, 2)
+  /// Nº do serviço e SE/OSG no sistema do contratante — colunas do BM.
+  serviceNumber String?
+  seOsg         String?
+
   clientId String?
   clientRef Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
@@ -119,6 +132,7 @@ model Project {
   documents  Document[]
   requests   Request[]
   meetings   Meeting[]
+  measurementItems MeasurementItem[]
 
   @@index([status])
   @@index([accConnectionId])
@@ -658,6 +672,7 @@ model User {
   filesUploaded       ProjectFile[]      @relation("FileUploader")
   timeEntries         TimeEntry[]
   disciplines         UserDiscipline[]
+  measurementsCreated Measurement[]     @relation("MeasurementCreator")
 
   @@index([role])
   @@index([isActive])
@@ -848,6 +863,12 @@ model DocumentRevision {
   /// Última atualização do avanço — base do "atualizado há N dias".
   progressUpdatedAt  DateTime?
 
+  /// Revisão cobrável por mudança de escopo acordada com o contratante. A
+  /// primeira revisão do documento é sempre medível; as seguintes só quando
+  /// marcadas aqui, com o registro do acordo em `billableNote`.
+  billable     Boolean @default(false)
+  billableNote String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -857,6 +878,7 @@ model DocumentRevision {
   /// Reprogramações do prazo desta revisão (produção ou análise).
   deadlineChanges DeadlineChange[]
   delegations AnalysisDelegation[]
+  measurementItems MeasurementItem[]
 
   @@unique([documentId, name])
   @@index([milestoneId])
@@ -1081,7 +1103,8 @@ model Client {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  projects Project[]
+  projects     Project[]
+  measurements Measurement[]
 
   @@unique([organizationId, name])
   @@index([isActive])
@@ -1359,4 +1382,152 @@ model OrganizationMember {
 
   @@unique([userId, organizationId])
   @@index([organizationId])
+}
+
+/**
+ * Medição (Boletim de Medição — BM)
+ */
+/**
+ */
+/**
+ * A projetista mede o que produziu em A1 equivalente e cobra o contratante.
+ */
+/**
+ * Feito = revisão emitida; Medido = item num BM ativo; Pago = pagamento
+ */
+/**
+ * registrado no BM. Regras puras em lib/measurements.ts.
+ */
+/**
+ * ------------------------------------------------------------------------
+ */
+
+enum MeasurementStatus {
+  /// Em montagem; itens editáveis.
+  DRAFT
+  /// Enviado ao contratante.
+  SENT
+  /// Aprovado pelo contratante (com o valor aprovado, que pode ter glosa).
+  APPROVED
+  /// Substituído por uma revisão do BM (R01, R02...). Não conta como medido.
+  SUPERSEDED
+  /// Cancelado. Libera os itens para nova medição.
+  CANCELLED
+}
+
+/// Item de formato (desenho medido em A1 equivalente) ou "outros" (serviço
+/// avulso: HH, visita, valor fixo).
+enum MeasurementItemKind {
+  FORMAT
+  OTHER
+}
+
+model Measurement {
+  id String @id @default(cuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// Contratante medido. Um BM pode juntar várias OS do mesmo cliente.
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  /// Número-base (ex.: "BM-IDG-OUT-NOV-2026"); a revisão vai à parte.
+  number   String
+  /// 0 = R00, 1 = R01...
+  revision Int    @default(0)
+
+  /// BM que esta revisão substitui.
+  previousId String?      @unique
+  previous   Measurement? @relation("MeasurementRevision", fields: [previousId], references: [id], onDelete: SetNull)
+  next       Measurement? @relation("MeasurementRevision")
+
+  /// Texto do período impresso (ex.: "MEDIÇÃO OUT-NOV 2026").
+  periodLabel String
+  periodStart DateTime?
+  periodEnd   DateTime?
+  issuedAt    DateTime
+
+  status         MeasurementStatus @default(DRAFT)
+  sentAt         DateTime?
+  approvedAt     DateTime?
+  /// Valor aprovado pelo contratante. Menor que o total = glosa.
+  approvedAmount Decimal?          @db.Decimal(18, 2)
+  cancelledAt    DateTime?
+  notes          String?
+
+  createdById String?
+  createdBy   User?   @relation("MeasurementCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items    MeasurementItem[]
+  payments MeasurementPayment[]
+
+  @@unique([organizationId, number, revision])
+  @@index([organizationId, status])
+  @@index([clientId])
+}
+
+/**
+ * Linha do BM. Guarda uma FOTOGRAFIA do documento no momento da medição
+ * (número, título, formato, folhas, valor do A1): editar o documento depois
+ * não muda um BM já emitido.
+ */
+model MeasurementItem {
+  id            String      @id @default(cuid())
+  measurementId String
+  measurement   Measurement @relation(fields: [measurementId], references: [id], onDelete: Cascade)
+
+  kind MeasurementItemKind @default(FORMAT)
+
+  /// Revisão medida (só itens de formato). Restrict: revisão medida não some.
+  revisionId String?
+  revision   DocumentRevision? @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // Fotografia
+  serviceNumber  String?
+  seOsg          String?
+  documentNumber String?
+  description    String
+  revisionName   String?
+  executionDate  DateTime?
+  sheetFormat    SheetFormat?
+  sheetCount     Int          @default(1)
+  /// A1 equivalente do documento inteiro (formato × folhas). Itens "outros":
+  /// a quantidade do serviço.
+  quantity       Decimal      @db.Decimal(14, 4)
+  /// Unidade dos itens "outros" (HH, vb, un).
+  unit           String?
+  /// Percentual medido nesta linha (100 = documento inteiro).
+  percent        Decimal      @default(100) @db.Decimal(6, 2)
+  /// R$ por A1 equivalente (formato) ou por unidade (outros).
+  unitPrice      Decimal      @db.Decimal(18, 2)
+  /// quantity × percent/100 × unitPrice, arredondado a centavos.
+  amount         Decimal      @db.Decimal(18, 2)
+
+  sortOrder Int @default(0)
+
+  @@index([measurementId])
+  @@index([revisionId])
+  @@index([projectId])
+}
+
+model MeasurementPayment {
+  id            String      @id @default(cuid())
+  measurementId String
+  measurement   Measurement @relation(fields: [measurementId], references: [id], onDelete: Cascade)
+
+  paidAt DateTime
+  amount Decimal  @db.Decimal(18, 2)
+  note   String?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([measurementId])
 }

@@ -6,6 +6,13 @@ import { prisma } from "@/lib/prisma";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import { requireRole } from "@/lib/authz";
 import { isProjectWritable } from "@/lib/tasks";
+import { parseDecimalBR, round2 } from "@/lib/measurements";
+
+/** Valor do A1 em pt-BR ("900,00"); vazio ou inválido = não definido. */
+function parseA1Price(fd: FormData): number | null {
+  const v = parseDecimalBR(fd.get("a1Price"));
+  return v != null && v > 0 ? round2(v) : null;
+}
 
 function str(fd: FormData, key: string): string {
   return String(fd.get(key) ?? "").trim();
@@ -64,6 +71,9 @@ export async function createProject(formData: FormData): Promise<void> {
       sectorId,
       designFirmId,
       cost: cost != null && Number.isFinite(cost) ? cost : null,
+      a1Price: parseA1Price(formData),
+      serviceNumber: str(formData, "serviceNumber") || null,
+      seOsg: str(formData, "seOsg") || null,
       startsAt: optDate(formData, "startsAt"),
       endsAt: optDate(formData, "endsAt"),
       managerId,
@@ -136,6 +146,9 @@ export async function updateProject(formData: FormData): Promise<void> {
       sectorId,
       designFirmId,
       cost: cost != null && Number.isFinite(cost) ? cost : null,
+      a1Price: parseA1Price(formData),
+      serviceNumber: str(formData, "serviceNumber") || null,
+      seOsg: str(formData, "seOsg") || null,
       startsAt,
       endsAt,
       managerId,

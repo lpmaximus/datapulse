@@ -22,6 +22,7 @@ import {
   LogOut,
   Menu,
   Plug,
+  Receipt,
   Search,
   Users,
   X,
@@ -87,6 +88,7 @@ const SECTIONS: NavSection[] = [
       { href: "/projects", label: "Projetos", icon: FolderKanban },
       { href: "/documents", label: "Documentos", icon: FileText },
       { href: "/meetings", label: "Reuniões", icon: CalendarClock },
+      { href: "/measurements", label: "Medições", icon: Receipt, roles: ["ADMIN", "MANAGER"] },
       {
         href: "/signals",
         label: "Sinais",
