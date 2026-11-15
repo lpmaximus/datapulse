@@ -264,7 +264,11 @@ export interface MeasurementDetail {
   revision: number;
   status: MeasurementStatus;
   client: { id: string; name: string };
+  /** Emissor já resolvido: o do BM, quando tem; senão o padrão da organização. */
   issuer: { name: string; taxId: string | null };
+  /** Override gravado neste BM (vazio = segue o padrão da organização). */
+  issuerName: string | null;
+  issuerTaxId: string | null;
   periodLabel: string;
   periodStart: Date | null;
   periodEnd: Date | null;
@@ -314,6 +318,8 @@ export async function loadMeasurement(organizationId: string, id: string): Promi
       number: true,
       revision: true,
       status: true,
+      issuerName: true,
+      issuerTaxId: true,
       periodLabel: true,
       periodStart: true,
       periodEnd: true,
@@ -405,7 +411,13 @@ export async function loadMeasurement(organizationId: string, id: string): Promi
     revision: m.revision,
     status: m.status as MeasurementStatus,
     client: m.client,
-    issuer: { name: m.organization.legalName || m.organization.name, taxId: m.organization.taxId },
+    // Com emissor próprio, o CPF/CNPJ é o dele (nunca o da organização: seria
+    // o documento de outra pessoa jurídica no cabeçalho).
+    issuer: m.issuerName
+      ? { name: m.issuerName, taxId: m.issuerTaxId }
+      : { name: m.organization.legalName || m.organization.name, taxId: m.organization.taxId },
+    issuerName: m.issuerName,
+    issuerTaxId: m.issuerTaxId,
     periodLabel: m.periodLabel,
     periodStart: m.periodStart,
     periodEnd: m.periodEnd,

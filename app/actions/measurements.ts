@@ -219,8 +219,12 @@ export async function saveMeasurement(
   const read = await readItems(fd, orgId, clientId, existing?.id);
   if ("error" in read) return fail(read.error);
 
+  const issuerName = str(fd, "issuerName");
   const header = {
     number,
+    issuerName: issuerName || null,
+    // CPF/CNPJ só acompanha um emissor próprio.
+    issuerTaxId: issuerName ? str(fd, "issuerTaxId") || null : null,
     periodLabel,
     periodStart,
     periodEnd,

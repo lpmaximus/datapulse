@@ -161,9 +161,13 @@ export default async function MeasurementsPage({
       {user.role === "ADMIN" ? (
         <details className="rounded-lg border border-line bg-surface p-4">
           <summary className="cursor-pointer text-sm font-medium">
-            Emissor do BM: {org?.legalName || org?.name}
+            Emissor padrão do BM: {org?.legalName || org?.name}
             {org?.taxId ? ` · ${org.taxId}` : " · CPF/CNPJ não informado"}
           </summary>
+          <p className="mt-2 text-xs text-ink-faint">
+            Sai no cabeçalho do BM. Cada BM pode trocar o emissor enquanto está em rascunho — útil para faturar por
+            mais de uma empresa.
+          </p>
           <form action={updateIssuer} className="mt-4 grid gap-4 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
             <Field label="Razão social">
               <input name="legalName" defaultValue={org?.legalName ?? ""} placeholder={org?.name} className={inputClass} />

@@ -64,6 +64,10 @@ export default async function NewMeasurementPage({
   const count = await prisma.measurement.count({
     where: { organizationId: user.organizationId, clientId: selected.id, revision: 0 },
   });
+  const org = await prisma.organization.findUnique({
+    where: { id: user.organizationId },
+    select: { name: true, legalName: true, taxId: true },
+  });
   const revisions = await loadMeasurableRevisions(user.organizationId, { clientId: selected.id });
   const rows = revisions.map((r) => toFormRow(r, (s) => STATUS_LABEL[s as DocumentStatus] ?? s));
 
@@ -73,9 +77,12 @@ export default async function NewMeasurementPage({
       <MeasurementForm
         clientId={selected.id}
         clientName={selected.name}
+        orgIssuer={{ name: org?.legalName || org?.name || "", taxId: org?.taxId ?? null }}
         rows={rows}
         submitLabel="Criar BM (rascunho)"
         defaults={{
+          issuerName: "",
+          issuerTaxId: "",
           number: suggestMeasurementNumber(selected.code || selected.name.split(/\s+/)[0], year, count + 1),
           periodLabel: `MEDIÇÃO ${MONTHS[now.getUTCMonth()]} ${year}`,
           periodStart: "",

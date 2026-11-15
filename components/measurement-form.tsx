@@ -69,6 +69,7 @@ function fmtDate(iso: string | null): string {
 export function MeasurementForm({
   clientId,
   clientName,
+  orgIssuer,
   rows,
   defaults,
   initialSelection = {},
@@ -77,10 +78,14 @@ export function MeasurementForm({
 }: {
   clientId: string;
   clientName: string;
+  /** Emissor padrão do workspace, mostrado como sugestão nos campos do BM. */
+  orgIssuer: { name: string; taxId: string | null };
   rows: MeasurementFormRow[];
   defaults: {
     measurementId?: string;
     number: string;
+    issuerName: string;
+    issuerTaxId: string;
     periodLabel: string;
     periodStart: string;
     periodEnd: string;
@@ -183,6 +188,25 @@ export function MeasurementForm({
         </Field>
         <Field label="Fim do período">
           <input name="periodEnd" type="date" defaultValue={defaults.periodEnd} className={inputClass} />
+        </Field>
+        <Field
+          label="Emissor (razão social)"
+          hint={`Em branco: ${orgIssuer.name}, o padrão do workspace.`}
+        >
+          <input
+            name="issuerName"
+            defaultValue={defaults.issuerName}
+            placeholder={orgIssuer.name}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="CPF/CNPJ do emissor" hint="Só vale com a razão social preenchida ao lado.">
+          <input
+            name="issuerTaxId"
+            defaultValue={defaults.issuerTaxId}
+            placeholder={orgIssuer.taxId ?? "—"}
+            className={inputClass}
+          />
         </Field>
         <div className="sm:col-span-3">
           <Field label="Observações (saem no BM)">

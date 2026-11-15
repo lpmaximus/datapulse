@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 import { MeasurementForm, type SelectedLine } from "@/components/measurement-form";
 import { STATUS_LABEL, type DocumentStatus } from "@/lib/documents";
@@ -17,6 +18,10 @@ export default async function EditMeasurementPage({ params }: { params: Promise<
   if (!m) notFound();
   if (m.status !== "DRAFT") redirect(`/measurements/${id}`);
 
+  const org = await prisma.organization.findUnique({
+    where: { id: user.organizationId },
+    select: { name: true, legalName: true, taxId: true },
+  });
   const revisions = await loadMeasurableRevisions(user.organizationId, {
     clientId: m.client.id,
     excludeMeasurementId: m.id,
@@ -50,12 +55,15 @@ export default async function EditMeasurementPage({ params }: { params: Promise<
       <MeasurementForm
         clientId={m.client.id}
         clientName={m.client.name}
+        orgIssuer={{ name: org?.legalName || org?.name || "", taxId: org?.taxId ?? null }}
         rows={rows}
         initialSelection={initialSelection}
         initialOthers={initialOthers}
         submitLabel="Salvar rascunho"
         defaults={{
           measurementId: m.id,
+          issuerName: m.issuerName ?? "",
+          issuerTaxId: m.issuerTaxId ?? "",
           number: m.number,
           periodLabel: m.periodLabel,
           periodStart: iso(m.periodStart),

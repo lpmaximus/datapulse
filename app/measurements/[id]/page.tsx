@@ -78,7 +78,8 @@ export default async function MeasurementPage({
             <MeasurementStatusChip status={m.status} />
           </h1>
           <p className="mt-1 text-sm text-ink-soft">
-            {m.client.name} · {m.periodLabel} · emitido em {formatDate(m.issuedAt)}
+            {m.client.name} · {m.periodLabel} · emitido em {formatDate(m.issuedAt)} · por {m.issuer.name}
+            {m.issuerName ? " (emissor próprio deste BM)" : ""}
             {m.previous ? (
               <>
                 {" "}

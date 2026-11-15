@@ -1442,6 +1442,12 @@ model Measurement {
   previous   Measurement? @relation("MeasurementRevision", fields: [previousId], references: [id], onDelete: SetNull)
   next       Measurement? @relation("MeasurementRevision")
 
+  /// Emissor deste BM (razão social e CPF/CNPJ impressos no cabeçalho).
+  /// Vazio = emissor padrão da organização. Serve a quem fatura por mais de
+  /// uma pessoa jurídica (ou como pessoa física) conforme o contrato.
+  issuerName  String?
+  issuerTaxId String?
+
   /// Texto do período impresso (ex.: "MEDIÇÃO OUT-NOV 2026").
   periodLabel String
   periodStart DateTime?
