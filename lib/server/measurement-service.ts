@@ -38,6 +38,13 @@ export interface MeasurableRevision {
   revisionName: string;
   revisionStatus: string;
   productionProgress: number;
+  /**
+   * Data de execução do BM: quando a revisão foi enviada ao contratante.
+   * `DocumentRevision.issuedAt` quando existe; senão, a data do primeiro
+   * evento SUBMITTED (o log de trâmite é a fonte da verdade). Documento
+   * cadastrado sem data e nunca emitido para análise fica sem data — nesse
+   * caso ela é digitada na linha do BM.
+   */
   issuedAt: Date | null;
   sheetFormat: SheetFormat | null;
   sheetCount: number;
@@ -85,6 +92,12 @@ export async function loadMeasurableRevisions(
           billableNote: true,
           productionProgress: true,
           issuedAt: true,
+          transitions: {
+            where: { action: "SUBMITTED" },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+            select: { createdAt: true },
+          },
           measurementItems: {
             select: {
               percent: true,
@@ -133,7 +146,7 @@ export async function loadMeasurableRevisions(
         revisionName: r.name,
         revisionStatus: r.status,
         productionProgress: r.productionProgress,
-        issuedAt: r.issuedAt,
+        issuedAt: r.issuedAt ?? r.transitions[0]?.createdAt ?? null,
         sheetFormat: d.sheetFormat as SheetFormat | null,
         sheetCount: d.sheetCount,
         a1Eq,

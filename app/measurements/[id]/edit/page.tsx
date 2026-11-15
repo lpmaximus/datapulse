@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireRole } from "@/lib/authz";
-import { MeasurementForm } from "@/components/measurement-form";
+import { MeasurementForm, type SelectedLine } from "@/components/measurement-form";
 import { STATUS_LABEL, type DocumentStatus } from "@/lib/documents";
 import { loadMeasurableRevisions, loadMeasurement, toFormRow } from "@/lib/server/measurement-service";
 
@@ -22,10 +22,17 @@ export default async function EditMeasurementPage({ params }: { params: Promise<
     excludeMeasurementId: m.id,
   });
   const rows = revisions.map((r) => toFormRow(r, (s) => STATUS_LABEL[s as DocumentStatus] ?? s));
-  const initialSelection: Record<string, { percent: string; price: string }> = {};
+  // Data do sistema por revisão: preenche a linha quando o BM foi montado
+  // antes de a data de envio existir.
+  const knownDate = new Map(revisions.map((r) => [r.revisionId, r.issuedAt]));
+  const initialSelection: Record<string, SelectedLine> = {};
   for (const it of m.items) {
     if (it.kind === "FORMAT" && it.revisionId) {
-      initialSelection[it.revisionId] = { percent: br(it.percent), price: br(it.unitPrice) };
+      initialSelection[it.revisionId] = {
+        percent: br(it.percent),
+        price: br(it.unitPrice),
+        date: iso(it.executionDate ?? knownDate.get(it.revisionId) ?? null),
+      };
     }
   }
   const initialOthers = m.items

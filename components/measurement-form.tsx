@@ -29,6 +29,14 @@ export interface MeasurementFormRow {
   measuredPercent: number;
 }
 
+/** Linha escolhida: o que o usuário pode ajustar antes de gravar. */
+export interface SelectedLine {
+  percent: string;
+  price: string;
+  /** Data de execução (envio ao contratante), em AAAA-MM-DD. */
+  date: string;
+}
+
 export interface OtherDraft {
   description: string;
   qty: string;
@@ -79,7 +87,7 @@ export function MeasurementForm({
     issuedAt: string;
     notes: string;
   };
-  initialSelection?: Record<string, { percent: string; price: string }>;
+  initialSelection?: Record<string, SelectedLine>;
   initialOthers?: OtherDraft[];
   submitLabel: string;
 }) {
@@ -89,7 +97,7 @@ export function MeasurementForm({
     if (state.ok && state.measurementId) router.push(`/measurements/${state.measurementId}`);
   }, [state.ok, state.measurementId, state.at, router]);
 
-  const [selected, setSelected] = useState<Record<string, { percent: string; price: string }>>(initialSelection);
+  const [selected, setSelected] = useState<Record<string, SelectedLine>>(initialSelection);
   const [others, setOthers] = useState<OtherDraft[]>(initialOthers);
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [query, setQuery] = useState("");
@@ -122,6 +130,7 @@ export function MeasurementForm({
         next[r.revisionId] = {
           percent: String(r.remainingPercent).replace(".", ","),
           price: r.a1Price != null ? String(r.a1Price).replace(".", ",") : "",
+          date: r.issuedAt ? r.issuedAt.slice(0, 10) : "",
         };
       return next;
     });
@@ -187,8 +196,9 @@ export function MeasurementForm({
           <div>
             <h2 className="text-sm font-semibold">Documentos (formatos)</h2>
             <p className="text-xs text-ink-faint">
-              Valor = A1 equivalente × % medido × valor do A1. Revisões seguintes à primeira só aparecem como medíveis
-              quando marcadas como mudança de escopo acordada.
+              Valor = A1 equivalente × % medido × valor do A1. A data de execução é a do envio da revisão ao
+              contratante; quando o documento foi cadastrado sem ela, digite aqui. Revisões seguintes à primeira só
+              aparecem como medíveis quando marcadas como mudança de escopo acordada.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -217,7 +227,7 @@ export function MeasurementForm({
                   <th className="w-8 px-3 py-2" />
                   <th className="px-3 py-2">Documento</th>
                   <th className="px-3 py-2">Rev.</th>
-                  <th className="px-3 py-2">Emissão</th>
+                  <th className="w-32 px-3 py-2">Data exec.</th>
                   <th className="px-3 py-2">Formato</th>
                   <th className="px-3 py-2 text-right">A1 eq</th>
                   <th className="px-3 py-2 text-right">Já medido</th>
@@ -269,7 +279,21 @@ export function MeasurementForm({
                           {r.revisionName}
                           <span className="block font-sans text-[11px] text-ink-faint">{r.revisionStatusLabel}</span>
                         </td>
-                        <td className="px-3 py-1.5 text-xs">{fmtDate(r.issuedAt)}</td>
+                        <td className="px-3 py-1.5 text-xs">
+                          {s ? (
+                            <input
+                              type="date"
+                              name={`date_${r.revisionId}`}
+                              value={s.date}
+                              onChange={(e) =>
+                                setSelected((p) => ({ ...p, [r.revisionId]: { ...s, date: e.target.value } }))
+                              }
+                              className={small + (s.date ? "" : " border-orange-300")}
+                            />
+                          ) : (
+                            fmtDate(r.issuedAt)
+                          )}
+                        </td>
                         <td className="px-3 py-1.5 text-xs">
                           {r.sheetFormat ? `${r.sheetCount} × ${r.sheetFormat}` : "—"}
                         </td>

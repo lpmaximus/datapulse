@@ -120,7 +120,9 @@ async function readItems(
       documentNumber: r.documentNumber,
       description: r.documentName,
       revisionName: r.revisionName,
-      executionDate: r.issuedAt,
+      // Data digitada na linha vence a do sistema: o documento pode ter sido
+      // cadastrado depois do envio ao contratante.
+      executionDate: optDate(fd, `date_${r.revisionId}`) ?? r.issuedAt,
       sheetFormat: r.sheetFormat,
       sheetCount: r.sheetCount,
       quantity: a1Equivalent(r.sheetFormat, r.sheetCount) ?? 0,
