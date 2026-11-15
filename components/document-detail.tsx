@@ -28,6 +28,7 @@ import {
 import {
   applicableCodes,
   buildPassages,
+  daysInReview,
   effectiveProgress,
   isActionAllowed,
   isInProduction,
@@ -403,7 +404,7 @@ export async function DocumentDetail({
           <Metric label="Devolvidas" value={String(rework)} />
         </Card>
         <Card>
-          <Metric label="Dias em análise" value={String(cycles.totalDaysInReview)} />
+          <Metric label="Dias em análise" value={String(daysInReview(passages))} />
         </Card>
         <Card>
           <Metric

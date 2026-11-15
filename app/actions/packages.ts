@@ -56,11 +56,16 @@ export async function createPackageAction(
 
   // O marco precisa ser do projeto (já confirmado como da organização acima):
   // `createPackage` recusa marco de outro projeto via validateParentLink.
+  // O pacote é o envio ao contratante: sem a data dele, as revisões herdariam
+  // o instante do cadastro e o trâmite inteiro nasceria com data errada.
+  const startDate = optDate(formData, "startDate");
+  if (!startDate) return { error: "Informe a data inicial do pacote (a data do envio)." };
+
   const result = await createPackage({
     projectId,
     marcoId,
     name,
-    startDate: optDate(formData, "startDate"),
+    startDate,
     plannedDate: optDate(formData, "plannedDate"),
     assigneeId,
   });

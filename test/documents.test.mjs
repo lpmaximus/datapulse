@@ -16,6 +16,7 @@ import {
   daysBetween,
   summarizeCycles,
   buildPassages,
+  daysInReview,
   documentSearchFilter,
   DEFAULT_ANALYSIS_CODES,
 } from "../lib/documents.ts";
@@ -471,4 +472,36 @@ test("retorno inferido: a emissão da revisão seguinte, só quando faz sentido"
     inferredReturnDate({ issuedAt: d("2026-10-18"), successorIssuedAt: d("2026-10-18") }),
     d("2026-10-18"),
   );
+});
+
+test("dias em análise saem das datas, não do número gravado no evento", () => {
+  const d = (s) => new Date(s + "T15:00:00.000Z");
+  const rev = (id, name) => ({ id, name });
+  const ev = (action, revision, round, createdAt, extra = {}) => ({
+    id: `${revision.id}-${action}-${round}`,
+    action,
+    round,
+    analysisCodeTag: null,
+    actorName: null,
+    assignedToName: null,
+    comment: null,
+    dueAt: null,
+    createdAt,
+    revision,
+    // Número gravado no dia do parecer, quando as datas ainda eram as do cadastro.
+    daysInPreviousStage: 0,
+    ...extra,
+  });
+  const r0 = rev("r0", "R00");
+  const r1 = rev("r1", "R01");
+  const transitions = [
+    ev("SUBMITTED", r0, 1, d("2026-10-18")),
+    ev("APPROVED_WITH_COMMENTS", r0, 1, d("2026-11-04")),
+    ev("SUBMITTED", r1, 1, d("2026-11-05")),
+    ev("APPROVED", r1, 1, d("2026-11-11")),
+  ];
+  const passages = buildPassages(transitions, d("2026-11-15"));
+  assert.equal(daysInReview(passages), 17 + 6);
+  // O campo gravado ficou para trás: é por isso que a tela não usa mais ele.
+  assert.equal(summarizeCycles(transitions).totalDaysInReview, 0);
 });

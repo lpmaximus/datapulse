@@ -260,6 +260,11 @@ export interface CycleSummary {
 /**
  * Resume o histórico. Muitos retrabalhos com muitos dias em análise é o padrão
  * que antecede o atraso do marco — é isso que queremos tornar visível.
+ *
+ * `totalDaysInReview` aqui vem do número gravado em cada evento, que é a
+ * conta feita no dia do parecer. Para exibir, prefira `daysInReview` sobre as
+ * passagens: ele recalcula pelas datas e por isso continua certo depois de
+ * uma correção de data do trâmite.
  */
 export function summarizeCycles(transitions: TransitionLike[]): CycleSummary {
   let totalDaysInReview = 0;
@@ -398,6 +403,17 @@ export function buildPassages(transitions: PassageTransition[], now: Date): Pass
   }
 
   return passages;
+}
+
+/**
+ * Dias em análise somando as passagens já fechadas.
+ *
+ * Lê as datas do histórico, não o número gravado no evento: datas corrigidas
+ * (documento cadastrado depois de entregue) passam a valer na hora, sem
+ * depender de recalcular campo nenhum.
+ */
+export function daysInReview(passages: Passage[]): number {
+  return passages.filter((p) => !p.open).reduce((total, p) => total + p.days, 0);
 }
 
 /** Códigos padrão criados pelo seed — refletem o rascunho do modelo. */

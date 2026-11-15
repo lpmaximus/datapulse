@@ -104,9 +104,10 @@ export function PackageCreateForm({
             <Field label="Nome do pacote" hint="Ex.: Emissão R01 — Elétrica.">
               <input name="name" required className={inputClass} placeholder="Emissão R01 — Elétrica" />
             </Field>
-            <Field label="Data inicial" hint="Prazo = data inicial + 5 dias úteis.">
+            <Field label="Data inicial" hint="Data do envio ao contratante. Prazo = data inicial + 5 dias úteis.">
               <input
                 type="date"
+                required
                 value={initialDate}
                 onChange={(e) => setInitialDate(e.currentTarget.value)}
                 className={inputClass}
