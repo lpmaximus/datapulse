@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireRole, requireWriter, canManageProjects } from "@/lib/authz";
 import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
-import { assertPackageUsable, recomputePackages } from "@/lib/server/package-service";
+import { assertPackageUsable, packageStartDate, recomputePackages } from "@/lib/server/package-service";
 import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import {
   actionForEffect,
@@ -21,6 +21,7 @@ import {
   parseSheetFormat,
   resolveActionDate,
   resolveIssueDate,
+  storedDay,
   statusAfter,
   submissionFloor,
   type AnalysisEffect,
@@ -147,7 +148,11 @@ export async function createDocument(
   // digitado é a exceção do gerente. Sem data de envio, o prazo nasce quando a
   // revisão for emitida para análise.
   // Sem pacote, o prazo digitado é o de produção (não se calcula nada).
-  const issuedAt = optDate(formData, "issuedAt");
+  // Sem data digitada, a emissão é a data do pacote (o pacote é o envio ao
+  // contratante). Nunca o instante do cadastro: o documento costuma ser
+  // lançado dias depois de entregue.
+  const issuedAt =
+    optDate(formData, "issuedAt") ?? (packageId ? await packageStartDate(packageId) : null);
   const typedDueAt = optDate(formData, "dueAt");
   const dueAt = packageId
     ? typedDueAt ?? (issuedAt ? reviewDueDate(issuedAt) : null)
@@ -312,8 +317,12 @@ export async function submitRevision(
     events.map((e) => ({ action: e.action as DocumentAction, createdAt: e.createdAt })),
     predecessor?.analyzedAt,
   );
+  // Sem data digitada, entrar num pacote vale como enviado na data do pacote.
+  const typedWhen = str(formData, "occurredAt");
+  const packageDay =
+    !typedWhen && enteringPackage && packageId ? await packageStartDate(packageId) : null;
   const when = resolveActionDate(
-    str(formData, "occurredAt"),
+    packageDay ? storedDay(packageDay) : typedWhen,
     new Date(),
     floor,
     predecessor?.analyzedAt && floor?.getTime() === predecessor.analyzedAt.getTime()
@@ -620,8 +629,11 @@ export async function createRevision(
   if (duplicate) return { error: `Já existe a revisão "${name}" neste documento.` };
 
   const now = new Date();
-  // Em produção a revisão ainda não foi emitida: a data nasce no envio.
-  const issuedAt = optDate(formData, "issuedAt") ?? (packageId ? now : null);
+  // Em produção a revisão ainda não foi emitida: a data nasce no envio. Com
+  // pacote, vale a data do pacote (a emissão), não a do cadastro.
+  const issuedAt =
+    optDate(formData, "issuedAt") ??
+    (packageId ? (await packageStartDate(packageId)) ?? now : null);
   // Com pacote: novo ciclo, novo prazo de análise (entrada + 5 dias úteis).
   // Em produção: o prazo digitado é o de produção.
   const productionDueAt = packageId ? null : optDate(formData, "dueAt");

@@ -157,6 +157,22 @@ export async function assertPackageUsable(
   return null;
 }
 
+/**
+ * Data de emissão do pacote (a "data inicial" do formulário): é quando os
+ * documentos dele foram enviados ao contratante.
+ *
+ * O pacote é a emissão. Quando a revisão entra num pacote sem data informada,
+ * é esta a data que vale — e não o instante do cadastro, que costuma ser bem
+ * depois, quando o documento já foi entregue.
+ */
+export async function packageStartDate(packageId: string, db: Db = prisma): Promise<Date | null> {
+  const pkg = await db.milestone.findUnique({
+    where: { id: packageId },
+    select: { startDate: true },
+  });
+  return pkg?.startDate ?? null;
+}
+
 /* ------------------------------------------------------------------------ */
 /* Legado: agrupar revisões sem pacote                                       */
 /* ------------------------------------------------------------------------ */

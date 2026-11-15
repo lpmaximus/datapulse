@@ -547,6 +547,17 @@ export function localDay(d: Date, timeZone = ACTION_TIME_ZONE): string {
   }).format(d);
 }
 
+/**
+ * Dia (AAAA-MM-DD) de uma data que veio de um campo de data do formulário,
+ * gravada à meia-noite UTC (prazo, data inicial do pacote).
+ *
+ * Não usar `localDay` nessas datas: meia-noite UTC é 21h do dia anterior em
+ * Brasília, e o dia voltaria um.
+ */
+export function storedDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
 export type ActionDateResult = { at: Date } | { error: string };
 
 /**

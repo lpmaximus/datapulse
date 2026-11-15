@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveActionDate, localDay, resolveIssueDate } from "../lib/documents.ts";
+import { resolveActionDate, localDay, resolveIssueDate, storedDay } from "../lib/documents.ts";
 
 // 05/11/2026 13:10 em Brasília
 const now = new Date("2026-11-05T16:10:00.000Z");
@@ -58,4 +58,12 @@ test("correção da data de envio: hoje, dia passado, futuro e teto do parecer",
   // Mesmo dia do parecer: fica logo antes dele.
   const r = resolveIssueDate("2026-10-30", now, parecer);
   assert.deepEqual(r, { at: new Date("2026-10-30T11:59:59.000Z") });
+});
+
+test("data gravada à meia-noite UTC não volta um dia", () => {
+  // Data inicial do pacote "ENVIO 18102026", como o formulário grava.
+  const pacote = new Date("2026-10-18T00:00:00.000Z");
+  assert.equal(storedDay(pacote), "2026-10-18");
+  // localDay daria 17/10 (21h em Brasília) — por isso o helper existe.
+  assert.equal(localDay(pacote), "2026-10-17");
 });
