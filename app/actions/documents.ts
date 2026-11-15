@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireRole, requireWriter, canManageProjects } from "@/lib/authz";
 import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
@@ -19,6 +20,7 @@ import {
   parseSheetCount,
   parseSheetFormat,
   resolveActionDate,
+  resolveIssueDate,
   statusAfter,
   submissionFloor,
   type AnalysisEffect,
@@ -1030,4 +1032,114 @@ export async function deleteDocument(formData: FormData): Promise<DeleteResult> 
   revalidatePath("/documents");
   revalidatePath("/my-work");
   return { ok: true };
+}
+
+/**
+ * Corrige a data de envio ("Emitida em") de uma revisão. Só gerente.
+ *
+ * Existe porque o documento costuma ser cadastrado depois de já ter sido
+ * entregue ao contratante: a data real do envio é o que o Boletim de Medição
+ * cobra, e até aqui ela só podia ser informada no cadastro ou na emissão para
+ * análise. Toda correção fica registrada em `IssueDateChange` — a data vira
+ * dinheiro no BM.
+ *
+ * Quando a revisão já foi emitida para análise, o evento SUBMITTED acompanha
+ * a nova data (senão as Passagens mostrariam um envio diferente do da
+ * revisão), e os eventos de cadastro que ficarem depois dela recuam, como já
+ * faz o envio retroativo em `submitRevision`.
+ */
+export async function updateRevisionIssuedAt(formData: FormData): Promise<void> {
+  const user = await requireRole(["ADMIN", "MANAGER"]);
+
+  const revisionId = str(formData, "revisionId");
+  if (!revisionId) return;
+
+  const revision = await prisma.documentRevision.findFirst({
+    where: { id: revisionId, document: { project: { organizationId: user.organizationId } } },
+    select: {
+      id: true,
+      status: true,
+      issuedAt: true,
+      analyzedAt: true,
+      inReviewSince: true,
+      documentId: true,
+      document: { select: { projectId: true, project: { select: { status: true } } } },
+      transitions: {
+        orderBy: { createdAt: "asc" },
+        select: { id: true, action: true, createdAt: true },
+      },
+    },
+  });
+  if (!revision) return;
+
+  const documentId = revision.documentId;
+  const back = (error?: string): never =>
+    redirect(`/documents/${documentId}${error ? `?error=${encodeURIComponent(error)}` : ""}`);
+
+  if (!isProjectWritable(revision.document.project.status)) back(READONLY_MESSAGE);
+
+  const submitted = revision.transitions.filter((t) => t.action === "SUBMITTED");
+  const firstSubmitted = submitted[0] ?? null;
+  // Teto: o envio não pode ser posterior ao que veio depois dele no trâmite
+  // (o parecer, na prática).
+  const nextEvent = firstSubmitted
+    ? revision.transitions.find(
+        (t) => !isRegistrationEvent(t.action as DocumentAction) && t.createdAt > firstSubmitted.createdAt,
+      )
+    : null;
+  const ceiling = nextEvent?.createdAt ?? revision.analyzedAt ?? null;
+
+  const resolved = resolveIssueDate(str(formData, "issuedAt"), new Date(), ceiling);
+  if ("error" in resolved) back(resolved.error);
+  const { at } = resolved as { at: Date };
+  if (revision.issuedAt && revision.issuedAt.getTime() === at.getTime()) back();
+
+  // Cadastro gravado depois do envio informado recua para antes dele, para a
+  // ordem do histórico não inverter.
+  const registrationAt = new Date(at.getTime() - 1000);
+  const backdated = revision.transitions
+    .filter((t) => isRegistrationEvent(t.action as DocumentAction) && t.createdAt.getTime() >= at.getTime())
+    .map((t) => t.id);
+
+  await prisma.$transaction([
+    prisma.documentRevision.update({
+      where: { id: revision.id },
+      data: {
+        issuedAt: at,
+        // Uma única análise aberta: ela começou nesse envio.
+        ...(revision.status === "IN_REVIEW" && submitted.length === 1 ? { inReviewSince: at } : {}),
+      },
+    }),
+    prisma.issueDateChange.create({
+      data: {
+        revisionId: revision.id,
+        fromDate: revision.issuedAt,
+        toDate: at,
+        reason: str(formData, "reason") || null,
+        changedById: user.id,
+        changedByName: user.name,
+      },
+    }),
+    ...(firstSubmitted
+      ? [
+          prisma.documentTransition.update({
+            where: { id: firstSubmitted.id },
+            data: { createdAt: at },
+          }),
+        ]
+      : []),
+    ...(backdated.length
+      ? [
+          prisma.documentTransition.updateMany({
+            where: { id: { in: backdated } },
+            data: { createdAt: registrationAt },
+          }),
+        ]
+      : []),
+  ]);
+
+  revalidatePath(`/documents/${documentId}`);
+  revalidatePath(`/projects/${revision.document.projectId}/documents`);
+  revalidatePath("/measurements");
+  revalidatePath("/measurements/documents");
 }

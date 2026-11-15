@@ -589,6 +589,42 @@ export function resolveActionDate(
 }
 
 /**
+ * Converte a data digitada na correção da "Emitida em" (data de envio ao
+ * contratante) no instante gravado na revisão.
+ *
+ * Mesma convenção do trâmite: hoje vale o instante atual, dia passado vale
+ * meio-dia de Brasília. Aqui o limite é um teto, não um piso: a revisão não
+ * pode ter sido enviada depois do parecer que já recebeu.
+ */
+export function resolveIssueDate(
+  input: string,
+  now: Date,
+  ceiling?: Date | null,
+  ceilingLabel = "o retorno da análise",
+): ActionDateResult {
+  const value = input.trim();
+  if (!value) return { error: "Informe a data de envio." };
+  const today = localDay(now);
+  if (value === today) return { at: now };
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { error: "Data inválida." };
+  const at = new Date(`${value}T15:00:00.000Z`);
+  if (Number.isNaN(at.getTime()) || localDay(at) !== value) return { error: "Data inválida." };
+  if (value > today) return { error: "A data de envio não pode ser futura." };
+
+  if (ceiling) {
+    const ceilingDay = localDay(ceiling);
+    if (value > ceilingDay) {
+      const [y, m, d] = ceilingDay.split("-");
+      return { error: `A data de envio não pode ser posterior a ${ceilingLabel} (${d}/${m}/${y}).` };
+    }
+    // Mesmo dia: fica um segundo antes, para a ordem do histórico não inverter.
+    if (at.getTime() > ceiling.getTime()) return { at: new Date(ceiling.getTime() - 1000) };
+  }
+  return { at };
+}
+
+/**
  * Piso da data de envio para análise.
  *
  * Só conta o que de fato aconteceu com o documento: o desfecho da revisão

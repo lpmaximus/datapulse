@@ -879,6 +879,7 @@ model DocumentRevision {
   deadlineChanges DeadlineChange[]
   delegations AnalysisDelegation[]
   measurementItems MeasurementItem[]
+  issueDateChanges IssueDateChange[]
 
   @@unique([documentId, name])
   @@index([milestoneId])
@@ -904,6 +905,31 @@ model RevisionProgressLog {
   actorName String?
 
   createdAt DateTime @default(now())
+
+  @@index([revisionId, createdAt])
+}
+
+/**
+ * Correção da data de envio (emissão) de uma revisão — log append-only, no
+ * padrão de DeadlineChange.
+ *
+ * O documento costuma ser cadastrado depois de já ter sido entregue ao
+ * contratante; a data real do envio é o que o Boletim de Medição cobra. Quem
+ * corrigiu e quando fica registrado aqui, porque a data vira dinheiro.
+ */
+model IssueDateChange {
+  id         String           @id @default(cuid())
+  revisionId String
+  revision   DocumentRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  /// Nulo quando a revisão ainda não tinha data de envio.
+  fromDate DateTime?
+  toDate   DateTime
+  reason   String?
+
+  changedById   String?
+  changedByName String?
+  createdAt     DateTime @default(now())
 
   @@index([revisionId, createdAt])
 }

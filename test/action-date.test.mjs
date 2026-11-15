@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveActionDate, localDay } from "../lib/documents.ts";
+import { resolveActionDate, localDay, resolveIssueDate } from "../lib/documents.ts";
 
 // 05/11/2026 13:10 em Brasília
 const now = new Date("2026-11-05T16:10:00.000Z");
@@ -39,4 +39,23 @@ test("mesmo dia do evento anterior nunca fica antes dele", () => {
   const r = resolveActionDate("2026-11-02", now, floor);
   assert.ok(r.at.getTime() > floor.getTime());
   assert.equal(localDay(r.at), "2026-11-02");
+});
+
+test("correção da data de envio: hoje, dia passado, futuro e teto do parecer", () => {
+  const now = new Date("2026-11-15T09:00:00.000Z");
+  assert.equal(resolveIssueDate("", now).error, "Informe a data de envio.");
+  assert.deepEqual(resolveIssueDate("2026-11-15", now), { at: now });
+  assert.deepEqual(resolveIssueDate("2026-10-23", now), { at: new Date("2026-10-23T15:00:00.000Z") });
+  assert.ok(resolveIssueDate("2026-11-16", now).error);
+  assert.ok(resolveIssueDate("23/10/2026", now).error);
+
+  // Teto: não se envia depois de já ter recebido o parecer.
+  const parecer = new Date("2026-10-30T12:00:00.000Z");
+  assert.ok(resolveIssueDate("2026-11-02", now, parecer).error);
+  assert.deepEqual(resolveIssueDate("2026-10-20", now, parecer), {
+    at: new Date("2026-10-20T15:00:00.000Z"),
+  });
+  // Mesmo dia do parecer: fica logo antes dele.
+  const r = resolveIssueDate("2026-10-30", now, parecer);
+  assert.deepEqual(r, { at: new Date("2026-10-30T11:59:59.000Z") });
 });

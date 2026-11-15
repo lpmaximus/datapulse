@@ -50,6 +50,7 @@ import {
   RespondDelegationForm,
   WithdrawDelegationForm,
 } from "@/components/delegation-forms";
+import { IssueDateForm } from "@/components/issue-date-form";
 import { loadPackageOptions } from "@/lib/server/package-options";
 import type {
   DeadlineChangeRow,
@@ -96,10 +97,13 @@ export async function DocumentDetail({
   id,
   user,
   variant = "page",
+  error,
 }: {
   id: string;
   user: SessionUser;
   variant?: "page" | "modal";
+  /** Mensagem vinda de uma ação que redirecionou para cá (?error=). */
+  error?: string;
 }) {
   const modal = variant === "modal";
 
@@ -184,6 +188,23 @@ export async function DocumentDetail({
           },
         })
       : [];
+
+  // Correções da data de envio (todas as revisões do documento).
+  const issueDateLogs = canManageProjects(user)
+    ? await prisma.issueDateChange.findMany({
+        where: { revision: { documentId: id } },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        select: {
+          id: true,
+          fromDate: true,
+          toDate: true,
+          reason: true,
+          changedByName: true,
+          createdAt: true,
+        },
+      })
+    : [];
 
   const [specialists, codes]: [UserOption[], AnalysisCodeLike[]] = await Promise.all([
     prisma.user.findMany({
@@ -366,6 +387,9 @@ export async function DocumentDetail({
       </section>
 
       <ReadOnlyBanner status={doc.project.status} />
+      {error ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{error}</p>
+      ) : null}
 
       <section className="grid gap-4 sm:grid-cols-5">
         <Card>
@@ -508,6 +532,33 @@ export async function DocumentDetail({
                     <ProductionProgressHistory logs={progressLogs} />
                   </div>
                 ) : null}
+              </Card>
+            </div>
+          ) : null}
+
+          {canEditData ? (
+            <div>
+              <SectionTitle hint="data que o BM usa como data de execução">
+                Data de envio ao contratante
+              </SectionTitle>
+              <Card>
+                <IssueDateForm
+                  disabled={!writable}
+                  revisions={doc.revisions.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    issuedAt: r.issuedAt ? r.issuedAt.toISOString() : null,
+                    analyzedAt: r.analyzedAt ? r.analyzedAt.toISOString() : null,
+                  }))}
+                  logs={issueDateLogs.map((l) => ({
+                    id: l.id,
+                    fromDate: l.fromDate ? l.fromDate.toISOString() : null,
+                    toDate: l.toDate.toISOString(),
+                    reason: l.reason,
+                    changedByName: l.changedByName,
+                    createdAt: l.createdAt.toISOString(),
+                  }))}
+                />
               </Card>
             </div>
           ) : null}
