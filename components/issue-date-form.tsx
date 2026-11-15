@@ -1,7 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
-import { updateRevisionIssuedAt } from "@/app/actions/documents";
+import { updateRevisionDates } from "@/app/actions/documents";
 import { inputClass } from "@/components/ui";
 
 /** Uma revisão na correção da data de envio. */
@@ -9,12 +9,14 @@ export interface IssueDateRow {
   id: string;
   name: string;
   issuedAt: string | null;
-  /** Depois do parecer a data não pode ir — serve de teto no servidor. */
+  /** Nulo enquanto a revisão não recebeu parecer: não há retorno a corrigir. */
   analyzedAt: string | null;
 }
 
 export interface IssueDateLog {
   id: string;
+  /** "ISSUE" (envio) ou "ANALYSIS" (retorno). */
+  field: string;
   fromDate: string | null;
   toDate: string;
   reason: string | null;
@@ -39,9 +41,10 @@ function Save() {
 }
 
 /**
- * Correção da data de envio ao contratante, revisão a revisão. É a data que o
- * Boletim de Medição usa como data de execução — por isso ela precisa ser
- * acertável depois, quando o documento é cadastrado já entregue.
+ * Correção das datas do trâmite, revisão a revisão: o envio ao contratante
+ * (data de execução do Boletim de Medição) e o retorno da análise. O
+ * documento costuma ser cadastrado depois de tudo já ter acontecido, e essas
+ * duas datas alimentam prazo, dias em análise e cobrança.
  */
 export function IssueDateForm({
   revisions,
@@ -59,24 +62,40 @@ export function IssueDateForm({
       <ul className="space-y-2">
         {revisions.map((r) => (
           <li key={r.id}>
-            <form action={updateRevisionIssuedAt} className="flex flex-wrap items-end gap-2">
+            <form action={updateRevisionDates} className="flex flex-wrap items-end gap-2">
               <input type="hidden" name="revisionId" value={r.id} />
               <span className="min-w-12 rounded border border-line bg-canvas px-2 py-1 text-center font-mono text-xs font-semibold">
                 {r.name}
               </span>
-              <input
-                type="date"
-                name="issuedAt"
-                max={today}
-                defaultValue={r.issuedAt ? r.issuedAt.slice(0, 10) : ""}
-                disabled={disabled}
-                className={inputClass + " w-40 py-1 text-sm"}
-              />
+              <label className="text-xs text-ink-faint">
+                <span className="block">Enviada em</span>
+                <input
+                  type="date"
+                  name="issuedAt"
+                  max={today}
+                  defaultValue={r.issuedAt ? r.issuedAt.slice(0, 10) : ""}
+                  disabled={disabled}
+                  className={inputClass + " w-36 py-1 text-sm"}
+                />
+              </label>
+              {r.analyzedAt ? (
+                <label className="text-xs text-ink-faint">
+                  <span className="block">Retorno em</span>
+                  <input
+                    type="date"
+                    name="analyzedAt"
+                    max={today}
+                    defaultValue={r.analyzedAt.slice(0, 10)}
+                    disabled={disabled}
+                    className={inputClass + " w-36 py-1 text-sm"}
+                  />
+                </label>
+              ) : null}
               <input
                 name="reason"
                 placeholder="Motivo (opcional)"
                 disabled={disabled}
-                className={inputClass + " w-44 py-1 text-sm"}
+                className={inputClass + " w-40 py-1 text-sm"}
               />
               {disabled ? null : <Save />}
             </form>
@@ -90,7 +109,7 @@ export function IssueDateForm({
           <ul className="space-y-1 text-xs text-ink-soft">
             {logs.map((l) => (
               <li key={l.id}>
-                {fmt(l.fromDate)} → <b>{fmt(l.toDate)}</b>
+                {l.field === "ANALYSIS" ? "retorno" : "envio"}: {fmt(l.fromDate)} → <b>{fmt(l.toDate)}</b>
                 {l.changedByName ? ` · ${l.changedByName}` : ""} · {fmt(l.createdAt)}
                 {l.reason ? ` · ${l.reason}` : ""}
               </li>

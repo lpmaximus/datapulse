@@ -558,6 +558,31 @@ export function storedDay(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Data de retorno da análise inferida da emissão seguinte.
+ *
+ * Na prática da projetista o retorno e a correção andam juntos: o cliente
+ * devolve comentado e a revisão seguinte é emitida no mesmo dia (D+0). Então,
+ * quando a data gravada é a do cadastro, a emissão da revisão sucessora é a
+ * data do retorno.
+ *
+ * Serve só para acertar o que já está gravado (o passivo). Em documento novo
+ * nada é deduzido: cada evento grava a data informada na hora.
+ *
+ * Devolve null quando não dá para inferir com segurança: sem sucessora, sem
+ * data nela, ou quando a inferida cairia antes do envio desta revisão (aí há
+ * algo errado com as datas e a conferência tem de ser humana).
+ */
+export function inferredReturnDate(input: {
+  issuedAt: Date | null;
+  successorIssuedAt: Date | null;
+}): Date | null {
+  const { issuedAt, successorIssuedAt } = input;
+  if (!successorIssuedAt) return null;
+  if (issuedAt && successorIssuedAt.getTime() < issuedAt.getTime()) return null;
+  return successorIssuedAt;
+}
+
 export type ActionDateResult = { at: Date } | { error: string };
 
 /**
@@ -659,6 +684,16 @@ export function submissionFloor(
 /** Evento que marca o cadastro da revisão no sistema, não um passo do trâmite. */
 export function isRegistrationEvent(action: DocumentAction): boolean {
   return action === "CREATED" || action === "REVISED";
+}
+
+/** Parecer do analista: o evento que marca o retorno da revisão ao emissor. */
+export function isOutcomeAction(action: DocumentAction): boolean {
+  return (
+    action === "COMMENTED" ||
+    action === "REJECTED" ||
+    action === "APPROVED_WITH_COMMENTS" ||
+    action === "APPROVED"
+  );
 }
 
 /* --------------------------- formato da folha --------------------------- */

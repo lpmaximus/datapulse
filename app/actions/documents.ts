@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireRole, requireWriter, canManageProjects } from "@/lib/authz";
 import { isProjectWritable, READONLY_MESSAGE } from "@/lib/tasks";
@@ -12,6 +13,7 @@ import {
   daysBetween,
   isActionAllowed,
   isInProduction,
+  isOutcomeAction,
   isRegistrationEvent,
   isRevisionOpen,
   nextRevisionName,
@@ -1047,20 +1049,19 @@ export async function deleteDocument(formData: FormData): Promise<DeleteResult> 
 }
 
 /**
- * Corrige a data de envio ("Emitida em") de uma revisão. Só gerente.
+ * Corrige as datas de uma revisão: o envio ao contratante ("Emitida em") e o
+ * retorno da análise. Só gerente.
  *
- * Existe porque o documento costuma ser cadastrado depois de já ter sido
- * entregue ao contratante: a data real do envio é o que o Boletim de Medição
- * cobra, e até aqui ela só podia ser informada no cadastro ou na emissão para
- * análise. Toda correção fica registrada em `IssueDateChange` — a data vira
- * dinheiro no BM.
+ * Existe porque o documento costuma ser cadastrado depois de todo o trâmite
+ * ter acontecido: as datas reais vão para o rastreamento e para o Boletim de
+ * Medição, e até aqui só podiam ser informadas no momento de cada evento.
+ * Toda correção fica registrada em `IssueDateChange` — data vira dinheiro
+ * no BM e prazo no painel.
  *
- * Quando a revisão já foi emitida para análise, o evento SUBMITTED acompanha
- * a nova data (senão as Passagens mostrariam um envio diferente do da
- * revisão), e os eventos de cadastro que ficarem depois dela recuam, como já
- * faz o envio retroativo em `submitRevision`.
+ * Os eventos do trâmite acompanham a correção (envio e parecer), senão as
+ * Passagens mostrariam datas diferentes das da revisão.
  */
-export async function updateRevisionIssuedAt(formData: FormData): Promise<void> {
+export async function updateRevisionDates(formData: FormData): Promise<void> {
   const user = await requireRole(["ADMIN", "MANAGER"]);
 
   const revisionId = str(formData, "revisionId");
@@ -1074,6 +1075,7 @@ export async function updateRevisionIssuedAt(formData: FormData): Promise<void> 
       issuedAt: true,
       analyzedAt: true,
       inReviewSince: true,
+      milestoneId: true,
       documentId: true,
       document: { select: { projectId: true, project: { select: { status: true } } } },
       transitions: {
@@ -1090,68 +1092,118 @@ export async function updateRevisionIssuedAt(formData: FormData): Promise<void> 
 
   if (!isProjectWritable(revision.document.project.status)) back(READONLY_MESSAGE);
 
+  const now = new Date();
   const submitted = revision.transitions.filter((t) => t.action === "SUBMITTED");
   const firstSubmitted = submitted[0] ?? null;
-  // Teto: o envio não pode ser posterior ao que veio depois dele no trâmite
-  // (o parecer, na prática).
-  const nextEvent = firstSubmitted
-    ? revision.transitions.find(
-        (t) => !isRegistrationEvent(t.action as DocumentAction) && t.createdAt > firstSubmitted.createdAt,
-      )
-    : null;
-  const ceiling = nextEvent?.createdAt ?? revision.analyzedAt ?? null;
+  // Último parecer: é ele que marca o retorno desta revisão.
+  const outcome = [...revision.transitions].reverse().find((t) => isOutcomeAction(t.action as DocumentAction)) ?? null;
 
-  const resolved = resolveIssueDate(str(formData, "issuedAt"), new Date(), ceiling);
-  if ("error" in resolved) back(resolved.error);
-  const { at } = resolved as { at: Date };
-  if (revision.issuedAt && revision.issuedAt.getTime() === at.getTime()) back();
+  /* ----------------------------- envio ----------------------------- */
+  const issuedInput = str(formData, "issuedAt");
+  let issuedAt = revision.issuedAt;
+  if (issuedInput) {
+    // Teto: o envio não pode ser posterior ao parecer que a revisão recebeu.
+    const ceiling = outcome?.createdAt ?? revision.analyzedAt ?? null;
+    const resolved = resolveIssueDate(issuedInput, now, ceiling);
+    if ("error" in resolved) back(resolved.error);
+    issuedAt = (resolved as { at: Date }).at;
+  }
 
-  // Cadastro gravado depois do envio informado recua para antes dele, para a
-  // ordem do histórico não inverter.
-  const registrationAt = new Date(at.getTime() - 1000);
-  const backdated = revision.transitions
-    .filter((t) => isRegistrationEvent(t.action as DocumentAction) && t.createdAt.getTime() >= at.getTime())
-    .map((t) => t.id);
+  /* ---------------------------- retorno ---------------------------- */
+  const returnInput = str(formData, "analyzedAt");
+  let analyzedAt = revision.analyzedAt;
+  if (returnInput && revision.analyzedAt) {
+    const resolved = resolveActionDate(returnInput, now, issuedAt, "o envio ao contratante");
+    if ("error" in resolved) back(resolved.error);
+    analyzedAt = (resolved as { at: Date }).at;
+  }
 
-  await prisma.$transaction([
+  const issuedChanged = issuedAt?.getTime() !== revision.issuedAt?.getTime();
+  const returnChanged = analyzedAt?.getTime() !== revision.analyzedAt?.getTime();
+  if (!issuedChanged && !returnChanged) back();
+
+  const reason = str(formData, "reason") || null;
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+
+  ops.push(
     prisma.documentRevision.update({
       where: { id: revision.id },
       data: {
-        issuedAt: at,
+        ...(issuedChanged ? { issuedAt } : {}),
+        ...(returnChanged ? { analyzedAt } : {}),
         // Uma única análise aberta: ela começou nesse envio.
-        ...(revision.status === "IN_REVIEW" && submitted.length === 1 ? { inReviewSince: at } : {}),
+        ...(issuedChanged && revision.status === "IN_REVIEW" && submitted.length === 1
+          ? { inReviewSince: issuedAt }
+          : {}),
       },
     }),
-    prisma.issueDateChange.create({
-      data: {
-        revisionId: revision.id,
-        fromDate: revision.issuedAt,
-        toDate: at,
-        reason: str(formData, "reason") || null,
-        changedById: user.id,
-        changedByName: user.name,
-      },
-    }),
-    ...(firstSubmitted
-      ? [
-          prisma.documentTransition.update({
-            where: { id: firstSubmitted.id },
-            data: { createdAt: at },
-          }),
-        ]
-      : []),
-    ...(backdated.length
-      ? [
-          prisma.documentTransition.updateMany({
-            where: { id: { in: backdated } },
-            data: { createdAt: registrationAt },
-          }),
-        ]
-      : []),
-  ]);
+  );
+
+  if (issuedChanged && issuedAt) {
+    ops.push(
+      prisma.issueDateChange.create({
+        data: {
+          revisionId: revision.id,
+          field: "ISSUE",
+          fromDate: revision.issuedAt,
+          toDate: issuedAt,
+          reason,
+          changedById: user.id,
+          changedByName: user.name,
+        },
+      }),
+    );
+    if (firstSubmitted) {
+      ops.push(
+        prisma.documentTransition.update({ where: { id: firstSubmitted.id }, data: { createdAt: issuedAt } }),
+      );
+    }
+    // Cadastro gravado depois do envio informado recua para antes dele, para
+    // a ordem do histórico não inverter.
+    const backdated = revision.transitions
+      .filter((t) => isRegistrationEvent(t.action as DocumentAction) && t.createdAt.getTime() >= issuedAt.getTime())
+      .map((t) => t.id);
+    if (backdated.length) {
+      ops.push(
+        prisma.documentTransition.updateMany({
+          where: { id: { in: backdated } },
+          data: { createdAt: new Date(issuedAt.getTime() - 1000) },
+        }),
+      );
+    }
+  }
+
+  if (returnChanged && analyzedAt) {
+    ops.push(
+      prisma.issueDateChange.create({
+        data: {
+          revisionId: revision.id,
+          field: "ANALYSIS",
+          fromDate: revision.analyzedAt,
+          toDate: analyzedAt,
+          reason,
+          changedById: user.id,
+          changedByName: user.name,
+        },
+      }),
+    );
+    if (outcome) {
+      ops.push(
+        prisma.documentTransition.update({
+          where: { id: outcome.id },
+          data: { createdAt: analyzedAt, daysInPreviousStage: daysBetween(analyzedAt, issuedAt) },
+        }),
+      );
+    }
+  }
+
+  await prisma.$transaction(ops);
+  await recomputePackages([revision.milestoneId]);
+  await recalculateProjectDRI(revision.document.projectId);
 
   revalidatePath(`/documents/${documentId}`);
   revalidatePath(`/projects/${revision.document.projectId}/documents`);
+  revalidatePath("/documents");
   revalidatePath("/measurements");
   revalidatePath("/measurements/documents");
 }

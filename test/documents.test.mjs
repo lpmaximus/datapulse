@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   allowedActions,
+  inferredReturnDate,
   isActionAllowed,
   statusAfter,
   isRevisionClosed,
@@ -449,4 +450,25 @@ test("isFinalInPackage", () => {
   assert.equal(isFinalInPackage(prev({ status: "IN_REVIEW" })), false);
   assert.equal(isFinalInPackage(prev({ status: "REJECTED", hasSuccessor: true })), true);
   assert.equal(isFinalInPackage(prev({ status: "REJECTED" })), false);
+});
+
+test("retorno inferido: a emissão da revisão seguinte, só quando faz sentido", () => {
+  const d = (s) => new Date(s + "T15:00:00.000Z");
+  // R00 enviada 18/10, R01 emitida 21/10 → o cliente devolveu em 21/10.
+  assert.deepEqual(
+    inferredReturnDate({ issuedAt: d("2026-10-18"), successorIssuedAt: d("2026-10-21") }),
+    d("2026-10-21"),
+  );
+  // Última revisão: sem sucessora, nada a inferir — vale a data real.
+  assert.equal(inferredReturnDate({ issuedAt: d("2026-11-05"), successorIssuedAt: null }), null);
+  // Sucessora emitida antes do envio: datas inconsistentes, não se chuta.
+  assert.equal(
+    inferredReturnDate({ issuedAt: d("2026-10-21"), successorIssuedAt: d("2026-10-18") }),
+    null,
+  );
+  // Mesmo dia é válido: devolveu e reemitiu na hora.
+  assert.deepEqual(
+    inferredReturnDate({ issuedAt: d("2026-10-18"), successorIssuedAt: d("2026-10-18") }),
+    d("2026-10-18"),
+  );
 });

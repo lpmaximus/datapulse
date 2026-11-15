@@ -922,7 +922,12 @@ model IssueDateChange {
   revisionId String
   revision   DocumentRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
 
-  /// Nulo quando a revisão ainda não tinha data de envio.
+  /// Qual data foi corrigida: "ISSUE" (envio ao contratante) ou "ANALYSIS"
+  /// (retorno da análise). Texto, e não enum, para não exigir migração de
+  /// tipo a cada data nova que precise do mesmo registro.
+  field String @default("ISSUE")
+
+  /// Nulo quando a revisão ainda não tinha a data.
   fromDate DateTime?
   toDate   DateTime
   reason   String?

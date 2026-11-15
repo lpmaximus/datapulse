@@ -1,12 +1,21 @@
 /**
- * Confere a data de emissão de cada revisão contra a data do pacote em que
- * ela foi enviada.
+ * Confere as datas do trâmite das revisões JÁ CADASTRADAS (o passivo).
+ *
+ * Duas conferências:
+ *
+ * 1. EMISSÃO contra a data do pacote em que a revisão foi enviada.
  *
  * O pacote é a emissão ao contratante e tem a sua data inicial ("ENVIO
  * 18102026" começa em 18/10). Até a correção desta rodada, a revisão que
  * entrava num pacote sem data digitada ficava com o instante do CADASTRO —
  * que costuma ser dias depois, quando o documento já tinha sido entregue.
  * Resultado: rastreamento e Boletim de Medição com a data errada.
+ *
+ * 2. RETORNO da análise, quando ele também é a data do cadastro. Na prática
+ *    da projetista o cliente devolve comentado e a revisão seguinte sai no
+ *    mesmo dia (D+0), então a emissão da sucessora é a data do retorno. Vale
+ *    só para o passivo — a revisão mais nova (sem sucessora) nunca é tocada,
+ *    e documento novo grava a data real no momento de cada evento.
  *
  * Uso:
  *   npx tsx scripts/check-issue-dates.ts --dry    # só lista as divergências
@@ -25,6 +34,7 @@
  * Idempotente: rodar de novo não muda mais nada.
  */
 import { PrismaClient } from "@prisma/client";
+import { daysBetween, inferredReturnDate, isOutcomeAction, type DocumentAction } from "../lib/documents";
 
 const prisma = new PrismaClient();
 const DRY = process.argv.includes("--dry");
@@ -42,6 +52,7 @@ function issueInstant(packageStart: Date): Date {
 }
 
 const REGISTRATION = ["CREATED", "REVISED"];
+const REASON = "Correção automática das datas do trâmite";
 
 async function main() {
   const revisions = await prisma.documentRevision.findMany({
@@ -53,6 +64,8 @@ async function main() {
       status: true,
       issuedAt: true,
       analyzedAt: true,
+      documentId: true,
+      sequence: true,
       document: {
         select: { number: true, name: true, project: { select: { name: true } } },
       },
@@ -106,11 +119,55 @@ async function main() {
   for (const m of manual) console.log(`  [à mão] ${m}`);
   for (const f of toFix) console.log(`  ${f.label}`);
 
+  /* ------------------------- 2. datas de retorno ------------------------- */
+  // Emissão já corrigida de cada revisão (a gravada, ou a que será gravada).
+  const issuedAfterFix = new Map<string, Date | null>();
+  for (const r of revisions) issuedAfterFix.set(r.id, r.issuedAt);
+  for (const f of toFix) issuedAfterFix.set(f.id, f.at);
+
+  const bySequence = new Map<string, typeof revisions>();
+  for (const r of revisions) {
+    const list = bySequence.get(r.documentId) ?? [];
+    list.push(r);
+    bySequence.set(r.documentId, list);
+  }
+
+  const returns: { id: string; at: Date; from: Date | null; label: string; transitionId: string | null; issuedAt: Date | null }[] = [];
+  let returnsOk = 0;
+
+  for (const r of revisions) {
+    if (!r.analyzedAt) continue;
+    const siblings = (bySequence.get(r.documentId) ?? []).sort((a, b) => a.sequence - b.sequence);
+    const successor = siblings.find((x) => x.sequence > r.sequence) ?? null;
+    const at = inferredReturnDate({
+      issuedAt: issuedAfterFix.get(r.id) ?? null,
+      successorIssuedAt: successor ? issuedAfterFix.get(successor.id) ?? null : null,
+    });
+    if (!at) continue;
+    if (day(at) === day(r.analyzedAt)) {
+      returnsOk += 1;
+      continue;
+    }
+    const outcome = [...r.transitions].reverse().find((t) => isOutcomeAction(t.action as DocumentAction)) ?? null;
+    returns.push({
+      id: r.id,
+      at,
+      from: r.analyzedAt,
+      issuedAt: issuedAfterFix.get(r.id) ?? null,
+      label: `${r.document.project.name} · ${r.document.number ?? r.document.name} ${r.name}: retorno ${br(r.analyzedAt)} → ${br(at)} (emissão da ${successor?.name})`,
+      transitionId: outcome?.id ?? null,
+    });
+  }
+
+  console.log("");
+  console.log(`Retornos: ${returnsOk} já batem, ${returns.length} a corrigir.`);
+  for (const r of returns) console.log(`  ${r.label}`);
+
   if (DRY) {
     console.log("\n--dry: nada foi gravado.");
     return;
   }
-  if (!toFix.length) return;
+  if (!toFix.length && !returns.length) return;
 
   for (const f of toFix) {
     const registrationAt = new Date(f.at.getTime() - 1000);
@@ -121,7 +178,8 @@ async function main() {
           revisionId: f.id,
           fromDate: f.from,
           toDate: f.at,
-          reason: "Correção automática: data do pacote de emissão",
+          field: "ISSUE",
+          reason: REASON,
           changedByName: "scripts/check-issue-dates.ts",
         },
       }),
@@ -138,7 +196,31 @@ async function main() {
         : []),
     ]);
   }
-  console.log(`\n${toFix.length} revisão(ões) corrigida(s).`);
+  for (const r of returns) {
+    await prisma.$transaction([
+      prisma.documentRevision.update({ where: { id: r.id }, data: { analyzedAt: r.at } }),
+      prisma.issueDateChange.create({
+        data: {
+          revisionId: r.id,
+          field: "ANALYSIS",
+          fromDate: r.from,
+          toDate: r.at,
+          reason: REASON,
+          changedByName: "scripts/check-issue-dates.ts",
+        },
+      }),
+      ...(r.transitionId
+        ? [
+            prisma.documentTransition.update({
+              where: { id: r.transitionId },
+              data: { createdAt: r.at, daysInPreviousStage: daysBetween(r.at, r.issuedAt) },
+            }),
+          ]
+        : []),
+    ]);
+  }
+
+  console.log(`\n${toFix.length} emissão(ões) e ${returns.length} retorno(s) corrigidos.`);
   console.log("Confira um documento na tela e, se houver BM em rascunho, reabra para as datas serem relidas.");
 }
 

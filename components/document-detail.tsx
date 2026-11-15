@@ -197,6 +197,7 @@ export async function DocumentDetail({
         take: 10,
         select: {
           id: true,
+          field: true,
           fromDate: true,
           toDate: true,
           reason: true,
@@ -538,8 +539,8 @@ export async function DocumentDetail({
 
           {canEditData ? (
             <div>
-              <SectionTitle hint="data que o BM usa como data de execução">
-                Data de envio ao contratante
+              <SectionTitle hint="o envio alimenta o BM; o retorno, os dias em análise">
+                Datas do trâmite
               </SectionTitle>
               <Card>
                 <IssueDateForm
@@ -552,6 +553,7 @@ export async function DocumentDetail({
                   }))}
                   logs={issueDateLogs.map((l) => ({
                     id: l.id,
+                    field: l.field,
                     fromDate: l.fromDate ? l.fromDate.toISOString() : null,
                     toDate: l.toDate.toISOString(),
                     reason: l.reason,
