@@ -3,13 +3,16 @@ import React from "react";
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { COLORS, fmtDate } from "@/components/pdf/pdf-kit";
 import type { MeasurementDetail } from "@/lib/server/measurement-service";
-import { MEASUREMENT_STATUS_LABEL } from "@/lib/measurements";
+import { MEASUREMENT_STATUS_LABEL, mergeLinesForClient } from "@/lib/measurements";
 
 /**
  * Boletim de Medição no layout que a projetista já usava em planilha
  * (BM-IDG-OUT-NOV 2026-R00): emissor no topo, bloco "Resumo da medição" e
  * tabela com A1 equivalente por linha, agrupada por OS. Sai em nome do
  * emissor (razão social da organização), não do DataPulse.
+ *
+ * A divisão interna entre projetistas não aparece aqui: as partes de um
+ * mesmo documento voltam a uma linha só (ver mergeLinesForClient).
  */
 
 const BRL = (n: number) =>
@@ -116,7 +119,7 @@ function Kv({ k, v }: { k: string; v: string }) {
 
 export function MeasurementReportPdf({ m, generatedAt }: { m: MeasurementDetail; generatedAt: Date }) {
   const groups: { key: string; title: string; items: MeasurementDetail["items"] }[] = [];
-  for (const it of m.items) {
+  for (const it of mergeLinesForClient(m.items)) {
     const key = it.kind === "OTHER" ? "__other" : it.projectId ?? "__none";
     let g = groups.find((x) => x.key === key);
     if (!g) {

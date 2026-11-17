@@ -1534,9 +1534,19 @@ model MeasurementItem {
   revisionName   String?
   executionDate  DateTime?
   sheetFormat    SheetFormat?
+  /// Folhas medidas nesta linha. Igual às do documento, salvo quando a
+  /// medição reduz folhas ou divide o documento entre projetistas ("doc
+  /// casado": cada linha leva parte das folhas para uma pessoa).
   sheetCount     Int          @default(1)
-  /// A1 equivalente do documento inteiro (formato × folhas). Itens "outros":
-  /// a quantidade do serviço.
+  /// Folhas do documento inteiro na data da medição (fotografia). Nulo nos
+  /// itens "outros". A fatia da revisão medida na linha é
+  /// % × sheetCount / documentSheetCount.
+  documentSheetCount Int?
+  /// Projetista/pessoa a quem estas folhas são atribuídas (repasse interno;
+  /// não sai no BM do contratante). Texto livre: pode ser gente de fora.
+  assigneeName   String?
+  /// A1 equivalente das folhas medidas na linha (formato × sheetCount).
+  /// Itens "outros": a quantidade do serviço.
   quantity       Decimal      @db.Decimal(14, 4)
   /// Unidade dos itens "outros" (HH, vb, un).
   unit           String?

@@ -5,7 +5,12 @@ import { Button, Card, Empty, Field, inputClass } from "@/components/ui";
 import { MeasurementForm } from "@/components/measurement-form";
 import { STATUS_LABEL, type DocumentStatus } from "@/lib/documents";
 import { suggestMeasurementNumber } from "@/lib/measurements";
-import { loadMeasurableClients, loadMeasurableRevisions, toFormRow } from "@/lib/server/measurement-service";
+import {
+  loadAssigneeSuggestions,
+  loadMeasurableClients,
+  loadMeasurableRevisions,
+  toFormRow,
+} from "@/lib/server/measurement-service";
 
 export const dynamic = "force-dynamic";
 
@@ -70,6 +75,7 @@ export default async function NewMeasurementPage({
   });
   const revisions = await loadMeasurableRevisions(user.organizationId, { clientId: selected.id });
   const rows = revisions.map((r) => toFormRow(r, (s) => STATUS_LABEL[s as DocumentStatus] ?? s));
+  const assignees = await loadAssigneeSuggestions(user.organizationId);
 
   return (
     <div className="space-y-6">
@@ -79,6 +85,7 @@ export default async function NewMeasurementPage({
         clientName={selected.name}
         orgIssuer={{ name: org?.legalName || org?.name || "", taxId: org?.taxId ?? null }}
         rows={rows}
+        assignees={assignees}
         submitLabel="Criar BM (rascunho)"
         defaults={{
           issuerName: "",

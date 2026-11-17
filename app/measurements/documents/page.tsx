@@ -152,7 +152,7 @@ export default async function MeasurementDocumentsPage({
                   </td>
                   <td className="px-3 py-1.5 text-xs">
                     {r.measurements.map((m) => (
-                      <Link key={m.id + m.percent} href={`/measurements/${m.id}`} className="block text-accent hover:underline">
+                      <Link key={m.id} href={`/measurements/${m.id}`} className="block text-accent hover:underline">
                         {m.code} ({formatPercent(m.percent)}){m.paid ? " · pago" : ""}
                       </Link>
                     ))}

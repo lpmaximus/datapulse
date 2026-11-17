@@ -2,9 +2,14 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
-import { MeasurementForm, type SelectedLine } from "@/components/measurement-form";
+import { MeasurementForm, type FormatLine } from "@/components/measurement-form";
 import { STATUS_LABEL, type DocumentStatus } from "@/lib/documents";
-import { loadMeasurableRevisions, loadMeasurement, toFormRow } from "@/lib/server/measurement-service";
+import {
+  loadAssigneeSuggestions,
+  loadMeasurableRevisions,
+  loadMeasurement,
+  toFormRow,
+} from "@/lib/server/measurement-service";
 
 export const dynamic = "force-dynamic";
 
@@ -30,16 +35,18 @@ export default async function EditMeasurementPage({ params }: { params: Promise<
   // Data do sistema por revisão: preenche a linha quando o BM foi montado
   // antes de a data de envio existir.
   const knownDate = new Map(revisions.map((r) => [r.revisionId, r.issuedAt]));
-  const initialSelection: Record<string, SelectedLine> = {};
-  for (const it of m.items) {
-    if (it.kind === "FORMAT" && it.revisionId) {
-      initialSelection[it.revisionId] = {
-        percent: br(it.percent),
-        price: br(it.unitPrice),
-        date: iso(it.executionDate ?? knownDate.get(it.revisionId) ?? null),
-      };
-    }
-  }
+  const initialLines: FormatLine[] = m.items
+    .filter((it) => it.kind === "FORMAT" && it.revisionId)
+    .map((it) => ({
+      key: it.id,
+      revisionId: it.revisionId!,
+      sheets: String(it.sheetCount),
+      percent: br(it.percent),
+      price: br(it.unitPrice),
+      date: iso(it.executionDate ?? knownDate.get(it.revisionId!) ?? null),
+      assignee: it.assigneeName ?? "",
+    }));
+  const assignees = await loadAssigneeSuggestions(user.organizationId);
   const initialOthers = m.items
     .filter((it) => it.kind === "OTHER")
     .map((it) => ({ description: it.description, qty: br(it.quantity), unit: it.unit ?? "", price: br(it.unitPrice) }));
@@ -57,7 +64,8 @@ export default async function EditMeasurementPage({ params }: { params: Promise<
         clientName={m.client.name}
         orgIssuer={{ name: org?.legalName || org?.name || "", taxId: org?.taxId ?? null }}
         rows={rows}
-        initialSelection={initialSelection}
+        assignees={assignees}
+        initialLines={initialLines}
         initialOthers={initialOthers}
         submitLabel="Salvar rascunho"
         defaults={{

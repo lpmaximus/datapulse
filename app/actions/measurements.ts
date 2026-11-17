@@ -10,9 +10,13 @@ import {
   isActiveMeasurement,
   isMeasurementEditable,
   itemAmount,
+  lineShare,
   measurementTotals,
+  normalizeAssignee,
   parseDecimalBR,
   parsePercent,
+  parseSheets,
+  remainingPercent,
   paymentSummary,
   round2,
   type MeasurementItemKind,
@@ -67,6 +71,8 @@ type ItemDraft = {
   executionDate: Date | null;
   sheetFormat: SheetFormat | null;
   sheetCount: number;
+  documentSheetCount: number | null;
+  assigneeName: string | null;
   quantity: number;
   unit: string | null;
   percent: number;
@@ -76,9 +82,12 @@ type ItemDraft = {
 };
 
 /**
- * Lê e valida as linhas do formulário. Formato: cada revisão marcada traz
- * `pct_<id>` e `price_<id>`; a revisão precisa ser do cliente, medível e ter
- * saldo de percentual. Outros: arrays paralelos `other*`.
+ * Lê e valida as linhas do formulário. Formato: arrays paralelos `line*` —
+ * uma revisão pode vir em várias linhas (documento dividido entre
+ * projetistas), cada uma com suas folhas, %, valor do A1, data e pessoa. A
+ * revisão precisa ser do cliente, medível, e a soma das fatias
+ * (% × folhas / folhas do documento) não pode passar do saldo.
+ * Outros: arrays paralelos `other*`.
  */
 async function readItems(
   fd: FormData,
@@ -86,31 +95,54 @@ async function readItems(
   clientId: string,
   measurementId?: string,
 ): Promise<{ items: ItemDraft[] } | { error: string }> {
-  const selected = [...new Set(fd.getAll("revisionId").map(String).filter(Boolean))];
+  const col = (k: string) => fd.getAll(k).map(String);
+  const revIds = col("lineRevisionId");
+  const sheetsIn = col("lineSheets");
+  const pctIn = col("linePct");
+  const priceIn = col("linePrice");
+  const dateIn = col("lineDate");
+  const assigneeIn = col("lineAssignee");
+
   const pool = await loadMeasurableRevisions(organizationId, { clientId, excludeMeasurementId: measurementId });
   const byId = new Map(pool.map((r) => [r.revisionId, r]));
-  // Ordem do BM: projeto, depois número do documento (a mesma da tela).
-  const ordered = pool.filter((r) => selected.includes(r.revisionId));
-  if (ordered.length !== selected.length) {
+  const order = new Map(pool.map((r, i) => [r.revisionId, i]));
+
+  const lines = revIds.map((revisionId, i) => ({ revisionId, i }));
+  if (lines.some((l) => !byId.has(l.revisionId))) {
     return { error: "Há documento selecionado que não pertence a este cliente." };
   }
+  // Ordem do BM: projeto, depois número do documento (a mesma da tela);
+  // linhas da mesma revisão na ordem em que foram lançadas.
+  lines.sort((a, b) => order.get(a.revisionId)! - order.get(b.revisionId)! || a.i - b.i);
 
   const items: ItemDraft[] = [];
-  for (const r of ordered) {
+  const used = new Map<string, number>();
+  for (const { revisionId, i } of lines) {
+    const r = byId.get(revisionId)!;
     const label = `${r.documentNumber ?? r.documentName} ${r.revisionName}`;
-    if (!byId.get(r.revisionId)?.billable) {
-      return { error: `${label}: revisão sem mudança de escopo acordada não é medível.` };
+    if (!r.billable) return { error: `${label}: revisão sem mudança de escopo acordada não é medível.` };
+    if (r.a1Eq == null || !r.sheetFormat) {
+      return { error: `${label}: informe o formato e as folhas do documento antes de medir.` };
     }
-    if (r.a1Eq == null) return { error: `${label}: informe o formato e as folhas do documento antes de medir.` };
-    const pct = parsePercent(fd.get(`pct_${r.revisionId}`));
+    const sheets = parseSheets(sheetsIn[i], r.sheetCount);
+    if ("error" in sheets) return { error: `${label}: ${sheets.error}` };
+    const pct = parsePercent(pctIn[i]);
     if ("error" in pct) return { error: `${label}: ${pct.error}` };
-    if (pct.value > r.remainingPercent + 0.001) {
-      return { error: `${label}: só restam ${r.remainingPercent}% a medir.` };
+    const share = (used.get(revisionId) ?? 0) + lineShare(pct.value, sheets.value, r.sheetCount);
+    if (share > r.remainingPercent + 0.01) {
+      const left = remainingPercent(100 - r.remainingPercent);
+      return {
+        error: `${label}: as linhas somam ${round2(share)}% do documento e só restam ${left}% a medir.`,
+      };
     }
-    const price = parseDecimalBR(fd.get(`price_${r.revisionId}`)) ?? r.a1Price;
+    used.set(revisionId, share);
+    const price = parseDecimalBR(priceIn[i]) ?? r.a1Price;
     if (price == null || price <= 0) {
       return { error: `${label}: defina o valor do A1 no projeto ${r.projectName} (ou na linha).` };
     }
+    const qty = a1Equivalent(r.sheetFormat, sheets.value) ?? 0;
+    const rawDate = String(dateIn[i] ?? "").trim();
+    const typed = rawDate ? new Date(rawDate + "T00:00:00.000Z") : null;
     items.push({
       kind: "FORMAT",
       revisionId: r.revisionId,
@@ -122,14 +154,16 @@ async function readItems(
       revisionName: r.revisionName,
       // Data digitada na linha vence a do sistema: o documento pode ter sido
       // cadastrado depois do envio ao contratante.
-      executionDate: optDate(fd, `date_${r.revisionId}`) ?? r.issuedAt,
+      executionDate: typed && !Number.isNaN(typed.getTime()) ? typed : r.issuedAt,
       sheetFormat: r.sheetFormat,
-      sheetCount: r.sheetCount,
-      quantity: a1Equivalent(r.sheetFormat, r.sheetCount) ?? 0,
+      sheetCount: sheets.value,
+      documentSheetCount: r.sheetCount,
+      assigneeName: normalizeAssignee(assigneeIn[i]),
+      quantity: qty,
       unit: "A1",
       percent: pct.value,
       unitPrice: round2(price),
-      amount: itemAmount(r.a1Eq, pct.value, price),
+      amount: itemAmount(qty, pct.value, price),
       sortOrder: items.length,
     });
   }
@@ -157,6 +191,8 @@ async function readItems(
       executionDate: null,
       sheetFormat: null,
       sheetCount: 1,
+      documentSheetCount: null,
+      assigneeName: null,
       quantity: qty,
       unit: units[i]?.trim() || null,
       percent: 100,
@@ -400,6 +436,8 @@ export async function reviseMeasurement(fd: FormData): Promise<void> {
             executionDate: i.executionDate,
             sheetFormat: i.sheetFormat,
             sheetCount: i.sheetCount,
+            documentSheetCount: i.documentSheetCount,
+            assigneeName: i.assigneeName,
             quantity: i.quantity,
             unit: i.unit,
             percent: i.percent,

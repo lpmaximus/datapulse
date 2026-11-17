@@ -12,7 +12,12 @@
  * Revisão medível: a PRIMEIRA revisão do documento sempre; as seguintes só
  * quando marcadas como cobráveis (mudança de escopo acordada com o
  * contratante). Medição parcial: um documento pode ser medido em várias
- * linhas/BMs desde que a soma dos percentuais não passe de 100%.
+ * linhas/BMs desde que a soma das fatias não passe de 100%.
+ *
+ * Fatia de uma linha = % medido × folhas da linha / folhas do documento.
+ * Uma linha pode levar só parte das folhas: para reduzir o que se cobra ou
+ * para dividir um "doc casado" entre projetistas (cada linha com a sua
+ * pessoa e as suas folhas).
  */
 
 export type MeasurementStatus = "DRAFT" | "SENT" | "APPROVED" | "SUPERSEDED" | "CANCELLED";
@@ -87,6 +92,38 @@ export function parsePercent(value: unknown): { value: number } | { error: strin
   return { value: round2(n) };
 }
 
+/** Folhas medidas na linha: inteiro de 1 até as folhas do documento. */
+export function parseSheets(value: unknown, max: number): { value: number } | { error: string } {
+  const raw = String(value ?? "").trim();
+  if (!raw) return { error: "Informe as folhas medidas." };
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) return { error: "As folhas medidas devem ser um número inteiro a partir de 1." };
+  if (n > max) return { error: `O documento tem ${max} folha${max === 1 ? "" : "s"}.` };
+  return { value: n };
+}
+
+/**
+ * Fatia da revisão medida numa linha, em % do documento inteiro:
+ * % × folhas da linha / folhas do documento. Sem folhas do documento (itens
+ * antigos), a linha vale pelo percentual.
+ */
+export function lineShare(percent: number, sheetCount?: number | null, documentSheetCount?: number | null): number {
+  if (!documentSheetCount || documentSheetCount <= 0 || sheetCount == null) return percent;
+  return (percent * sheetCount) / documentSheetCount;
+}
+
+/**
+ * Sugestão para uma linha nova: se o saldo cabe em folhas inteiras (ex.: 2
+ * de 4 folhas já medidas), propõe as folhas restantes a 100%; senão o
+ * documento inteiro com o percentual que sobra.
+ */
+export function suggestLine(documentSheets: number, remaining: number): { sheets: number; percent: number } {
+  const total = Math.max(1, documentSheets);
+  const sheets = Math.round((total * remaining) / 100);
+  if (sheets >= 1 && Math.abs((sheets / total) * 100 - remaining) < 0.01) return { sheets, percent: 100 };
+  return { sheets: total, percent: round2(remaining) };
+}
+
 /** Valor do item: quantidade × percentual × preço unitário, em centavos. */
 export function itemAmount(quantity: number, percent: number, unitPrice: number): number {
   return round2(quantity * (percent / 100) * unitPrice);
@@ -128,12 +165,20 @@ export function nonBillableReason(rev: RevisionForBilling, isFirst: boolean): st
 export interface MeasuredLine {
   revisionId: string | null;
   percent: number;
+  /** Folhas da linha e do documento; sem elas a linha vale pelo percentual. */
+  sheetCount?: number | null;
+  documentSheetCount?: number | null;
   measurementStatus: MeasurementStatus;
   /** Linha do próprio BM que está sendo editado — não conta contra ele mesmo. */
   measurementId?: string;
 }
 
-/** Soma do % já medido por revisão, só em BMs ativos. */
+/** Arredonda a 4 casas: fatias de folhas (1/3) não fecham em 2 casas. */
+function round4(n: number): number {
+  return Math.round((n + Number.EPSILON) * 10000) / 10000;
+}
+
+/** Soma da fatia já medida por revisão (em %), só em BMs ativos. */
 export function measuredPercentByRevision(
   lines: MeasuredLine[],
   excludeMeasurementId?: string,
@@ -143,13 +188,16 @@ export function measuredPercentByRevision(
     if (!l.revisionId) continue;
     if (!isActiveMeasurement(l.measurementStatus)) continue;
     if (excludeMeasurementId && l.measurementId === excludeMeasurementId) continue;
-    out.set(l.revisionId, round2((out.get(l.revisionId) ?? 0) + l.percent));
+    const share = lineShare(l.percent, l.sheetCount, l.documentSheetCount);
+    out.set(l.revisionId, round4((out.get(l.revisionId) ?? 0) + share));
   }
   return out;
 }
 
+/** Saldo a medir em %. Sobras de arredondamento (1/3 + 1/3 + 1/3) viram zero. */
 export function remainingPercent(measured: number | undefined): number {
-  return round2(Math.max(0, 100 - (measured ?? 0)));
+  const left = 100 - (measured ?? 0);
+  return left < 0.01 ? 0 : round2(left);
 }
 
 /* ------------------------------ totais ------------------------------ */
@@ -193,6 +241,128 @@ export function measurementTotals(items: ItemForTotals[]): MeasurementTotals {
     total: round2(formats + others),
     uniformA1Price: prices.size === 1 ? [...prices][0] : null,
   };
+}
+
+/* --------------------------- por projetista --------------------------- */
+
+export interface ItemForAssignee {
+  kind: MeasurementItemKind;
+  assigneeName: string | null;
+  sheetFormat: string | null;
+  sheetCount: number;
+  quantity: number;
+  percent: number;
+  amount: number;
+}
+
+export interface AssigneeSummaryRow {
+  /** Nulo = linhas sem pessoa indicada. */
+  name: string | null;
+  lines: number;
+  /** Folhas por formato ("A1" → 4), na ordem A0, A1, A2, A3, A4. */
+  sheetsByFormat: { format: string; sheets: number }[];
+  sheets: number;
+  /** A1 equivalente medido (A1 eq × %). */
+  a1Measured: number;
+  amount: number;
+}
+
+const FORMAT_ORDER = ["A0", "A1", "A2", "A3", "A4"];
+
+/** Nome normalizado para agrupar: espaços colapsados; vazio = sem indicação. */
+export function normalizeAssignee(value: unknown): string | null {
+  const v = String(value ?? "").replace(/\s+/g, " ").trim();
+  return v ? v.slice(0, 120) : null;
+}
+
+/**
+ * Distribuição das linhas de formato por projetista: folhas por formato, A1
+ * eq medido e valor. Nomes iguais sem diferença de caixa caem juntos.
+ * Ordem: por nome; "sem indicação" no fim.
+ */
+export function assigneeSummary(items: ItemForAssignee[]): AssigneeSummaryRow[] {
+  const map = new Map<string, AssigneeSummaryRow & { formats: Map<string, number> }>();
+  for (const it of items) {
+    if (it.kind !== "FORMAT") continue;
+    const name = normalizeAssignee(it.assigneeName);
+    const key = name ? name.toLocaleLowerCase("pt-BR") : "";
+    let row = map.get(key);
+    if (!row) {
+      row = { name, lines: 0, sheetsByFormat: [], sheets: 0, a1Measured: 0, amount: 0, formats: new Map() };
+      map.set(key, row);
+    }
+    row.lines += 1;
+    row.sheets += it.sheetCount;
+    row.a1Measured += it.quantity * (it.percent / 100);
+    row.amount += it.amount;
+    const f = it.sheetFormat ?? "—";
+    row.formats.set(f, (row.formats.get(f) ?? 0) + it.sheetCount);
+  }
+  const rank = (f: string) => (FORMAT_ORDER.includes(f) ? FORMAT_ORDER.indexOf(f) : 99);
+  return [...map.values()]
+    .map(({ formats, ...r }) => ({
+      ...r,
+      a1Measured: round4(r.a1Measured),
+      amount: round2(r.amount),
+      sheetsByFormat: [...formats.entries()]
+        .sort((a, b) => rank(a[0]) - rank(b[0]))
+        .map(([format, sheets]) => ({ format, sheets })),
+    }))
+    .sort((a, b) => {
+      if (!a.name) return 1;
+      if (!b.name) return -1;
+      return a.name.localeCompare(b.name, "pt-BR");
+    });
+}
+
+/** "4 A1 + 2 A3". */
+export function formatSheetsByFormat(list: { format: string; sheets: number }[]): string {
+  return list.map((x) => `${x.sheets} ${x.format}`).join(" + ") || "—";
+}
+
+/* ----------------------- BM do contratante ----------------------- */
+
+export interface ClientLineInput {
+  kind: MeasurementItemKind;
+  revisionId: string | null;
+  percent: number;
+  unitPrice: number;
+  executionDate: Date | null;
+  sheetCount: number;
+  quantity: number;
+  amount: number;
+}
+
+/**
+ * O BM que vai ao contratante não mostra a divisão interna entre
+ * projetistas: linhas da mesma revisão com o mesmo %, valor do A1 e data
+ * voltam a ser uma linha só (folhas, A1 eq e valor somados). Linhas que
+ * diferem nesses pontos continuam separadas — são medições distintas.
+ */
+export function mergeLinesForClient<T extends ClientLineInput>(items: T[]): T[] {
+  const out: T[] = [];
+  const index = new Map<string, number>();
+  for (const it of items) {
+    if (it.kind !== "FORMAT" || !it.revisionId) {
+      out.push(it);
+      continue;
+    }
+    const key = [it.revisionId, it.percent, it.unitPrice, it.executionDate?.getTime() ?? ""].join("|");
+    const at = index.get(key);
+    if (at == null) {
+      index.set(key, out.length);
+      out.push({ ...it });
+      continue;
+    }
+    const prev = out[at];
+    out[at] = {
+      ...prev,
+      sheetCount: prev.sheetCount + it.sheetCount,
+      quantity: round4(prev.quantity + it.quantity),
+      amount: round2(prev.amount + it.amount),
+    };
+  }
+  return out;
 }
 
 /* ---------------------------- pagamento ---------------------------- */

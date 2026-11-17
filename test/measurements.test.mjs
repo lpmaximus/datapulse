@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  assigneeSummary,
   billableRevisionIds,
+  formatSheetsByFormat,
+  lineShare,
+  mergeLinesForClient,
+  parseSheets,
+  suggestLine,
   itemAmount,
   measuredPercentByRevision,
   measurementCode,
@@ -111,4 +117,71 @@ test("numeração e parsing pt-BR", () => {
   assert.deepEqual(parsePercent("70,5%"), { value: 70.5 });
   assert.ok("error" in parsePercent("120"));
   assert.ok("error" in parsePercent("0"));
+});
+
+test("fatia da linha considera as folhas medidas", () => {
+  assert.equal(lineShare(100, 2, 4), 50);
+  assert.equal(lineShare(50, 4, 4), 50);
+  assert.equal(lineShare(80, 3, 4), 60);
+  // item antigo, sem folhas do documento: vale o percentual
+  assert.equal(lineShare(70, 4, null), 70);
+});
+
+test("doc casado: partes do mesmo documento somam até 100%", () => {
+  const lines = [
+    { revisionId: "a", percent: 100, sheetCount: 1, documentSheetCount: 3, measurementStatus: "DRAFT", measurementId: "bm1" },
+    { revisionId: "a", percent: 100, sheetCount: 1, documentSheetCount: 3, measurementStatus: "DRAFT", measurementId: "bm1" },
+    { revisionId: "a", percent: 100, sheetCount: 1, documentSheetCount: 3, measurementStatus: "APPROVED", measurementId: "bm0" },
+  ];
+  const m = measuredPercentByRevision(lines);
+  assert.equal(remainingPercent(m.get("a")), 0);
+  // editando o bm1, só o bm0 conta: sobram 2/3
+  assert.equal(remainingPercent(measuredPercentByRevision(lines, "bm1").get("a")), 66.67);
+});
+
+test("folhas medidas: inteiro entre 1 e as folhas do documento", () => {
+  assert.deepEqual(parseSheets("3", 4), { value: 3 });
+  assert.ok("error" in parseSheets("5", 4));
+  assert.ok("error" in parseSheets("0", 4));
+  assert.ok("error" in parseSheets("1,5", 4));
+  assert.ok("error" in parseSheets("", 4));
+});
+
+test("sugestão de linha usa folhas inteiras quando o saldo permite", () => {
+  assert.deepEqual(suggestLine(4, 100), { sheets: 4, percent: 100 });
+  assert.deepEqual(suggestLine(4, 50), { sheets: 2, percent: 100 });
+  assert.deepEqual(suggestLine(4, 30), { sheets: 4, percent: 30 });
+  assert.deepEqual(suggestLine(3, 66.67), { sheets: 2, percent: 100 });
+});
+
+test("resumo por projetista soma folhas por formato, A1 eq e valor", () => {
+  const items = [
+    { kind: "FORMAT", assigneeName: "Ana", sheetFormat: "A1", sheetCount: 2, quantity: 2, percent: 100, amount: 1800 },
+    { kind: "FORMAT", assigneeName: " ana ", sheetFormat: "A3", sheetCount: 4, quantity: 1, percent: 100, amount: 900 },
+    { kind: "FORMAT", assigneeName: "Bruno", sheetFormat: "A1", sheetCount: 2, quantity: 2, percent: 50, amount: 900 },
+    { kind: "FORMAT", assigneeName: null, sheetFormat: "A4", sheetCount: 8, quantity: 1, percent: 100, amount: 900 },
+    { kind: "OTHER", assigneeName: null, sheetFormat: null, sheetCount: 1, quantity: 10, percent: 100, amount: 1200 },
+  ];
+  const r = assigneeSummary(items);
+  assert.deepEqual(r.map((x) => x.name), ["Ana", "Bruno", null]);
+  assert.equal(r[0].sheets, 6);
+  assert.equal(r[0].a1Measured, 3);
+  assert.equal(r[0].amount, 2700);
+  assert.equal(formatSheetsByFormat(r[0].sheetsByFormat), "2 A1 + 4 A3");
+  assert.equal(r[1].a1Measured, 1);
+});
+
+test("BM do contratante junta as partes do mesmo documento", () => {
+  const d = new Date("2026-11-10T00:00:00Z");
+  const base = { kind: "FORMAT", revisionId: "a", percent: 100, unitPrice: 900, executionDate: d };
+  const merged = mergeLinesForClient([
+    { ...base, id: "1", sheetCount: 2, quantity: 2, amount: 1800 },
+    { ...base, id: "2", sheetCount: 1, quantity: 1, amount: 900 },
+    { ...base, id: "3", percent: 50, sheetCount: 1, quantity: 1, amount: 450 },
+    { kind: "OTHER", revisionId: null, percent: 100, unitPrice: 120, executionDate: null, id: "4", sheetCount: 1, quantity: 10, amount: 1200 },
+  ]);
+  assert.equal(merged.length, 3);
+  assert.equal(merged[0].sheetCount, 3);
+  assert.equal(merged[0].amount, 2700);
+  assert.equal(merged[1].percent, 50);
 });

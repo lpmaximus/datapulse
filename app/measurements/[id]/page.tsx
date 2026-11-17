@@ -5,7 +5,13 @@ import { Button, Card, Field, SectionTitle, inputClass } from "@/components/ui";
 import { ConfirmSubmit, MeasurementStatusChip, PaymentStateText } from "@/components/measurement-ui";
 import { formatA1 } from "@/lib/documents";
 import { formatDate } from "@/lib/format";
-import { formatBRL, formatPercent, isActiveMeasurement } from "@/lib/measurements";
+import {
+  assigneeSummary,
+  formatBRL,
+  formatPercent,
+  formatSheetsByFormat,
+  isActiveMeasurement,
+} from "@/lib/measurements";
 import { loadMeasurement } from "@/lib/server/measurement-service";
 import {
   addMeasurementPayment,
@@ -65,6 +71,8 @@ export default async function MeasurementPage({
   }
   groups.sort((a, b) => (a.key === "__other" ? 1 : b.key === "__other" ? -1 : 0));
   let seq = 0;
+  const byAssignee = assigneeSummary(m.items);
+  const hasAssignee = byAssignee.some((a) => a.name);
 
   return (
     <div className="space-y-6">
@@ -103,6 +111,9 @@ export default async function MeasurementPage({
         <div className="flex flex-wrap gap-2">
           <a href={`/api/reports/measurement/${m.id}`} target="_blank" rel="noopener noreferrer">
             <Button variant="outline">PDF do BM</Button>
+          </a>
+          <a href={`/api/reports/measurement/${m.id}/assignees`} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline">Relatório por projetista</Button>
           </a>
           {m.status === "DRAFT" ? (
             <>
@@ -182,6 +193,7 @@ export default async function MeasurementPage({
                 <th className="px-3 py-2 text-right">Qtd.</th>
                 <th className="px-3 py-2 text-right">A1 eq</th>
                 <th className="px-3 py-2 text-right">%</th>
+                <th className="px-3 py-2">Projetista</th>
                 <th className="px-3 py-2 text-right">Unitário</th>
                 <th className="px-3 py-2 text-right">Valor</th>
               </tr>
@@ -189,7 +201,7 @@ export default async function MeasurementPage({
             {groups.map((g) => (
               <tbody key={g.key} className="border-t border-line">
                 <tr className="bg-canvas/60">
-                  <td colSpan={12} className="px-3 py-1.5 text-xs font-semibold text-ink-soft">
+                  <td colSpan={13} className="px-3 py-1.5 text-xs font-semibold text-ink-soft">
                     {g.title}
                   </td>
                 </tr>
@@ -215,11 +227,17 @@ export default async function MeasurementPage({
                       <td className="px-3 py-1.5 text-xs">{it.kind === "FORMAT" ? it.sheetFormat ?? "—" : it.unit ?? "—"}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">
                         {it.kind === "FORMAT" ? it.sheetCount : formatA1(it.quantity)}
+                        {it.kind === "FORMAT" && it.documentSheetCount && it.documentSheetCount !== it.sheetCount ? (
+                          <span className="block text-[11px] text-ink-faint">de {it.documentSheetCount}</span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums">
                         {it.kind === "FORMAT" ? formatA1(it.quantity) : "—"}
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{formatPercent(it.percent)}</td>
+                      <td className="px-3 py-1.5 text-xs">
+                        {it.kind === "FORMAT" ? it.assigneeName ?? <span className="text-ink-faint">—</span> : ""}
+                      </td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{formatBRL(it.unitPrice)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{formatBRL(it.amount)}</td>
                     </tr>
@@ -231,6 +249,36 @@ export default async function MeasurementPage({
         </div>
         {m.notes ? <p className="border-t border-line px-4 py-3 text-sm text-ink-soft">Obs.: {m.notes}</p> : null}
       </section>
+
+      {hasAssignee ? (
+        <section>
+          <SectionTitle hint="repasse interno — não sai no BM do contratante">Por projetista</SectionTitle>
+          <div className="overflow-hidden rounded-lg border border-line bg-surface">
+            <table className="w-full text-sm">
+              <thead className="bg-canvas text-left text-xs uppercase tracking-wider text-ink-faint">
+                <tr>
+                  <th className="px-3 py-2">Projetista</th>
+                  <th className="px-3 py-2 text-right">Docs</th>
+                  <th className="px-3 py-2">Folhas por formato</th>
+                  <th className="px-3 py-2 text-right">A1 eq medido</th>
+                  <th className="px-3 py-2 text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {byAssignee.map((a) => (
+                  <tr key={a.name ?? "__none"}>
+                    <td className="px-3 py-1.5">{a.name ?? <span className="text-ink-faint">Sem indicação</span>}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{a.lines}</td>
+                    <td className="px-3 py-1.5 text-xs">{formatSheetsByFormat(a.sheetsByFormat)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatA1(a.a1Measured)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{formatBRL(a.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div>

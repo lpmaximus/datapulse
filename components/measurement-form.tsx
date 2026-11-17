@@ -3,11 +3,11 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Plus, X } from "lucide-react";
+import { Plus, Split, X } from "lucide-react";
 import { saveMeasurement, type MeasurementFormState } from "@/app/actions/measurements";
 import { Button, Field, inputClass } from "@/components/ui";
 import { formatA1 } from "@/lib/documents";
-import { formatBRL, itemAmount, parseDecimalBR, round2 } from "@/lib/measurements";
+import { formatBRL, itemAmount, lineShare, parseDecimalBR, round2, suggestLine } from "@/lib/measurements";
 
 /** Revisão disponível para o BM, já serializável (datas em ISO). */
 export interface MeasurementFormRow {
@@ -27,14 +27,26 @@ export interface MeasurementFormRow {
   billable: boolean;
   remainingPercent: number;
   measuredPercent: number;
+  /** Especialista da revisão ou responsável do documento. */
+  defaultAssignee: string | null;
 }
 
-/** Linha escolhida: o que o usuário pode ajustar antes de gravar. */
-export interface SelectedLine {
+/**
+ * Linha de formato do BM: o que o usuário ajusta antes de gravar. Uma
+ * revisão pode ter várias linhas — documento dividido entre projetistas,
+ * cada um com as suas folhas.
+ */
+export interface FormatLine {
+  key: string;
+  revisionId: string;
+  /** Folhas medidas nesta linha (até as do documento). */
+  sheets: string;
   percent: string;
   price: string;
   /** Data de execução (envio ao contratante), em AAAA-MM-DD. */
   date: string;
+  /** Projetista/pessoa a quem as folhas vão. */
+  assignee: string;
 }
 
 export interface OtherDraft {
@@ -56,6 +68,20 @@ function Submit({ label }: { label: string }) {
   );
 }
 
+let seqKey = 0;
+const newKey = () => `n${Date.now().toString(36)}${(seqKey++).toString(36)}`;
+const br = (n: number) => String(n).replace(".", ",");
+
+function sheetsOf(l: FormatLine): number {
+  const n = Number(l.sheets);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Fatia (em %) que as linhas do formulário tiram do documento. */
+function formShare(lines: FormatLine[], docSheets: number): number {
+  return lines.reduce((a, l) => a + lineShare(parseDecimalBR(l.percent) ?? 0, sheetsOf(l), docSheets), 0);
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(iso));
@@ -71,8 +97,9 @@ export function MeasurementForm({
   clientName,
   orgIssuer,
   rows,
+  assignees,
   defaults,
-  initialSelection = {},
+  initialLines = [],
   initialOthers = [],
   submitLabel,
 }: {
@@ -81,6 +108,8 @@ export function MeasurementForm({
   /** Emissor padrão do workspace, mostrado como sugestão nos campos do BM. */
   orgIssuer: { name: string; taxId: string | null };
   rows: MeasurementFormRow[];
+  /** Nomes sugeridos para "Projetista" (usuários + pessoas já indicadas). */
+  assignees: string[];
   defaults: {
     measurementId?: string;
     number: string;
@@ -92,7 +121,7 @@ export function MeasurementForm({
     issuedAt: string;
     notes: string;
   };
-  initialSelection?: Record<string, SelectedLine>;
+  initialLines?: FormatLine[];
   initialOthers?: OtherDraft[];
   submitLabel: string;
 }) {
@@ -102,13 +131,22 @@ export function MeasurementForm({
     if (state.ok && state.measurementId) router.push(`/measurements/${state.measurementId}`);
   }, [state.ok, state.measurementId, state.at, router]);
 
-  const [selected, setSelected] = useState<Record<string, SelectedLine>>(initialSelection);
+  const [lines, setLines] = useState<FormatLine[]>(initialLines);
   const [others, setOthers] = useState<OtherDraft[]>(initialOthers);
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [query, setQuery] = useState("");
 
+  const byRev = useMemo(() => {
+    const map = new Map<string, FormatLine[]>();
+    for (const l of lines) {
+      if (!map.has(l.revisionId)) map.set(l.revisionId, []);
+      map.get(l.revisionId)!.push(l);
+    }
+    return map;
+  }, [lines]);
+
   const visible = rows.filter((r) => {
-    if (selected[r.revisionId]) return true;
+    if (byRev.has(r.revisionId)) return true;
     if (onlyOpen && (!r.billable || r.remainingPercent <= 0)) return false;
     if (query) {
       const q = query.toLowerCase();
@@ -127,40 +165,102 @@ export function MeasurementForm({
     return [...map.values()];
   }, [visible]);
 
+  function lineFor(r: MeasurementFormRow, sheets: number, percent: number, assignee: string): FormatLine {
+    return {
+      key: newKey(),
+      revisionId: r.revisionId,
+      sheets: String(sheets),
+      percent: br(percent),
+      price: r.a1Price != null ? br(r.a1Price) : "",
+      date: r.issuedAt ? r.issuedAt.slice(0, 10) : "",
+      assignee,
+    };
+  }
+
   function toggle(r: MeasurementFormRow) {
-    setSelected((prev) => {
-      const next = { ...prev };
-      if (next[r.revisionId]) delete next[r.revisionId];
-      else
-        next[r.revisionId] = {
-          percent: String(r.remainingPercent).replace(".", ","),
-          price: r.a1Price != null ? String(r.a1Price).replace(".", ",") : "",
-          date: r.issuedAt ? r.issuedAt.slice(0, 10) : "",
-        };
-      return next;
+    setLines((prev) => {
+      if (prev.some((l) => l.revisionId === r.revisionId)) return prev.filter((l) => l.revisionId !== r.revisionId);
+      const s = suggestLine(r.sheetCount, r.remainingPercent);
+      return [...prev, lineFor(r, s.sheets, s.percent, r.defaultAssignee ?? "")];
     });
+  }
+
+  /**
+   * Divide o documento: se ainda há saldo, a linha nova leva o que sobra;
+   * senão tira metade das folhas da última linha (doc de 1 folha: metade do %).
+   */
+  function split(r: MeasurementFormRow) {
+    setLines((prev) => {
+      const mine = prev.filter((l) => l.revisionId === r.revisionId);
+      const last = mine[mine.length - 1];
+      if (!last) return prev;
+      const rest = r.remainingPercent - formShare(mine, r.sheetCount);
+      let updated = last;
+      let added: FormatLine;
+      if (rest > 0.01) {
+        const s = suggestLine(r.sheetCount, rest);
+        added = lineFor(r, s.sheets, s.percent, "");
+      } else if (sheetsOf(last) > 1) {
+        const n = sheetsOf(last);
+        const half = Math.floor(n / 2);
+        updated = { ...last, sheets: String(n - half) };
+        added = { ...lineFor(r, half, parseDecimalBR(last.percent) ?? 100, ""), price: last.price, date: last.date };
+      } else {
+        const pct = parseDecimalBR(last.percent) ?? 100;
+        const a = round2(pct / 2);
+        updated = { ...last, percent: br(round2(pct - a)) };
+        added = { ...lineFor(r, sheetsOf(last) || 1, a, ""), price: last.price, date: last.date };
+      }
+      const out: FormatLine[] = [];
+      for (const l of prev) {
+        out.push(l.key === last.key ? updated : l);
+        if (l.key === last.key) out.push(added);
+      }
+      return out;
+    });
+  }
+
+  function patch(key: string, change: Partial<FormatLine>) {
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...change } : l)));
+  }
+
+  function removeLine(key: string) {
+    setLines((prev) => prev.filter((l) => l.key !== key));
+  }
+
+  const rowById = useMemo(() => new Map(rows.map((r) => [r.revisionId, r])), [rows]);
+
+  function lineValue(l: FormatLine, r: MeasurementFormRow): number | null {
+    if (r.a1Eq == null || !r.sheetCount) return null;
+    const a1 = (r.a1Eq / r.sheetCount) * sheetsOf(l);
+    return itemAmount(a1, parseDecimalBR(l.percent) ?? 0, parseDecimalBR(l.price) ?? 0);
   }
 
   const totals = useMemo(() => {
     let a1 = 0;
     let formats = 0;
-    for (const r of rows) {
-      const s = selected[r.revisionId];
-      if (!s || r.a1Eq == null) continue;
-      const pct = parseDecimalBR(s.percent) ?? 0;
-      const price = parseDecimalBR(s.price) ?? 0;
-      a1 += r.a1Eq * (pct / 100);
-      formats += itemAmount(r.a1Eq, pct, price);
+    for (const l of lines) {
+      const r = rowById.get(l.revisionId);
+      if (!r || r.a1Eq == null || !r.sheetCount) continue;
+      const pct = parseDecimalBR(l.percent) ?? 0;
+      const lineA1 = (r.a1Eq / r.sheetCount) * sheetsOf(l);
+      a1 += lineA1 * (pct / 100);
+      formats += itemAmount(lineA1, pct, parseDecimalBR(l.price) ?? 0);
     }
     const otherTotal = others.reduce(
       (acc, o) => acc + itemAmount(parseDecimalBR(o.qty) ?? 0, 100, parseDecimalBR(o.price) ?? 0),
       0,
     );
     return { a1, formats: round2(formats), others: round2(otherTotal), total: round2(formats + otherTotal) };
-  }, [rows, selected, others]);
+  }, [lines, rowById, others]);
 
   return (
     <form action={action} className="space-y-6">
+      <datalist id="measurement-assignees">
+        {assignees.map((n) => (
+          <option key={n} value={n} />
+        ))}
+      </datalist>
       {defaults.measurementId ? <input type="hidden" name="measurementId" value={defaults.measurementId} /> : null}
       <input type="hidden" name="clientId" value={clientId} />
 
@@ -220,9 +320,11 @@ export function MeasurementForm({
           <div>
             <h2 className="text-sm font-semibold">Documentos (formatos)</h2>
             <p className="text-xs text-ink-faint">
-              Valor = A1 equivalente × % medido × valor do A1. A data de execução é a do envio da revisão ao
-              contratante; quando o documento foi cadastrado sem ela, digite aqui. Revisões seguintes à primeira só
-              aparecem como medíveis quando marcadas como mudança de escopo acordada.
+              Valor = A1 equivalente das folhas medidas × % × valor do A1. Reduza as folhas para cobrar menos que o
+              documento inteiro, ou use <b>Dividir</b> para repartir um doc casado entre projetistas — cada linha com
+              as suas folhas e a sua pessoa (o BM do contratante junta as linhas de novo). A data de execução é a do
+              envio ao contratante; quando o documento foi cadastrado sem ela, digite aqui. Revisões seguintes à
+              primeira só são medíveis quando marcadas como mudança de escopo acordada.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -253,17 +355,19 @@ export function MeasurementForm({
                   <th className="px-3 py-2">Rev.</th>
                   <th className="w-32 px-3 py-2">Data exec.</th>
                   <th className="px-3 py-2">Formato</th>
-                  <th className="px-3 py-2 text-right">A1 eq</th>
                   <th className="px-3 py-2 text-right">Já medido</th>
-                  <th className="w-24 px-3 py-2 text-right">% neste BM</th>
+                  <th className="w-20 px-3 py-2 text-right">Folhas</th>
+                  <th className="w-20 px-3 py-2 text-right">%</th>
                   <th className="w-28 px-3 py-2 text-right">Valor A1</th>
+                  <th className="w-44 px-3 py-2">Projetista</th>
                   <th className="px-3 py-2 text-right">Valor</th>
+                  <th className="w-20 px-2 py-2" />
                 </tr>
               </thead>
               {groups.map((g) => (
                 <tbody key={g[0].projectId} className="border-t border-line">
                   <tr className="bg-canvas/60">
-                    <td colSpan={10} className="px-3 py-1.5 text-xs font-semibold text-ink-soft">
+                    <td colSpan={12} className="px-3 py-1.5 text-xs font-semibold text-ink-soft">
                       {g[0].osNumber ? `OS ${g[0].osNumber} · ` : ""}
                       {g[0].projectName}
                       {g[0].a1Price == null ? (
@@ -272,25 +376,24 @@ export function MeasurementForm({
                     </td>
                   </tr>
                   {g.map((r) => {
-                    const s = selected[r.revisionId];
-                    const disabled = !s && (!r.billable || r.remainingPercent <= 0 || r.a1Eq == null);
-                    const value =
-                      s && r.a1Eq != null
-                        ? itemAmount(r.a1Eq, parseDecimalBR(s.percent) ?? 0, parseDecimalBR(s.price) ?? 0)
-                        : null;
-                    return (
-                      <tr key={r.revisionId} className={disabled ? "text-ink-faint" : ""}>
-                        <td className="px-3 py-1.5">
+                    const mine = byRev.get(r.revisionId) ?? [];
+                    const on = mine.length > 0;
+                    const disabled = !on && (!r.billable || r.remainingPercent <= 0 || r.a1Eq == null);
+                    const share = on ? formShare(mine, r.sheetCount) : 0;
+                    const over = on && share > r.remainingPercent + 0.01;
+                    const sheetsUsed = mine.reduce((a, l) => a + sheetsOf(l), 0);
+                    const docCells = (
+                      <>
+                        <td className="px-3 py-1.5 align-top">
                           <input
                             type="checkbox"
-                            name="revisionId"
-                            value={r.revisionId}
-                            checked={!!s}
+                            checked={on}
                             disabled={disabled}
                             onChange={() => toggle(r)}
+                            aria-label={`Medir ${r.documentNumber ?? r.documentName}`}
                           />
                         </td>
-                        <td className="px-3 py-1.5">
+                        <td className="px-3 py-1.5 align-top">
                           <span className="font-mono text-xs">{r.documentNumber ?? "s/ nº"}</span>
                           <span className="block text-xs text-ink-soft">{r.documentName}</span>
                           {!r.billable ? (
@@ -298,62 +401,137 @@ export function MeasurementForm({
                           ) : r.a1Eq == null ? (
                             <span className="text-[11px] text-orange-700">sem formato cadastrado</span>
                           ) : null}
+                          {over ? (
+                            <span className="block text-[11px] text-red-700">
+                              linhas somam {br(round2(share))}% do documento; saldo {br(r.remainingPercent)}%
+                            </span>
+                          ) : mine.length > 1 ? (
+                            <span className="block text-[11px] text-ink-faint">
+                              dividido em {mine.length} · {sheetsUsed} de {r.sheetCount} folhas
+                            </span>
+                          ) : null}
                         </td>
-                        <td className="px-3 py-1.5 font-mono text-xs">
+                        <td className="px-3 py-1.5 align-top font-mono text-xs">
                           {r.revisionName}
                           <span className="block font-sans text-[11px] text-ink-faint">{r.revisionStatusLabel}</span>
                         </td>
-                        <td className="px-3 py-1.5 text-xs">
-                          {s ? (
-                            <input
-                              type="date"
-                              name={`date_${r.revisionId}`}
-                              value={s.date}
-                              onChange={(e) =>
-                                setSelected((p) => ({ ...p, [r.revisionId]: { ...s, date: e.target.value } }))
-                              }
-                              className={small + (s.date ? "" : " border-orange-300")}
-                            />
-                          ) : (
-                            fmtDate(r.issuedAt)
-                          )}
-                        </td>
-                        <td className="px-3 py-1.5 text-xs">
+                      </>
+                    );
+                    const infoCells = (
+                      <>
+                        <td className="px-3 py-1.5 align-top text-xs">
                           {r.sheetFormat ? `${r.sheetCount} × ${r.sheetFormat}` : "—"}
+                          {r.a1Eq != null ? (
+                            <span className="block text-[11px] text-ink-faint">{formatA1(r.a1Eq)} A1 eq</span>
+                          ) : null}
                         </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{r.a1Eq != null ? formatA1(r.a1Eq) : "—"}</td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-xs">
+                        <td className="px-3 py-1.5 text-right align-top tabular-nums text-xs">
                           {r.measuredPercent > 0 ? `${formatA1(r.measuredPercent)}%` : "—"}
                         </td>
-                        <td className="px-3 py-1.5">
-                          {s ? (
-                            <input
-                              name={`pct_${r.revisionId}`}
-                              value={s.percent}
-                              onChange={(e) =>
-                                setSelected((p) => ({ ...p, [r.revisionId]: { ...s, percent: e.target.value } }))
-                              }
-                              inputMode="decimal"
-                              className={small + " text-right"}
-                            />
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-1.5">
-                          {s ? (
-                            <input
-                              name={`price_${r.revisionId}`}
-                              value={s.price}
-                              onChange={(e) =>
-                                setSelected((p) => ({ ...p, [r.revisionId]: { ...s, price: e.target.value } }))
-                              }
-                              inputMode="decimal"
-                              className={small + " text-right"}
-                            />
-                          ) : null}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">{value != null ? formatBRL(value) : ""}</td>
-                      </tr>
+                      </>
                     );
+                    if (!on) {
+                      return (
+                        <tr key={r.revisionId} className={disabled ? "text-ink-faint" : ""}>
+                          {docCells}
+                          <td className="px-3 py-1.5 align-top text-xs">{fmtDate(r.issuedAt)}</td>
+                          {infoCells}
+                          <td colSpan={6} />
+                        </tr>
+                      );
+                    }
+                    return mine.map((l, idx) => {
+                      const value = lineValue(l, r);
+                      const badSheets = !Number.isInteger(sheetsOf(l)) || sheetsOf(l) < 1 || sheetsOf(l) > r.sheetCount;
+                      return (
+                        <tr key={l.key} className={idx > 0 ? "bg-canvas/30" : ""}>
+                          {idx === 0 ? (
+                            docCells
+                          ) : (
+                            <>
+                              <td />
+                              <td className="px-3 py-1.5 text-[11px] text-ink-faint" colSpan={2}>
+                                ↳ mesma revisão, outra parte
+                              </td>
+                            </>
+                          )}
+                          <td className="px-3 py-1.5 align-top text-xs">
+                            <input type="hidden" name="lineRevisionId" value={r.revisionId} />
+                            <input
+                              type="date"
+                              name="lineDate"
+                              value={l.date}
+                              onChange={(e) => patch(l.key, { date: e.target.value })}
+                              className={small + (l.date ? "" : " border-orange-300")}
+                            />
+                          </td>
+                          {idx === 0 ? infoCells : <td colSpan={2} />}
+                          <td className="px-3 py-1.5 align-top">
+                            <input
+                              name="lineSheets"
+                              value={l.sheets}
+                              onChange={(e) => patch(l.key, { sheets: e.target.value.replace(/\D/g, "") })}
+                              inputMode="numeric"
+                              title={`Folhas desta linha (o documento tem ${r.sheetCount})`}
+                              className={small + " text-right" + (badSheets ? " border-red-400" : "")}
+                            />
+                          </td>
+                          <td className="px-3 py-1.5 align-top">
+                            <input
+                              name="linePct"
+                              value={l.percent}
+                              onChange={(e) => patch(l.key, { percent: e.target.value })}
+                              inputMode="decimal"
+                              className={small + " text-right"}
+                            />
+                          </td>
+                          <td className="px-3 py-1.5 align-top">
+                            <input
+                              name="linePrice"
+                              value={l.price}
+                              onChange={(e) => patch(l.key, { price: e.target.value })}
+                              inputMode="decimal"
+                              className={small + " text-right"}
+                            />
+                          </td>
+                          <td className="px-3 py-1.5 align-top">
+                            <input
+                              name="lineAssignee"
+                              value={l.assignee}
+                              onChange={(e) => patch(l.key, { assignee: e.target.value })}
+                              list="measurement-assignees"
+                              placeholder="Quem fez"
+                              className={small}
+                            />
+                          </td>
+                          <td className="px-3 py-1.5 text-right align-top tabular-nums">
+                            {value != null ? formatBRL(value) : ""}
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-1.5 align-top">
+                            {idx === mine.length - 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => split(r)}
+                                title="Dividir as folhas com outro projetista"
+                                className="inline-flex items-center gap-1 text-xs text-accent hover:underline"
+                              >
+                                <Split size={13} /> Dividir
+                              </button>
+                            ) : null}
+                            {mine.length > 1 ? (
+                              <button
+                                type="button"
+                                aria-label="Remover esta parte"
+                                onClick={() => removeLine(l.key)}
+                                className="ml-1 align-middle text-ink-faint hover:text-red-600"
+                              >
+                                <X size={14} />
+                              </button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    });
                   })}
                 </tbody>
               ))}

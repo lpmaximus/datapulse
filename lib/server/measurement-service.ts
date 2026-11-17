@@ -4,6 +4,7 @@ import { toNumber } from "@/lib/format";
 import {
   billableRevisionIds,
   isActiveMeasurement,
+  lineShare,
   measuredPercentByRevision,
   measurementCode,
   measurementTotals,
@@ -52,9 +53,12 @@ export interface MeasurableRevision {
   billable: boolean;
   billableNote: string | null;
   isFirstRevision: boolean;
+  /** Fatia já medida (em % do documento), somando folhas e percentuais. */
   measuredPercent: number;
   remainingPercent: number;
-  /** BMs ativos em que a revisão está (código + % + situação do pagamento). */
+  /** Projetista sugerido para a linha: especialista da revisão ou responsável do documento. */
+  defaultAssignee: string | null;
+  /** BMs ativos em que a revisão está (código + fatia + situação do pagamento). */
   measurements: { id: string; code: string; percent: number; status: MeasurementStatus; paid: boolean }[];
 }
 
@@ -78,6 +82,7 @@ export async function loadMeasurableRevisions(
       name: true,
       sheetFormat: true,
       sheetCount: true,
+      responsible: { select: { name: true } },
       project: {
         select: { id: true, name: true, osNumber: true, serviceNumber: true, seOsg: true, a1Price: true },
       },
@@ -92,6 +97,7 @@ export async function loadMeasurableRevisions(
           billableNote: true,
           productionProgress: true,
           issuedAt: true,
+          specialist: { select: { name: true } },
           transitions: {
             where: { action: "SUBMITTED" },
             orderBy: { createdAt: "asc" },
@@ -101,6 +107,8 @@ export async function loadMeasurableRevisions(
           measurementItems: {
             select: {
               percent: true,
+              sheetCount: true,
+              documentSheetCount: true,
               measurement: {
                 select: {
                   id: true,
@@ -127,9 +135,38 @@ export async function loadMeasurableRevisions(
       const lines = r.measurementItems.map((it) => ({
         revisionId: r.id,
         percent: toNumber(it.percent) ?? 0,
+        sheetCount: it.sheetCount,
+        documentSheetCount: it.documentSheetCount,
         measurementStatus: it.measurement.status as MeasurementStatus,
         measurementId: it.measurement.id,
       }));
+      // Um BM pode ter a revisão em várias linhas (doc dividido entre
+      // projetistas): na lista, uma entrada por BM com a fatia somada.
+      const perBm = new Map<string, MeasurableRevision["measurements"][number]>();
+      for (const it of r.measurementItems) {
+        const m = it.measurement;
+        if (!isActiveMeasurement(m.status as MeasurementStatus)) continue;
+        const share = lineShare(toNumber(it.percent) ?? 0, it.sheetCount, it.documentSheetCount);
+        const prev = perBm.get(m.id);
+        if (prev) {
+          prev.percent = round2(prev.percent + share);
+          continue;
+        }
+        const total = round2(m.items.reduce((a, i) => a + (toNumber(i.amount) ?? 0), 0));
+        const pay = paymentSummary({
+          status: m.status as MeasurementStatus,
+          total,
+          approvedAmount: toNumber(m.approvedAmount),
+          payments: m.payments.map((p) => toNumber(p.amount) ?? 0),
+        });
+        perBm.set(m.id, {
+          id: m.id,
+          code: measurementCode(m.number, m.revision),
+          percent: round2(share),
+          status: m.status as MeasurementStatus,
+          paid: pay.state === "PAID",
+        });
+      }
       const measured = measuredPercentByRevision(lines, opts.excludeMeasurementId).get(r.id) ?? 0;
       const a1Eq = a1Equivalent(d.sheetFormat as SheetFormat | null, d.sheetCount);
       out.push({
@@ -153,27 +190,10 @@ export async function loadMeasurableRevisions(
         billable: billable.has(r.id),
         billableNote: r.billableNote,
         isFirstRevision: r.id === first,
-        measuredPercent: measured,
+        measuredPercent: round2(measured),
         remainingPercent: remainingPercent(measured),
-        measurements: r.measurementItems
-          .filter((it) => isActiveMeasurement(it.measurement.status as MeasurementStatus))
-          .map((it) => {
-            const m = it.measurement;
-            const total = round2(m.items.reduce((a, i) => a + (toNumber(i.amount) ?? 0), 0));
-            const pay = paymentSummary({
-              status: m.status as MeasurementStatus,
-              total,
-              approvedAmount: toNumber(m.approvedAmount),
-              payments: m.payments.map((p) => toNumber(p.amount) ?? 0),
-            });
-            return {
-              id: m.id,
-              code: measurementCode(m.number, m.revision),
-              percent: toNumber(it.percent) ?? 0,
-              status: m.status as MeasurementStatus,
-              paid: pay.state === "PAID",
-            };
-          }),
+        defaultAssignee: r.specialist?.name ?? d.responsible?.name ?? null,
+        measurements: [...perBm.values()],
       });
     }
   }
@@ -296,7 +316,11 @@ export interface MeasurementDetail {
     revisionName: string | null;
     executionDate: Date | null;
     sheetFormat: SheetFormat | null;
+    /** Folhas medidas na linha. */
     sheetCount: number;
+    /** Folhas do documento inteiro (nulo em "outros"). */
+    documentSheetCount: number | null;
+    assigneeName: string | null;
     quantity: number;
     unit: string | null;
     percent: number;
@@ -352,6 +376,8 @@ export async function loadMeasurement(organizationId: string, id: string): Promi
           executionDate: true,
           sheetFormat: true,
           sheetCount: true,
+          documentSheetCount: true,
+          assigneeName: true,
           quantity: true,
           unit: true,
           percent: true,
@@ -380,6 +406,8 @@ export async function loadMeasurement(organizationId: string, id: string): Promi
     executionDate: i.executionDate,
     sheetFormat: i.sheetFormat as SheetFormat | null,
     sheetCount: i.sheetCount,
+    documentSheetCount: i.documentSheetCount,
+    assigneeName: i.assigneeName,
     quantity: toNumber(i.quantity) ?? 0,
     unit: i.unit,
     percent: toNumber(i.percent) ?? 0,
@@ -471,7 +499,30 @@ export function toFormRow(r: MeasurableRevision, statusLabel: (s: string) => str
     billable: r.billable,
     remainingPercent: r.remainingPercent,
     measuredPercent: r.measuredPercent,
+    defaultAssignee: r.defaultAssignee,
   };
+}
+
+/**
+ * Nomes sugeridos no campo "Projetista" do BM: usuários ativos do workspace
+ * e pessoas já indicadas em BMs anteriores (gente de fora do sistema).
+ */
+export async function loadAssigneeSuggestions(organizationId: string): Promise<string[]> {
+  const [users, used] = await Promise.all([
+    prisma.user.findMany({ where: { organizationId, isActive: true }, select: { name: true } }),
+    prisma.measurementItem.findMany({
+      where: { measurement: { organizationId }, assigneeName: { not: null } },
+      distinct: ["assigneeName"],
+      select: { assigneeName: true },
+      take: 300,
+    }),
+  ]);
+  const seen = new Map<string, string>();
+  for (const n of [...users.map((u) => u.name), ...used.map((u) => u.assigneeName ?? "")]) {
+    const v = n.replace(/\s+/g, " ").trim();
+    if (v && !seen.has(v.toLocaleLowerCase("pt-BR"))) seen.set(v.toLocaleLowerCase("pt-BR"), v);
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
 export { isActiveMeasurement };
