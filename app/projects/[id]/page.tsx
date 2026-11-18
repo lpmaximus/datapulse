@@ -232,6 +232,15 @@ export default async function ProjectPage({
           <a href={`/api/reports/project/${project.id}`} target="_blank" rel="noreferrer">
             <Button variant="outline">Relatório PDF</Button>
           </a>
+          {project.status === "CLOSED" ? (
+            <Link href={`/projects/${project.id}/close`}>
+              <Button variant="outline">Termo de encerramento</Button>
+            </Link>
+          ) : manage ? (
+            <Link href={`/projects/${project.id}/close`}>
+              <Button variant="outline">Encerrar projeto</Button>
+            </Link>
+          ) : null}
           {manage && writable ? (
             <>
               <Link href={`/projects/${project.id}/edit`}>

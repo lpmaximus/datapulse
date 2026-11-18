@@ -82,11 +82,15 @@ export interface MeasurableRevision {
  */
 export async function loadMeasurableRevisions(
   organizationId: string,
-  opts: { clientId?: string; excludeMeasurementId?: string } = {},
+  opts: { clientId?: string; projectId?: string; excludeMeasurementId?: string } = {},
 ): Promise<MeasurableRevision[]> {
   const docs = await prisma.document.findMany({
     where: {
-      project: { organizationId, ...(opts.clientId ? { clientId: opts.clientId } : {}) },
+      project: {
+        organizationId,
+        ...(opts.clientId ? { clientId: opts.clientId } : {}),
+        ...(opts.projectId ? { id: opts.projectId } : {}),
+      },
     },
     orderBy: [{ project: { name: "asc" } }, { number: "asc" }, { name: "asc" }],
     select: {

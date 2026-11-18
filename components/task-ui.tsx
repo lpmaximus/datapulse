@@ -148,6 +148,11 @@ export function ReadOnlyBanner({
           Reativar em Projetos
         </Link>
       ) : null}
+      {status === "CLOSED" && projectId ? (
+        <Link href={`/projects/${projectId}/close`} className="ml-auto text-accent hover:underline">
+          {canReactivate ? "Ver termo ou reabrir" : "Ver termo de encerramento"}
+        </Link>
+      ) : null}
     </div>
   );
 }

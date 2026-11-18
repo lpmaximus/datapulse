@@ -7,6 +7,17 @@ import { recalculateProjectDRI } from "@/lib/server/dri-service";
 import { requireRole } from "@/lib/authz";
 import { isProjectWritable } from "@/lib/tasks";
 import { parseDecimalBR, round2 } from "@/lib/measurements";
+import {
+  canCloseProject,
+  canReopenProject,
+  checklistSnapshot,
+  closureChecklist,
+  closureMetrics,
+  validateClosure,
+  validateReopen,
+} from "@/lib/project-closure";
+import { loadClosureInput } from "@/lib/server/project-closure-service";
+import { toNumber } from "@/lib/format";
 
 /** Valor do A1 em pt-BR ("900,00"); vazio ou inválido = não definido. */
 function parseA1Price(fd: FormData): number | null {
@@ -194,11 +205,18 @@ export async function toggleProjectStatus(formData: FormData): Promise<void> {
     where: { id: projectId, organizationId: me.organizationId },
     select: { status: true },
   });
-  if (!project || project.status === "CLOSED") return;
+  if (!project || project.status === "CLOSED" || project.status === next) return;
 
-  await prisma.project.updateMany({
-    where: { id: projectId, organizationId: me.organizationId },
-    data: { status: next },
+  await prisma.$transaction(async (tx) => {
+    // Condição no status de origem: duas abas não gravam a mesma troca duas vezes.
+    const res = await tx.project.updateMany({
+      where: { id: projectId, organizationId: me.organizationId, status: project.status },
+      data: { status: next },
+    });
+    if (res.count === 0) return;
+    await tx.projectStatusChange.create({
+      data: { projectId, fromStatus: project.status, toStatus: next, userId: me.id },
+    });
   });
 
   // Pausar/reativar muda o que é editável e o que aparece no Painel e nas
@@ -293,4 +311,127 @@ export async function removeProjectMember(formData: FormData): Promise<void> {
 
   await prisma.projectMember.deleteMany({ where: { projectId, userId } });
   revalidatePath(`/projects/${projectId}`);
+}
+
+
+/* ---------------------------------------------------------------------- */
+/* Encerramento e reabertura (ver lib/project-closure.ts)                 */
+/* ---------------------------------------------------------------------- */
+
+export interface ClosureFormState {
+  error?: string;
+}
+
+function revalidateProjectViews(projectId: string) {
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/projects/${projectId}/close`);
+  revalidatePath("/my-work");
+  revalidatePath("/documents");
+  revalidatePath("/");
+}
+
+/**
+ * Encerra o projeto com o termo de encerramento. As pendências são
+ * recalculadas aqui (não confia no que a tela mostrou): se houver alguma, a
+ * justificativa é obrigatória, e a lista fica fotografada no termo.
+ */
+export async function closeProject(_prev: ClosureFormState, formData: FormData): Promise<ClosureFormState> {
+  const me = await requireRole(["ADMIN", "MANAGER"]);
+  const projectId = str(formData, "projectId");
+  if (!projectId) return { error: "Projeto não informado." };
+
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, organizationId: me.organizationId },
+    select: { id: true, status: true, startsAt: true, endsAt: true, cost: true },
+  });
+  if (!project) return { error: "Projeto não encontrado." };
+  if (!canCloseProject(project.status)) return { error: "Este projeto já está encerrado." };
+
+  const input = await loadClosureInput(me.organizationId, projectId);
+  const checklist = closureChecklist(input);
+  const parsed = validateClosure(
+    {
+      closureType: str(formData, "closureType"),
+      closedOn: str(formData, "closedOn"),
+      acceptanceRef: str(formData, "acceptanceRef"),
+      summary: str(formData, "summary"),
+      lessonsKeep: str(formData, "lessonsKeep"),
+      lessonsImprove: str(formData, "lessonsImprove"),
+      reason: str(formData, "reason"),
+    },
+    { pendingCount: checklist.pendingCount, startsAt: project.startsAt, today: new Date() },
+  );
+  if ("error" in parsed) return { error: parsed.error };
+  const v = parsed.value;
+
+  const metrics = closureMetrics(input, {
+    startsAt: project.startsAt,
+    endsAt: project.endsAt,
+    closedOn: v.closedOn,
+    cost: toNumber(project.cost),
+  });
+
+  const done = await prisma.$transaction(async (tx) => {
+    const res = await tx.project.updateMany({
+      where: { id: projectId, organizationId: me.organizationId, status: project.status },
+      data: { status: "CLOSED" },
+    });
+    if (res.count === 0) return false;
+    await tx.projectStatusChange.create({
+      data: {
+        projectId,
+        fromStatus: project.status,
+        toStatus: "CLOSED",
+        reason: v.reason,
+        closureType: v.closureType,
+        closedOn: v.closedOn,
+        acceptanceRef: v.acceptanceRef,
+        summary: v.summary,
+        lessonsKeep: v.lessonsKeep,
+        lessonsImprove: v.lessonsImprove,
+        openItems: checklistSnapshot(checklist),
+        metrics: { ...metrics },
+        userId: me.id,
+      },
+    });
+    return true;
+  });
+  if (!done) return { error: "O status do projeto mudou enquanto você preenchia. Recarregue a página." };
+
+  revalidateProjectViews(projectId);
+  redirect(`/projects/${projectId}/close`);
+}
+
+/** Reabre um projeto encerrado (volta a Ativo). Justificativa obrigatória. */
+export async function reopenProject(_prev: ClosureFormState, formData: FormData): Promise<ClosureFormState> {
+  const me = await requireRole(["ADMIN", "MANAGER"]);
+  const projectId = str(formData, "projectId");
+  if (!projectId) return { error: "Projeto não informado." };
+
+  const parsed = validateReopen(str(formData, "reason"));
+  if ("error" in parsed) return { error: parsed.error };
+
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, organizationId: me.organizationId },
+    select: { status: true },
+  });
+  if (!project) return { error: "Projeto não encontrado." };
+  if (!canReopenProject(project.status)) return { error: "Só um projeto encerrado pode ser reaberto." };
+
+  const done = await prisma.$transaction(async (tx) => {
+    const res = await tx.project.updateMany({
+      where: { id: projectId, organizationId: me.organizationId, status: "CLOSED" },
+      data: { status: "ACTIVE" },
+    });
+    if (res.count === 0) return false;
+    await tx.projectStatusChange.create({
+      data: { projectId, fromStatus: "CLOSED", toStatus: "ACTIVE", reason: parsed.value, userId: me.id },
+    });
+    return true;
+  });
+  if (!done) return { error: "O status do projeto mudou. Recarregue a página." };
+
+  revalidateProjectViews(projectId);
+  redirect(`/projects/${projectId}`);
 }

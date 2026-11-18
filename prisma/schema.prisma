@@ -143,6 +143,60 @@ model Project {
   @@index([organizationId])
   files ProjectFile[]
   timeEntries TimeEntry[]
+  statusChanges ProjectStatusChange[]
+}
+
+/// Como o projeto terminou. Concluído = escopo entregue; Interrompido =
+/// encerrado antes do fim (cancelamento do contratante, escopo suspenso).
+enum ProjectClosureType {
+  COMPLETED
+  INTERRUPTED
+}
+
+/**
+ * Log append-only das mudanças de status do projeto (pausar, reativar,
+ * encerrar, reabrir). `Project.status` é a projeção; este log guarda quem
+ * mudou, quando e por quê — mesmo padrão de `DocumentTransition` e
+ * `DeadlineChange`.
+ *
+ * Quando `toStatus = CLOSED`, a linha é o **termo de encerramento** (PMBOK,
+ * Encerrar o Projeto ou Fase): tipo, data efetiva, evidência do aceite,
+ * resumo, lições aprendidas e a fotografia das pendências e dos indicadores
+ * no momento do encerramento. Reabrir não apaga o termo: cria outra linha.
+ */
+model ProjectStatusChange {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  fromStatus ProjectStatus
+  toStatus   ProjectStatus
+  /// Justificativa. Obrigatória para reabrir e para encerrar com pendências
+  /// ou como interrompido.
+  reason String?
+
+  // Termo de encerramento (só quando toStatus = CLOSED)
+  closureType    ProjectClosureType?
+  /// Data efetiva do encerramento (pode ser anterior ao registro).
+  closedOn       DateTime?
+  /// Evidência do aceite do contratante: e-mail, ata, BM aprovado...
+  acceptanceRef  String?
+  summary        String?
+  /// Lições aprendidas: o que funcionou (repetir) e o que melhorar.
+  lessonsKeep    String?
+  lessonsImprove String?
+  /// Fotografia das pendências abertas no encerramento (ClosureChecklist).
+  openItems      Json?
+  /// Fotografia dos indicadores finais (ClosureMetrics).
+  metrics        Json?
+
+  userId String?
+  user   User?   @relation("ProjectStatusChangeBy", fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([userId])
 }
 
 /// Tipo de tarefa. Marco é ponto de verificação sem duração (convenção P6/MS Project).
@@ -673,6 +727,7 @@ model User {
   timeEntries         TimeEntry[]
   disciplines         UserDiscipline[]
   measurementsCreated Measurement[]     @relation("MeasurementCreator")
+  projectStatusChanges ProjectStatusChange[] @relation("ProjectStatusChangeBy")
 
   @@index([role])
   @@index([isActive])

@@ -1,0 +1,10 @@
+feat: quantidade de folhas do documento no A1 equivalente
+
+- Document.sheetCount (inteiro, padrão 1); A1 eq. = peso do formato × folhas.
+- Campo "Formato × folhas" no cadastro, cadastro rápido e edição.
+- Quadro mostra "A4 ×12 · 1,5 A1" e soma considerando a quantidade.
+- Migração 20261107180000_quantidade_folhas_documento.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01JwRA4mypDpdTdnGWEWHuo6
+
