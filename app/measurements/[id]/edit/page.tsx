@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 import { MeasurementForm, type FormatLine } from "@/components/measurement-form";
-import { STATUS_LABEL, type DocumentStatus } from "@/lib/documents";
 import {
   loadAssigneeSuggestions,
   loadMeasurableRevisions,
@@ -31,7 +30,7 @@ export default async function EditMeasurementPage({ params }: { params: Promise<
     clientId: m.client.id,
     excludeMeasurementId: m.id,
   });
-  const rows = revisions.map((r) => toFormRow(r, (s) => STATUS_LABEL[s as DocumentStatus] ?? s));
+  const rows = revisions.map((r) => toFormRow(r));
   // Data do sistema por revisão: preenche a linha quando o BM foi montado
   // antes de a data de envio existir.
   const knownDate = new Map(revisions.map((r) => [r.revisionId, r.issuedAt]));

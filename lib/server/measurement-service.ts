@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import { a1Equivalent, type SheetFormat } from "@/lib/documents";
+import {
+  a1Equivalent,
+  isInProduction,
+  revisionStatusLabel,
+  type DocumentStatus,
+  type SheetFormat,
+} from "@/lib/documents";
 import { toNumber } from "@/lib/format";
 import {
   billableRevisionIds,
@@ -38,6 +44,10 @@ export interface MeasurableRevision {
   documentName: string;
   revisionName: string;
   revisionStatus: string;
+  /** Rótulo de exibição: "Em produção" para rascunho sem pacote (não "Emitida"). */
+  revisionStatusLabel: string;
+  /** Rascunho sem pacote: o documento ainda está sendo elaborado. */
+  inProduction: boolean;
   productionProgress: number;
   /**
    * Data de execução do BM: quando a revisão foi enviada ao contratante.
@@ -50,7 +60,10 @@ export interface MeasurableRevision {
   sheetFormat: SheetFormat | null;
   sheetCount: number;
   a1Eq: number | null;
+  /** Revisão cobrável pela regra (1ª revisão ou escopo acordado). */
   billable: boolean;
+  /** Pode entrar num BM agora: cobrável e já fora de produção (entregue). */
+  measurable: boolean;
   billableNote: string | null;
   isFirstRevision: boolean;
   /** Fatia já medida (em % do documento), somando folhas e percentuais. */
@@ -93,6 +106,7 @@ export async function loadMeasurableRevisions(
           name: true,
           sequence: true,
           status: true,
+          milestoneId: true,
           billable: true,
           billableNote: true,
           productionProgress: true,
@@ -169,6 +183,7 @@ export async function loadMeasurableRevisions(
       }
       const measured = measuredPercentByRevision(lines, opts.excludeMeasurementId).get(r.id) ?? 0;
       const a1Eq = a1Equivalent(d.sheetFormat as SheetFormat | null, d.sheetCount);
+      const inProduction = isInProduction({ status: r.status as DocumentStatus, milestoneId: r.milestoneId });
       out.push({
         revisionId: r.id,
         documentId: d.id,
@@ -182,12 +197,15 @@ export async function loadMeasurableRevisions(
         documentName: d.name,
         revisionName: r.name,
         revisionStatus: r.status,
+        revisionStatusLabel: revisionStatusLabel(r.status as DocumentStatus, inProduction),
+        inProduction,
         productionProgress: r.productionProgress,
         issuedAt: r.issuedAt ?? r.transitions[0]?.createdAt ?? null,
         sheetFormat: d.sheetFormat as SheetFormat | null,
         sheetCount: d.sheetCount,
         a1Eq,
         billable: billable.has(r.id),
+        measurable: billable.has(r.id) && !inProduction,
         billableNote: r.billableNote,
         isFirstRevision: r.id === first,
         measuredPercent: round2(measured),
@@ -202,7 +220,7 @@ export async function loadMeasurableRevisions(
 
 /** Valor ainda a medir de uma revisão (saldo de % × A1 eq × valor do A1). */
 export function valueToMeasure(r: MeasurableRevision): number {
-  if (!r.billable || r.a1Eq == null || r.a1Price == null) return 0;
+  if (!r.measurable || r.a1Eq == null || r.a1Price == null) return 0;
   return round2(r.a1Eq * (r.remainingPercent / 100) * r.a1Price);
 }
 
@@ -481,7 +499,7 @@ export async function loadMeasurableClients(organizationId: string) {
 }
 
 /** Linha da tela de montagem do BM (datas serializadas para o componente cliente). */
-export function toFormRow(r: MeasurableRevision, statusLabel: (s: string) => string) {
+export function toFormRow(r: MeasurableRevision) {
   return {
     revisionId: r.revisionId,
     projectId: r.projectId,
@@ -490,13 +508,14 @@ export function toFormRow(r: MeasurableRevision, statusLabel: (s: string) => str
     documentNumber: r.documentNumber,
     documentName: r.documentName,
     revisionName: r.revisionName,
-    revisionStatusLabel: statusLabel(r.revisionStatus),
+    revisionStatusLabel: r.revisionStatusLabel,
+    inProduction: r.inProduction,
     issuedAt: r.issuedAt ? r.issuedAt.toISOString() : null,
     sheetFormat: r.sheetFormat,
     sheetCount: r.sheetCount,
     a1Eq: r.a1Eq,
     a1Price: r.a1Price,
-    billable: r.billable,
+    billable: r.measurable,
     remainingPercent: r.remainingPercent,
     measuredPercent: r.measuredPercent,
     defaultAssignee: r.defaultAssignee,

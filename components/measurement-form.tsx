@@ -19,6 +19,8 @@ export interface MeasurementFormRow {
   documentName: string;
   revisionName: string;
   revisionStatusLabel: string;
+  /** Rascunho sem pacote: ainda não entregue, não entra no BM. */
+  inProduction: boolean;
   issuedAt: string | null;
   sheetFormat: string | null;
   sheetCount: number;
@@ -396,7 +398,9 @@ export function MeasurementForm({
                         <td className="px-3 py-1.5 align-top">
                           <span className="font-mono text-xs">{r.documentNumber ?? "s/ nº"}</span>
                           <span className="block text-xs text-ink-soft">{r.documentName}</span>
-                          {!r.billable ? (
+                          {r.inProduction && !on ? (
+                            <span className="text-[11px] text-orange-700">em produção — mede depois de emitido</span>
+                          ) : !r.billable ? (
                             <span className="text-[11px] text-orange-700">revisão sem mudança de escopo acordada</span>
                           ) : r.a1Eq == null ? (
                             <span className="text-[11px] text-orange-700">sem formato cadastrado</span>

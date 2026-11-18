@@ -36,7 +36,7 @@ export default async function MeasurementsPage({
   ]);
 
   const toMeasure = revisions.reduce((a, r) => a + valueToMeasure(r), 0);
-  const noPrice = new Set(revisions.filter((r) => r.billable && r.remainingPercent > 0 && r.a1Price == null).map((r) => r.projectName));
+  const noPrice = new Set(revisions.filter((r) => r.measurable && r.remainingPercent > 0 && r.a1Price == null).map((r) => r.projectName));
   const summary = portfolioSummary(
     toMeasure,
     list.map((m) => ({

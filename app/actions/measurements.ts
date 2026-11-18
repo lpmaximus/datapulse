@@ -121,6 +121,11 @@ async function readItems(
     const r = byId.get(revisionId)!;
     const label = `${r.documentNumber ?? r.documentName} ${r.revisionName}`;
     if (!r.billable) return { error: `${label}: revisão sem mudança de escopo acordada não é medível.` };
+    // Documento em produção ainda não foi entregue. Linha que já estava neste
+    // BM (rascunho antigo) continua aceita para não travar a edição.
+    if (r.inProduction && !r.measurements.some((m) => m.id === measurementId)) {
+      return { error: `${label}: documento em produção — só entra no BM depois de emitido.` };
+    }
     if (r.a1Eq == null || !r.sheetFormat) {
       return { error: `${label}: informe o formato e as folhas do documento antes de medir.` };
     }

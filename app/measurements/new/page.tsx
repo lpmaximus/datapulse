@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/authz";
 import { Button, Card, Empty, Field, inputClass } from "@/components/ui";
 import { MeasurementForm } from "@/components/measurement-form";
-import { STATUS_LABEL, type DocumentStatus } from "@/lib/documents";
 import { suggestMeasurementNumber } from "@/lib/measurements";
 import {
   loadAssigneeSuggestions,
@@ -74,7 +73,7 @@ export default async function NewMeasurementPage({
     select: { name: true, legalName: true, taxId: true },
   });
   const revisions = await loadMeasurableRevisions(user.organizationId, { clientId: selected.id });
-  const rows = revisions.map((r) => toFormRow(r, (s) => STATUS_LABEL[s as DocumentStatus] ?? s));
+  const rows = revisions.map((r) => toFormRow(r));
   const assignees = await loadAssigneeSuggestions(user.organizationId);
 
   return (

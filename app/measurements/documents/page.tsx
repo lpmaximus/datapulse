@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/authz";
 import { Button, Empty, Field, inputClass } from "@/components/ui";
 import { ConfirmSubmit } from "@/components/measurement-ui";
-import { STATUS_LABEL, formatA1, type DocumentStatus } from "@/lib/documents";
+import { formatA1 } from "@/lib/documents";
 import { formatBRL, formatPercent } from "@/lib/measurements";
 import {
   loadMeasurableClients,
@@ -14,10 +14,11 @@ import { setRevisionBillable } from "@/app/actions/measurements";
 
 export const dynamic = "force-dynamic";
 
-type Stage = "na" | "open" | "partial" | "measured" | "paid";
+type Stage = "na" | "production" | "open" | "partial" | "measured" | "paid";
 
 const STAGE_LABEL: Record<Stage, string> = {
   na: "Não medível",
+  production: "Em produção",
   open: "A medir",
   partial: "Medido parcial",
   measured: "Medido",
@@ -26,6 +27,7 @@ const STAGE_LABEL: Record<Stage, string> = {
 
 const STAGE_CLASS: Record<Stage, string> = {
   na: "text-ink-faint",
+  production: "text-teal-700",
   open: "text-orange-700",
   partial: "text-yellow-700",
   measured: "text-purple-700",
@@ -34,7 +36,9 @@ const STAGE_CLASS: Record<Stage, string> = {
 
 function stageOf(r: MeasurableRevision): Stage {
   if (!r.billable) return "na";
-  if (r.measuredPercent <= 0) return "open";
+  // Em produção não é "feito": só passa a "A medir" depois de emitido. Se já
+  // entrou num BM (medição antiga), segue mostrando o que foi medido.
+  if (r.measuredPercent <= 0) return r.inProduction ? "production" : "open";
   if (r.remainingPercent > 0) return "partial";
   return r.measurements.length && r.measurements.every((m) => m.paid) ? "paid" : "measured";
 }
@@ -142,7 +146,7 @@ export default async function MeasurementDocumentsPage({
                   <td className="px-3 py-1.5 font-mono text-xs">
                     {r.revisionName}
                     <span className="block font-sans text-[11px] text-ink-faint">
-                      {STATUS_LABEL[r.revisionStatus as DocumentStatus] ?? r.revisionStatus}
+                      {r.revisionStatusLabel}
                     </span>
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{r.a1Eq != null ? formatA1(r.a1Eq) : "—"}</td>
@@ -158,7 +162,7 @@ export default async function MeasurementDocumentsPage({
                     ))}
                   </td>
                   <td className="px-3 py-1.5 text-right tabular-nums text-xs">
-                    {r.billable && r.remainingPercent > 0
+                    {r.measurable && r.remainingPercent > 0
                       ? r.a1Price != null
                         ? formatBRL(valueToMeasure(r))
                         : "sem valor A1"
