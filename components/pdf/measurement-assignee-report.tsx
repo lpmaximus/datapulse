@@ -212,3 +212,96 @@ export function MeasurementAssigneeReportPdf({ m, generatedAt }: { m: Measuremen
     </Document>
   );
 }
+
+/* ------------------- relação de formatos (sem valores) ------------------- */
+
+const SUMMARY_P: Col[] = [
+  { header: "PROJETISTA", w: 28 },
+  { header: "DOCS", w: 7, align: "right" },
+  { header: "FOLHAS POR FORMATO", w: 30 },
+  { header: "FOLHAS", w: 9, align: "right" },
+  { header: "A1 EQ", w: 10, align: "right" },
+];
+
+const DETAIL_P: Col[] = [
+  { header: "NUM DOC", w: 24 },
+  { header: "DESCRIÇÃO", w: 36 },
+  { header: "OS", w: 9 },
+  { header: "FORMATO", w: 11, align: "center" },
+  { header: "FOLHAS", w: 10, align: "right" },
+  { header: "A1 EQ", w: 10, align: "right" },
+];
+
+/**
+ * Relação enviada ao projetista: só os formatos (documentos, formato e
+ * folhas) que cabem a ele neste BM. Sem valor do A1, sem %, sem valores em R$
+ * — ele cobra na medição dele.
+ */
+export function MeasurementAssigneeSheetsPdf({
+  m,
+  person,
+  generatedAt,
+}: {
+  m: MeasurementDetail;
+  person: string;
+  generatedAt: Date;
+}) {
+  const key = normalizeAssignee(person)?.toLocaleLowerCase("pt-BR") ?? "";
+  const mine = m.items.filter(
+    (it) => it.kind === "FORMAT" && (normalizeAssignee(it.assigneeName)?.toLocaleLowerCase("pt-BR") ?? "") === key,
+  );
+  const r = assigneeSummary(mine)[0];
+  const name = r?.name ?? person;
+  const statusNote = m.status === "DRAFT" ? " · RASCUNHO" : m.status === "CANCELLED" ? " · CANCELADO" : m.status === "SUPERSEDED" ? " · SUBSTITUÍDO" : "";
+
+  return (
+    <Document title={`${m.code} — formatos de ${name}`} author={m.issuer.name} creator="DataPulse" producer="DataPulse">
+      <Page size="A4" style={st.page}>
+        <Text style={st.issuer}>{m.issuer.name.toUpperCase()}</Text>
+        <View style={st.titleRow}>
+          <Text style={st.title}>RELAÇÃO DE FORMATOS{statusNote}</Text>
+          <Text style={st.code}>{m.code}</Text>
+        </View>
+        <Text style={st.meta}>
+          Projetista: {name} · Cliente: {m.client.name} · {m.periodLabel} · Emissão do BM: {fmtDate(m.issuedAt)}
+        </Text>
+
+        <Text style={st.section}>RESUMO</Text>
+        <Header cols={SUMMARY_P} />
+        {r ? (
+          <Row
+            cols={SUMMARY_P}
+            values={[name, String(r.lines), formatSheetsByFormat(r.sheetsByFormat), String(r.sheets), A1(r.a1Measured)]}
+          />
+        ) : null}
+
+        <Text style={st.section}>DOCUMENTOS</Text>
+        <Header cols={DETAIL_P} />
+        {mine.map((it) => (
+          <Row
+            key={it.id}
+            cols={DETAIL_P}
+            values={[
+              `${it.documentNumber ?? "s/ nº"}${it.revisionName ? `-${it.revisionName}` : ""}`,
+              it.description,
+              it.osNumber ?? "",
+              it.sheetFormat ?? "",
+              it.documentSheetCount && it.documentSheetCount !== it.sheetCount
+                ? `${it.sheetCount} de ${it.documentSheetCount}`
+                : String(it.sheetCount),
+              A1(it.quantity * (it.percent / 100)),
+            ]}
+          />
+        ))}
+        {mine.length === 0 ? <Text style={st.meta}>Nenhum formato indicado para este projetista neste BM.</Text> : null}
+
+        <View style={st.footer} fixed>
+          <Text>
+            {m.code} · Relação de formatos de {name} · Gerado em {fmtDate(generatedAt)}
+          </Text>
+          <Text render={({ pageNumber, totalPages }) => `Página ${pageNumber} de ${totalPages}`} />
+        </View>
+      </Page>
+    </Document>
+  );
+}

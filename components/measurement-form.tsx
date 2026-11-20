@@ -188,7 +188,10 @@ export function MeasurementForm({
   }
 
   /**
-   * Divide o documento: se ainda há saldo, a linha nova leva o que sobra;
+   * Divide o documento. A parte nova é do outro projetista, que cobra na
+   * medição dele: nasce com valor do A1 zerado (o valor do A1 do projetista
+   * é digitado só se o Luiz for medi-lo neste BM).
+   * Se ainda há saldo, a linha nova leva o que sobra;
    * senão tira metade das folhas da última linha (doc de 1 folha: metade do %).
    */
   function split(r: MeasurementFormRow) {
@@ -202,17 +205,17 @@ export function MeasurementForm({
       const donor = mine.find((l) => sheetsOf(l) > 1);
       if (rest > 0.01) {
         const s = suggestLine(r.sheetCount, rest);
-        added = lineFor(r, s.sheets, s.percent, "");
+        added = { ...lineFor(r, s.sheets, s.percent, ""), price: "0" };
       } else if (donor) {
         // A linha nova nasce com 1 folha; o principal (1ª linha com mais de
         // 1 folha) fica com o restante (total − 1 na primeira divisão).
         updates.set(donor.key, { ...donor, sheets: String(sheetsOf(donor) - 1) });
-        added = { ...lineFor(r, 1, parseDecimalBR(donor.percent) ?? 100, ""), price: donor.price, date: donor.date };
+        added = { ...lineFor(r, 1, parseDecimalBR(donor.percent) ?? 100, ""), price: "0", date: donor.date };
       } else {
         const pct = parseDecimalBR(last.percent) ?? 100;
         const a = round2(pct / 2);
         updates.set(last.key, { ...last, percent: br(round2(pct - a)) });
-        added = { ...lineFor(r, sheetsOf(last) || 1, a, ""), price: last.price, date: last.date };
+        added = { ...lineFor(r, sheetsOf(last) || 1, a, ""), price: "0", date: last.date };
       }
       const out: FormatLine[] = [];
       for (const l of prev) {

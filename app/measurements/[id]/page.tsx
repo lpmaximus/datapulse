@@ -262,6 +262,7 @@ export default async function MeasurementPage({
                   <th className="px-3 py-2">Folhas por formato</th>
                   <th className="px-3 py-2 text-right">A1 eq medido</th>
                   <th className="px-3 py-2 text-right">Valor</th>
+                  <th className="px-3 py-2 text-right">Relatório</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -272,6 +273,19 @@ export default async function MeasurementPage({
                     <td className="px-3 py-1.5 text-xs">{formatSheetsByFormat(a.sheetsByFormat)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{formatA1(a.a1Measured)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{formatBRL(a.amount)}</td>
+                    <td className="px-3 py-1.5 text-right text-xs">
+                      {a.name ? (
+                        <a
+                          href={`/api/reports/measurement/${m.id}/assignees?person=${encodeURIComponent(a.name)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Formatos deste projetista, sem valores, para enviar a ele"
+                          className="text-accent hover:underline"
+                        >
+                          Formatos (PDF)
+                        </a>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
