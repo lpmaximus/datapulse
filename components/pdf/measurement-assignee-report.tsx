@@ -68,7 +68,7 @@ const st = StyleSheet.create({
   },
 });
 
-type Col = { header: string; w: number; align?: "left" | "right" | "center" };
+type Col = { header: string; w: number; align?: "left" | "right" | "center"; size?: number; padRight?: number };
 
 const SUMMARY: Col[] = [
   { header: "PROJETISTA", w: 30 },
@@ -80,11 +80,11 @@ const SUMMARY: Col[] = [
 ];
 
 const DETAIL: Col[] = [
-  { header: "NUM DOC", w: 22 },
-  { header: "DESCRIÇÃO", w: 27 },
+  { header: "NUM DOC", w: 30, size: 6.5, padRight: 8 },
+  { header: "DESCRIÇÃO", w: 28, size: 6.5, padRight: 6 },
   { header: "OS", w: 8 },
-  { header: "FORMATO", w: 10, align: "center" },
-  { header: "FOLHAS", w: 9, align: "right" },
+  { header: "FORMATO", w: 9, align: "center" },
+  { header: "FOLHAS", w: 8, align: "right" },
   { header: "%", w: 6, align: "right" },
   { header: "A1 EQ", w: 8, align: "right" },
   { header: "VALOR", w: 11, align: "right" },
@@ -93,6 +93,12 @@ const DETAIL: Col[] = [
 function cell(cols: Col[], i: number) {
   const c = cols[i];
   return { flexGrow: c.w, flexBasis: 0, textAlign: c.align ?? ("left" as const) };
+}
+
+/** Fonte e respiro próprios da coluna (número e descrição ficam menores, com folga entre si). */
+function body(cols: Col[], i: number) {
+  const c = cols[i];
+  return { ...(c.size ? { fontSize: c.size } : {}), ...(c.padRight ? { paddingRight: c.padRight } : {}) };
 }
 
 function Header({ cols }: { cols: Col[] }) {
@@ -111,7 +117,7 @@ function Row({ cols, values, bold }: { cols: Col[]; values: string[]; bold?: boo
   return (
     <View style={bold ? st.totalRow : st.tr} wrap={false}>
       {values.map((v, i) => (
-        <Text key={i} style={[st.td, cell(cols, i), bold ? { fontFamily: "Helvetica-Bold" } : {}]}>
+        <Text key={i} style={[st.td, cell(cols, i), body(cols, i), bold ? { fontFamily: "Helvetica-Bold" } : {}]}>
           {v}
         </Text>
       ))}
@@ -224,8 +230,8 @@ const SUMMARY_P: Col[] = [
 ];
 
 const DETAIL_P: Col[] = [
-  { header: "NUM DOC", w: 24 },
-  { header: "DESCRIÇÃO", w: 36 },
+  { header: "NUM DOC", w: 32, size: 6.5, padRight: 8 },
+  { header: "DESCRIÇÃO", w: 38, size: 6.5, padRight: 6 },
   { header: "OS", w: 9 },
   { header: "FORMATO", w: 11, align: "center" },
   { header: "FOLHAS", w: 10, align: "right" },

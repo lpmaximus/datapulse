@@ -6,6 +6,7 @@ import {
   formatSheetsByFormat,
   lineShare,
   mergeLinesForClient,
+  dividedWithOthers,
   parseSheets,
   suggestLine,
   itemAmount,
@@ -184,4 +185,34 @@ test("BM do contratante junta as partes do mesmo documento", () => {
   assert.equal(merged[0].sheetCount, 3);
   assert.equal(merged[0].amount, 2700);
   assert.equal(merged[1].percent, 50);
+});
+
+test("BM do contratante não leva a parte do outro projetista (A1 zerado)", () => {
+  const d = new Date("2026-11-10T00:00:00Z");
+  const base = { kind: "FORMAT", revisionId: "a", percent: 100, executionDate: d };
+  const out = mergeLinesForClient([
+    { ...base, id: "1", unitPrice: 900, sheetCount: 4, quantity: 1, amount: 900 },
+    { ...base, id: "2", unitPrice: 0, sheetCount: 1, quantity: 0.25, amount: 0 },
+    // documento só com linha zerada continua aparecendo (nada a ocultar)
+    { ...base, id: "3", revisionId: "b", unitPrice: 0, sheetCount: 1, quantity: 0.25, amount: 0 },
+  ]);
+  assert.deepEqual(out.map((x) => x.id), ["1", "3"]);
+  assert.equal(out[0].sheetCount, 4);
+});
+
+test("Comentários do BM listam, por pessoa, os documentos divididos", () => {
+  const base = { kind: "FORMAT", sheetFormat: "A3", documentSheetCount: 5 };
+  const r = dividedWithOthers([
+    { ...base, revisionId: "a", unitPrice: 900, assigneeName: "Luiz Cruz", documentNumber: "DD003", revisionName: "R00", sheetCount: 4 },
+    { ...base, revisionId: "a", unitPrice: 0, assigneeName: "Eliabe", documentNumber: "DD003", revisionName: "R00", sheetCount: 1 },
+    { ...base, revisionId: "b", unitPrice: 900, assigneeName: "Luiz Cruz", documentNumber: "DD004", revisionName: "R00", sheetCount: 3 },
+    { ...base, revisionId: "b", unitPrice: 0, assigneeName: " eliabe ", documentNumber: "DD004", revisionName: "R00", sheetCount: 1 },
+    // sem linha cobrada: não é divisão a comentar
+    { ...base, revisionId: "c", unitPrice: 0, assigneeName: "Eliabe", documentNumber: "DD005", revisionName: "R00", sheetCount: 1 },
+  ]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].name, "Eliabe");
+  assert.equal(r[0].docs.length, 2);
+  assert.equal(r[0].sheets, 2);
+  assert.equal(r[0].docs[0].label, "DD003-R00");
 });

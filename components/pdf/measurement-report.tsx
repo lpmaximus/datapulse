@@ -3,7 +3,12 @@ import React from "react";
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { COLORS, fmtDate } from "@/components/pdf/pdf-kit";
 import type { MeasurementDetail } from "@/lib/server/measurement-service";
-import { MEASUREMENT_STATUS_LABEL, mergeLinesForClient } from "@/lib/measurements";
+import {
+  MEASUREMENT_STATUS_LABEL,
+  dividedWithOthers,
+  measurementTotals,
+  mergeLinesForClient,
+} from "@/lib/measurements";
 
 /**
  * Boletim de Medição no layout que a projetista já usava em planilha
@@ -77,6 +82,11 @@ const st = StyleSheet.create({
   },
   totalText: { fontSize: 11, fontFamily: "Helvetica-Bold" },
   notes: { marginTop: 8, fontSize: 8, color: COLORS.soft },
+  comments: { marginTop: 12, borderWidth: 0.75, borderColor: COLORS.line, padding: 6 },
+  commentsTitle: { fontSize: 8, fontFamily: "Helvetica-Bold", letterSpacing: 0.3, marginBottom: 3 },
+  commentsPerson: { fontSize: 7.5, fontFamily: "Helvetica-Bold", marginTop: 4 },
+  commentsRow: { flexDirection: "row", paddingVertical: 1.5, borderBottomWidth: 0.5, borderBottomColor: COLORS.line },
+  commentsText: { fontSize: 7 },
   footer: {
     position: "absolute",
     left: 28,
@@ -119,7 +129,11 @@ function Kv({ k, v }: { k: string; v: string }) {
 
 export function MeasurementReportPdf({ m, generatedAt }: { m: MeasurementDetail; generatedAt: Date }) {
   const groups: { key: string; title: string; items: MeasurementDetail["items"] }[] = [];
-  for (const it of mergeLinesForClient(m.items)) {
+  // Só as linhas do principal: partes de outros projetistas não saem no BM.
+  const clientItems = mergeLinesForClient(m.items);
+  const ct = measurementTotals(clientItems);
+  const divided = dividedWithOthers(m.items);
+  for (const it of clientItems) {
     const key = it.kind === "OTHER" ? "__other" : it.projectId ?? "__none";
     let g = groups.find((x) => x.key === key);
     if (!g) {
@@ -164,8 +178,8 @@ export function MeasurementReportPdf({ m, generatedAt }: { m: MeasurementDetail;
           <View style={st.box}>
             <Text style={st.boxTitle}>RESUMO MEDIÇÃO</Text>
             <Kv k="Valor medição anterior" v={m.previousTotal ? BRL(m.previousTotal) : "-"} />
-            <Kv k="Valor A1 equivalente" v={m.totals.uniformA1Price != null ? BRL(m.totals.uniformA1Price) : "conforme item"} />
-            <Kv k="Quant. A1 equiv." v={A1(m.totals.a1Measured)} />
+            <Kv k="Valor A1 equivalente" v={ct.uniformA1Price != null ? BRL(ct.uniformA1Price) : "conforme item"} />
+            <Kv k="Quant. A1 equiv." v={A1(ct.a1Measured)} />
             <Kv k="Total formatos" v={BRL(m.totals.formats)} />
             <Kv k="Total outros" v={m.totals.others ? BRL(m.totals.others) : "-"} />
             <Kv k="Total medição período" v={BRL(m.totals.total)} />
@@ -227,6 +241,33 @@ export function MeasurementReportPdf({ m, generatedAt }: { m: MeasurementDetail;
           <Text style={st.totalText}>TOTAL GERAL</Text>
           <Text style={st.totalText}>{BRL(m.totals.total)}</Text>
         </View>
+        {divided.length > 0 ? (
+          <View style={st.comments} minPresenceAhead={60}>
+            <Text style={st.commentsTitle}>COMENTÁRIOS</Text>
+            <Text style={st.commentsText}>
+              Documentos divididos com outro projetista (a parte dele é medida por ele e não consta neste BM):
+            </Text>
+            {divided.map((p) => (
+              <View key={p.name ?? "__none"}>
+                <Text style={st.commentsPerson} minPresenceAhead={30}>
+                  {p.name ?? "Outro projetista"} — {p.docs.length} {p.docs.length === 1 ? "documento" : "documentos"},{" "}
+                  {p.sheets} {p.sheets === 1 ? "folha" : "folhas"}
+                </Text>
+                {p.docs.map((d) => (
+                  <View key={d.label} style={st.commentsRow} wrap={false}>
+                    <Text style={[st.commentsText, { flexGrow: 5, flexBasis: 0 }]}>{d.label}</Text>
+                    <Text style={[st.commentsText, { flexGrow: 2, flexBasis: 0, textAlign: "right" }]}>
+                      {d.documentSheets && d.documentSheets !== d.sheets
+                        ? `${d.sheets} de ${d.documentSheets} folhas`
+                        : `${d.sheets} ${d.sheets === 1 ? "folha" : "folhas"}`}
+                      {d.sheetFormat ? ` · ${d.sheetFormat}` : ""}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        ) : null}
         {m.notes ? <Text style={st.notes}>Nota: {m.notes}</Text> : null}
 
         <View style={st.footer} fixed>

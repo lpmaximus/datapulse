@@ -335,14 +335,21 @@ export interface ClientLineInput {
 
 /**
  * O BM que vai ao contratante não mostra a divisão interna entre
- * projetistas: linhas da mesma revisão com o mesmo %, valor do A1 e data
- * voltam a ser uma linha só (folhas, A1 eq e valor somados). Linhas que
- * diferem nesses pontos continuam separadas — são medições distintas.
+ * projetistas. Partes de outro projetista (valor do A1 zerado num documento
+ * dividido — ele cobra na medição dele) não entram: só as linhas do
+ * principal. Linhas da mesma revisão com o mesmo %, valor do A1 e data voltam
+ * a ser uma linha só (folhas, A1 eq e valor somados); as que diferem nesses
+ * pontos continuam separadas — são medições distintas.
  */
 export function mergeLinesForClient<T extends ClientLineInput>(items: T[]): T[] {
+  const paidRevisions = new Set(
+    items.filter((it) => it.kind === "FORMAT" && it.revisionId && it.unitPrice > 0).map((it) => it.revisionId),
+  );
   const out: T[] = [];
   const index = new Map<string, number>();
   for (const it of items) {
+    // parte de outro projetista: valor do A1 zerado e a revisão tem linha cobrada
+    if (it.kind === "FORMAT" && it.revisionId && it.unitPrice === 0 && paidRevisions.has(it.revisionId)) continue;
     if (it.kind !== "FORMAT" || !it.revisionId) {
       out.push(it);
       continue;
@@ -363,6 +370,72 @@ export function mergeLinesForClient<T extends ClientLineInput>(items: T[]): T[] 
     };
   }
   return out;
+}
+
+export interface DividedInput {
+  kind: MeasurementItemKind;
+  revisionId: string | null;
+  unitPrice: number;
+  assigneeName: string | null;
+  documentNumber: string | null;
+  revisionName: string | null;
+  sheetFormat: string | null;
+  sheetCount: number;
+  documentSheetCount: number | null;
+}
+
+export interface DividedDoc {
+  /** "NUM-REV", como na tabela do BM. */
+  label: string;
+  sheetFormat: string | null;
+  /** Folhas que ficaram com o outro projetista. */
+  sheets: number;
+  /** Folhas do documento (para "1 de 5"). */
+  documentSheets: number | null;
+}
+
+export interface DividedWithOthers {
+  /** Nome do outro projetista; null = sem indicação. */
+  name: string | null;
+  docs: DividedDoc[];
+  sheets: number;
+}
+
+/**
+ * Documentos divididos com outro projetista (partes de valor do A1 zerado
+ * num documento que tem linha cobrada), por pessoa — para o campo
+ * "Comentários" do BM do contratante. Mesma regra de mergeLinesForClient.
+ */
+export function dividedWithOthers(items: DividedInput[]): DividedWithOthers[] {
+  const paid = new Set(
+    items.filter((it) => it.kind === "FORMAT" && it.revisionId && it.unitPrice > 0).map((it) => it.revisionId),
+  );
+  const people = new Map<string, { name: string | null; docs: Map<string, DividedDoc> }>();
+  for (const it of items) {
+    if (it.kind !== "FORMAT" || !it.revisionId || it.unitPrice !== 0 || !paid.has(it.revisionId)) continue;
+    const name = normalizeAssignee(it.assigneeName);
+    const pk = name ? name.toLocaleLowerCase("pt-BR") : "";
+    let person = people.get(pk);
+    if (!person) {
+      person = { name, docs: new Map() };
+      people.set(pk, person);
+    }
+    const doc = person.docs.get(it.revisionId);
+    if (doc) doc.sheets += it.sheetCount;
+    else
+      person.docs.set(it.revisionId, {
+        label: `${it.documentNumber ?? "s/ nº"}${it.revisionName ? `-${it.revisionName}` : ""}`,
+        sheetFormat: it.sheetFormat,
+        sheets: it.sheetCount,
+        documentSheets: it.documentSheetCount,
+      });
+  }
+  return [...people.values()]
+    .map((p) => {
+      const docs = [...p.docs.values()];
+      return { name: p.name, docs, sheets: docs.reduce((a, d) => a + d.sheets, 0) };
+    })
+    .sort((a, b) => (a.name === null ? 1 : b.name === null ? -1 : a.name.localeCompare(b.name, "pt-BR")));
 }
 
 /* ---------------------------- pagamento ---------------------------- */
