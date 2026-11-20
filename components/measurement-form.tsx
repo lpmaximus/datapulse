@@ -135,6 +135,26 @@ export function MeasurementForm({
 
   const [lines, setLines] = useState<FormatLine[]>(initialLines);
   const [others, setOthers] = useState<OtherDraft[]>(initialOthers);
+  /**
+   * Projetista das partes divididas, por seção (OS) do BM: o nome indicado na
+   * 1ª divisão se repete nas divisões seguintes da mesma seção. Num BM já
+   * salvo, parte do último nome usado numa parte (não principal) de cada OS.
+   */
+  const [sectionAssignee, setSectionAssignee] = useState<Record<string, string>>(() => {
+    const projectOf = new Map(rows.map((r) => [r.revisionId, r.projectId]));
+    const seen = new Set<string>();
+    const out: Record<string, string> = {};
+    for (const l of initialLines) {
+      const project = projectOf.get(l.revisionId);
+      if (!project) continue;
+      if (!seen.has(l.revisionId)) {
+        seen.add(l.revisionId); // a 1ª linha da revisão é a principal
+        continue;
+      }
+      if (l.assignee.trim()) out[project] = l.assignee;
+    }
+    return out;
+  });
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [query, setQuery] = useState("");
 
@@ -195,6 +215,7 @@ export function MeasurementForm({
    * senão tira metade das folhas da última linha (doc de 1 folha: metade do %).
    */
   function split(r: MeasurementFormRow) {
+    const partner = sectionAssignee[r.projectId] ?? "";
     setLines((prev) => {
       const mine = prev.filter((l) => l.revisionId === r.revisionId);
       const last = mine[mine.length - 1];
@@ -205,17 +226,17 @@ export function MeasurementForm({
       const donor = mine.find((l) => sheetsOf(l) > 1);
       if (rest > 0.01) {
         const s = suggestLine(r.sheetCount, rest);
-        added = { ...lineFor(r, s.sheets, s.percent, ""), price: "0" };
+        added = { ...lineFor(r, s.sheets, s.percent, partner), price: "0" };
       } else if (donor) {
         // A linha nova nasce com 1 folha; o principal (1ª linha com mais de
         // 1 folha) fica com o restante (total − 1 na primeira divisão).
         updates.set(donor.key, { ...donor, sheets: String(sheetsOf(donor) - 1) });
-        added = { ...lineFor(r, 1, parseDecimalBR(donor.percent) ?? 100, ""), price: "0", date: donor.date };
+        added = { ...lineFor(r, 1, parseDecimalBR(donor.percent) ?? 100, partner), price: "0", date: donor.date };
       } else {
         const pct = parseDecimalBR(last.percent) ?? 100;
         const a = round2(pct / 2);
         updates.set(last.key, { ...last, percent: br(round2(pct - a)) });
-        added = { ...lineFor(r, sheetsOf(last) || 1, a, ""), price: "0", date: last.date };
+        added = { ...lineFor(r, sheetsOf(last) || 1, a, partner), price: "0", date: last.date };
       }
       const out: FormatLine[] = [];
       for (const l of prev) {
@@ -537,7 +558,12 @@ export function MeasurementForm({
                             <input
                               name="lineAssignee"
                               value={l.assignee}
-                              onChange={(e) => patch(l.key, { assignee: e.target.value })}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                patch(l.key, { assignee: v });
+                                // nome dado a uma parte dividida vira o padrão das próximas divisões da OS
+                                if (idx > 0) setSectionAssignee((p) => ({ ...p, [r.projectId]: v }));
+                              }}
                               list="measurement-assignees"
                               onFocus={(e) => e.currentTarget.select()}
                               placeholder="Quem fez"
