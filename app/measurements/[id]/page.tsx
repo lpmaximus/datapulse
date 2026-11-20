@@ -115,6 +115,18 @@ export default async function MeasurementPage({
           <a href={`/api/reports/measurement/${m.id}/assignees`} target="_blank" rel="noopener noreferrer">
             <Button variant="outline">Relatório por projetista</Button>
           </a>
+          {/* Um arquivo por projetista (só formatos, sem valores), pronto para enviar a ele. */}
+          {byAssignee
+            .filter((a) => a.name)
+            .map((a) => (
+              <a
+                key={a.name}
+                href={`/api/reports/measurement/${m.id}/assignees?person=${encodeURIComponent(a.name!)}&download=1`}
+                title={`Baixar a relação de formatos de ${a.name}, sem valores`}
+              >
+                <Button variant="outline">Formatos · {a.name}</Button>
+              </a>
+            ))}
           {m.status === "DRAFT" ? (
             <>
               <Link href={`/measurements/${m.id}/edit`}>
