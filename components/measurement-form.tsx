@@ -197,28 +197,60 @@ export function MeasurementForm({
       const last = mine[mine.length - 1];
       if (!last) return prev;
       const rest = r.remainingPercent - formShare(mine, r.sheetCount);
-      let updated = last;
+      const updates = new Map<string, FormatLine>();
       let added: FormatLine;
+      const donor = mine.find((l) => sheetsOf(l) > 1);
       if (rest > 0.01) {
         const s = suggestLine(r.sheetCount, rest);
         added = lineFor(r, s.sheets, s.percent, "");
-      } else if (sheetsOf(last) > 1) {
-        const n = sheetsOf(last);
-        const half = Math.floor(n / 2);
-        updated = { ...last, sheets: String(n - half) };
-        added = { ...lineFor(r, half, parseDecimalBR(last.percent) ?? 100, ""), price: last.price, date: last.date };
+      } else if (donor) {
+        // A linha nova nasce com 1 folha; o principal (1ª linha com mais de
+        // 1 folha) fica com o restante (total − 1 na primeira divisão).
+        updates.set(donor.key, { ...donor, sheets: String(sheetsOf(donor) - 1) });
+        added = { ...lineFor(r, 1, parseDecimalBR(donor.percent) ?? 100, ""), price: donor.price, date: donor.date };
       } else {
         const pct = parseDecimalBR(last.percent) ?? 100;
         const a = round2(pct / 2);
-        updated = { ...last, percent: br(round2(pct - a)) };
+        updates.set(last.key, { ...last, percent: br(round2(pct - a)) });
         added = { ...lineFor(r, sheetsOf(last) || 1, a, ""), price: last.price, date: last.date };
       }
       const out: FormatLine[] = [];
       for (const l of prev) {
-        out.push(l.key === last.key ? updated : l);
+        out.push(updates.get(l.key) ?? l);
         if (l.key === last.key) out.push(added);
       }
       return out;
+    });
+  }
+
+  /**
+   * Folhas de uma linha. Quando o documento está todo repartido em folhas
+   * (soma das linhas = folhas do documento), mexer numa parte devolve ou tira
+   * a diferença do principal (1ª linha), sem passar do total do documento e
+   * deixando pelo menos 1 folha em cada linha.
+   */
+  function setSheets(l: FormatLine, raw: string) {
+    const digits = raw.replace(/\D/g, "");
+    const r = rowById.get(l.revisionId);
+    setLines((prev) => {
+      const mine = prev.filter((x) => x.revisionId === l.revisionId);
+      const principal = mine[0];
+      const total = r?.sheetCount ?? 0;
+      const fullySplit = mine.length > 1 && total > 0 && mine.reduce((a, x) => a + sheetsOf(x), 0) === total;
+      if (!r || !principal || principal.key === l.key || !fullySplit) {
+        return prev.map((x) => (x.key === l.key ? { ...x, sheets: digits } : x));
+      }
+      const others = mine.filter((x) => x.key !== l.key && x.key !== principal.key);
+      const othersSum = others.reduce((a, x) => a + sheetsOf(x), 0);
+      const max = total - othersSum - 1; // o principal mantém ao menos 1 folha
+      if (max < 1) return prev;
+      const v = digits === "" ? 0 : Math.min(Number(digits), max);
+      const shown = digits === "" ? "" : String(v);
+      return prev.map((x) => {
+        if (x.key === l.key) return { ...x, sheets: shown };
+        if (x.key === principal.key) return { ...x, sheets: String(total - othersSum - v) };
+        return x;
+      });
     });
   }
 
@@ -474,7 +506,7 @@ export function MeasurementForm({
                             <input
                               name="lineSheets"
                               value={l.sheets}
-                              onChange={(e) => patch(l.key, { sheets: e.target.value.replace(/\D/g, "") })}
+                              onChange={(e) => setSheets(l, e.target.value)}
                               inputMode="numeric"
                               title={`Folhas desta linha (o documento tem ${r.sheetCount})`}
                               className={small + " text-right" + (badSheets ? " border-red-400" : "")}
