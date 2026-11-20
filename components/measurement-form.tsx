@@ -436,7 +436,7 @@ export function MeasurementForm({
                     );
                     if (!on) {
                       return (
-                        <tr key={r.revisionId} className={disabled ? "text-ink-faint" : ""}>
+                        <tr key={r.revisionId} className={"border-t border-line" + (disabled ? " text-ink-faint" : "")}>
                           {docCells}
                           <td className="px-3 py-1.5 align-top text-xs">{fmtDate(r.issuedAt)}</td>
                           {infoCells}
@@ -448,7 +448,7 @@ export function MeasurementForm({
                       const value = lineValue(l, r);
                       const badSheets = !Number.isInteger(sheetsOf(l)) || sheetsOf(l) < 1 || sheetsOf(l) > r.sheetCount;
                       return (
-                        <tr key={l.key} className={idx > 0 ? "bg-canvas/30" : ""}>
+                        <tr key={l.key} className={idx > 0 ? "bg-canvas/30" : "border-t border-line"}>
                           {idx === 0 ? (
                             docCells
                           ) : (
@@ -504,6 +504,7 @@ export function MeasurementForm({
                               value={l.assignee}
                               onChange={(e) => patch(l.key, { assignee: e.target.value })}
                               list="measurement-assignees"
+                              onFocus={(e) => e.currentTarget.select()}
                               placeholder="Quem fez"
                               className={small}
                             />

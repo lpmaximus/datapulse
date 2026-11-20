@@ -69,7 +69,7 @@ export interface MeasurableRevision {
   /** Fatia já medida (em % do documento), somando folhas e percentuais. */
   measuredPercent: number;
   remainingPercent: number;
-  /** Projetista sugerido para a linha: especialista da revisão ou responsável do documento. */
+  /** Projetista sugerido para a linha: quem fez o documento (responsável; senão, quem enviou a revisão ao pacote). Nunca o especialista de análise. */
   defaultAssignee: string | null;
   /** BMs ativos em que a revisão está (código + fatia + situação do pagamento). */
   measurements: { id: string; code: string; percent: number; status: MeasurementStatus; paid: boolean }[];
@@ -115,12 +115,11 @@ export async function loadMeasurableRevisions(
           billableNote: true,
           productionProgress: true,
           issuedAt: true,
-          specialist: { select: { name: true } },
           transitions: {
             where: { action: "SUBMITTED" },
             orderBy: { createdAt: "asc" },
             take: 1,
-            select: { createdAt: true },
+            select: { createdAt: true, actorName: true },
           },
           measurementItems: {
             select: {
@@ -214,7 +213,7 @@ export async function loadMeasurableRevisions(
         isFirstRevision: r.id === first,
         measuredPercent: round2(measured),
         remainingPercent: remainingPercent(measured),
-        defaultAssignee: r.specialist?.name ?? d.responsible?.name ?? null,
+        defaultAssignee: d.responsible?.name ?? r.transitions[0]?.actorName ?? null,
         measurements: [...perBm.values()],
       });
     }
