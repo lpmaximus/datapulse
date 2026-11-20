@@ -142,7 +142,10 @@ async function readItems(
     }
     used.set(revisionId, share);
     const price = parseDecimalBR(priceIn[i]) ?? r.a1Price;
-    if (price == null || price <= 0) {
+    // Valor do A1 zero só vale na parte de um documento dividido: o outro
+    // projetista cobra a parte dele na medição dele.
+    const isSplit = lines.filter((l) => l.revisionId === revisionId).length > 1;
+    if (price == null || price < 0 || (price === 0 && !isSplit)) {
       return { error: `${label}: defina o valor do A1 no projeto ${r.projectName} (ou na linha).` };
     }
     const qty = a1Equivalent(r.sheetFormat, sheets.value) ?? 0;
